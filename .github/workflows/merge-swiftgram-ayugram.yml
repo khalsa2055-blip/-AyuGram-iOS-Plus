@@ -15,8 +15,8 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 180
     env:
-      API_ID: ${{ secrets.TELEGRAM_API_ID }}
-      API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+      API_ID: ${{ secrets.API_ID }}
+      API_HASH: ${{ secrets.API_HASH }}
       TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
     steps:
       - name: Checkout integration configuration
@@ -70,8 +70,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$API_ID" || { echo "::error::Add TELEGRAM_API_ID to repository Actions secrets"; exit 1; }
-          test -n "$API_HASH" || { echo "::error::Add TELEGRAM_API_HASH to repository Actions secrets"; exit 1; }
+          test -n "$API_ID" || { echo "::error::Add API_ID to repository Actions secrets"; exit 1; }
+          test -n "$API_HASH" || { echo "::error::Add API_HASH to repository Actions secrets"; exit 1; }
 
       - name: Select Xcode required by merged source
         working-directory: source
