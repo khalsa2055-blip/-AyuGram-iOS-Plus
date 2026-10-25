@@ -273,6 +273,7 @@ jobs:
           BUILD_NUMBER="$(git rev-list --count HEAD)"
           python3 -u build-system/Make/Make.py \
             --bazelUserRoot="/private/var/tmp/_bazel_containerhost" \
+            --overrideXcodeVersion \
             build \
             --configurationPath="ayugramplus-ci-configuration.json" \
             --codesigningInformationPath=build-system/fake-codesigning \
