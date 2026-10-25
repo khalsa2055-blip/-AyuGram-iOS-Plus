@@ -129,9 +129,13 @@ jobs:
             submodules/TelegramCore/Sources/Account/AccountManager.swift \
             submodules/TelegramCore/Sources/State/AccountTaskManager.swift \
             submodules/TelegramCore/Sources/Utils/PeerUtils.swift \
-            Swiftgram/SGIQTP/Sources/SGIQTP.swift
+            Swiftgram/SGIQTP/Sources/SGIQTP.swift \
             submodules/LegacyComponents/Sources/TGMediaPickerGalleryInterfaceView.m
           echo "Restored Swiftgram API-boundary source files after AyuGram merge."
+          # Keep AyuGram's save-media and deleted-message implementations from the merge.
+          # Do not add save/deleted-message files to the Swiftgram restore list above;
+          # those features must be ported selectively only if a compile conflict proves it necessary.
+          echo "Preserving AyuGram save-media and deleted-message feature files from merged tree."
           git log -1 --oneline
 
       - name: Validate required build credentials
