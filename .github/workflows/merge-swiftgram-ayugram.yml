@@ -132,6 +132,7 @@ jobs:
             submodules/TelegramCore/Sources/Utils/PeerUtils.swift \
             submodules/TelegramUIPreferences/Sources/ChatSettings.swift \
             submodules/TelegramUIPreferences/Sources/PostboxKeys.swift \
+            submodules/TelegramPresentationData/Sources/Resources/PresentationResourceKey.swift \
             submodules/TelegramPresentationData/Sources/Resources/PresentationResourcesRootController.swift \
             submodules/TelegramPresentationData/Sources/Resources/PresentationResourcesSettings.swift \
             Swiftgram/SGIQTP/Sources/SGIQTP.swift \
