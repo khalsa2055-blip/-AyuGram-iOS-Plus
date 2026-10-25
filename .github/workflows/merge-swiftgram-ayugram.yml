@@ -64,6 +64,28 @@ jobs:
             exit 1
           fi
           git commit -m "Integrate AyuGram iOS changes into current Swiftgram"
+          # AyuGram's older Telegram/BUILD can omit a Swiftgram entitlement
+          # fragment while newer Swiftgram targets still reference it.
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("Telegram/BUILD")
+          content = path.read_text()
+          if "notification_filtering_fragment" in content and "official_notification_filtering_fragment =" not in content:
+              anchor = 'communication_notifications_fragment = official_communication_notifications_fragment # if telegram_bundle_id in official_bundle_ids else ""'
+              patch = anchor + '''
+
+          official_notification_filtering_fragment = """
+          <key>com.apple.developer.usernotifications.filtering</key>
+          <true/>
+          """
+          notification_filtering_fragment = official_notification_filtering_fragment if telegram_bundle_id == "app.swiftgram.ios" else ""'''
+              if anchor not in content:
+                  raise SystemExit("Could not find entitlement insertion point in Telegram/BUILD")
+              path.write_text(content.replace(anchor, patch, 1))
+              print("Restored missing Swiftgram notification-filtering entitlement fragment.")
+          else:
+              print("Notification-filtering entitlement fragment already present or unused.")
+          PY
           git log -1 --oneline
 
       - name: Validate required build credentials
