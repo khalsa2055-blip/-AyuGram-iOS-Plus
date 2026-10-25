@@ -147,8 +147,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          XCODE_VERSION="$(python3 -c 'import json; print(json.load(open("versions.json"))["xcode"])')"
-          sudo xcode-select -s "/Applications/Xcode_${XCODE_VERSION}.app/Contents/Developer"
+          REQUESTED_XCODE="$(python3 -c 'import json; print(json.load(open("versions.json"))["xcode"])')"
+          REQUESTED_PATH="/Applications/Xcode_${REQUESTED_XCODE}.app/Contents/Developer"
+          if [ -d "$REQUESTED_PATH" ]; then
+            SELECTED_PATH="$REQUESTED_PATH"
+            echo "Using requested Xcode $REQUESTED_XCODE"
+          else
+            echo "Requested Xcode $REQUESTED_XCODE is not installed on this runner."
+            echo "Installed Xcode versions:"
+            ls -d /Applications/Xcode*.app/Contents/Developer 2>/dev/null || true
+            SELECTED_PATH="$(ls -d /Applications/Xcode*.app/Contents/Developer 2>/dev/null | sort -V | tail -n 1)"
+            if [ -z "$SELECTED_PATH" ]; then
+              echo "::error::No Xcode installation found on runner."
+              exit 1
+            fi
+            echo "Falling back to installed Xcode: $SELECTED_PATH"
+          fi
+          sudo xcode-select -s "$SELECTED_PATH"
           xcodebuild -version
 
       - name: Create app configuration
