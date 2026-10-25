@@ -135,6 +135,29 @@ jobs:
           print("Added local copies of cached deleted photos/videos before Telegram deletes message records.")
           PY
 
+      - name: Keep the iOS 27-only Duo API compatible with runner Xcode
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          path = Path("submodules/Display/Source/WindowContent.swift")
+          source = path.read_text()
+          pattern = r"    /// Multi-display devices only:.*?fileprivate var activeDivision: CGRect\? \{.*?\n    \}\n"
+          replacement = "    /// Returns nil when built with an SDK that does not expose the iOS 27.1 multi-display API.\n    fileprivate var activeDivision: CGRect? {\n        return nil\n    }\n"
+          updated, count = re.subn(pattern, replacement, source, count=1, flags=re.S)
+          if count != 1:
+              if "reservedRegions(kind: .division)" not in source:
+                  print("No reservedRegions API found; compatibility patch not needed.")
+              else:
+                  raise SystemExit("Could not safely locate activeDivision in WindowContent.swift")
+          else:
+              path.write_text(updated)
+              print("Disabled only the iOS 27.1 fold/active-division query for compatibility with Xcode 26.6.")
+          PY
+
       - name: Validate required build credentials
         shell: bash
         run: |
