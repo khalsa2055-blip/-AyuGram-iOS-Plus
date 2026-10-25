@@ -1,0 +1,148 @@
+name: AyuGram-iOS-Plus CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-upstream:
+    name: Verify Swiftgram source and build prerequisites
+    runs-on: macos-26
+    steps:
+      - name: Check out project
+        uses: actions/checkout@v4
+
+      - name: Check out Swiftgram source
+        uses: actions/checkout@v4
+        with:
+          repository: Swiftgram/Telegram-iOS
+          ref: master
+          path: upstream
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Validate source tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f upstream/README.md
+          test -f upstream/versions.json
+          test -f upstream/build-system/Make/Make.py
+          test -f upstream/build-system/template_minimal_development_configuration.json
+          test -d upstream/Telegram
+          test -d upstream/Swiftgram
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path("upstream/versions.json")
+          data = json.loads(p.read_text())
+          for key in ("app", "xcode", "bazel", "macos"):
+              assert key in data, f"Missing {key} in versions.json"
+          print("Swiftgram source structure: OK")
+          print("Upstream app version:", data["app"])
+          print("Required Xcode:", data["xcode"])
+          print("Required macOS runner:", data["macos"])
+          PY
+
+      - name: Report build configuration requirements
+        shell: bash
+        run: |
+          echo "Source validation passed."
+          echo "A personal Telegram API ID/hash are required before building a customized IPA."
+          echo "Signing and iLoader installation are separate from source validation."
+
+  build-unsigned-ipa:
+    name: Build unsigned IPA (requires repository secrets)
+    needs: validate-upstream
+    if: ${{ vars.ENABLE_IPA_BUILD == 'true' }}
+    runs-on: macos-26
+    permissions:
+      contents: read
+    env:
+      API_ID: ${{ secrets.TELEGRAM_API_ID }}
+      API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+      TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - name: Check out project
+        uses: actions/checkout@v4
+
+      - name: Check out Swiftgram source
+        uses: actions/checkout@v4
+        with:
+          repository: Swiftgram/Telegram-iOS
+          ref: master
+          path: upstream
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Validate required secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$API_ID" || { echo "Missing TELEGRAM_API_ID secret"; exit 1; }
+          test -n "$API_HASH" || { echo "Missing TELEGRAM_API_HASH secret"; exit 1; }
+          test -n "$TEAM_ID" || { echo "Missing APPLE_TEAM_ID secret"; exit 1; }
+
+      - name: Select matching Xcode
+        shell: bash
+        run: |
+          set -euo pipefail
+          XCODE_VERSION="$(python3 -c 'import json; print(json.load(open("upstream/versions.json"))["xcode"])')"
+          sudo xcode-select -s "/Applications/Xcode_${XCODE_VERSION}.app/Contents/Developer"
+          xcodebuild -version
+
+      - name: Create project configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          template = json.loads(Path("upstream/build-system/template_minimal_development_configuration.json").read_text())
+          template.update({
+              "bundle_id": "org.ayugram.iosplus",
+              "api_id": os.environ["API_ID"],
+              "api_hash": os.environ["API_HASH"],
+              "team_id": os.environ["TEAM_ID"],
+              "is_internal_build": "true",
+              "is_appstore_build": "false",
+              "appstore_id": "0",
+              "app_specific_url_scheme": "ayugramplus"
+          })
+          Path("upstream/ayugramplus-ci-configuration.json").write_text(json.dumps(template, indent=2))
+          PY
+
+      - name: Build IPA with upstream build system
+        shell: bash
+        working-directory: upstream
+        run: |
+          set -euo pipefail
+          python3 build-system/Make/ImportCertificates.py --path build-system/fake-codesigning/certs
+          BUILD_NUMBER="$(git rev-list --count HEAD)"
+          python3 -u build-system/Make/Make.py \
+            --bazelUserRoot="/private/var/tmp/_bazel_containerhost" \
+            build \
+            --configurationPath="ayugramplus-ci-configuration.json" \
+            --codesigningInformationPath=build-system/fake-codesigning \
+            --configuration=release_arm64 \
+            --buildNumber="$BUILD_NUMBER"
+          mkdir -p build/artifacts
+          found=0
+          for f in bazel-out/applebin_ios-ios_arm*-opt-ST-*/bin/Telegram/Telegram.ipa; do
+            if [ -f "$f" ]; then cp "$f" build/artifacts/AyuGram-iOS-Plus-unsigned.ipa; found=1; break; fi
+          done
+          test "$found" -eq 1
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AyuGram-iOS-Plus-unsigned-IPA
+          path: upstream/build/artifacts/AyuGram-iOS-Plus-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 7
