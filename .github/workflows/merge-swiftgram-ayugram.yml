@@ -133,7 +133,8 @@ jobs:
             Swiftgram/SGIQTP/Sources/SGIQTP.swift \
             submodules/LegacyComponents/Sources/TGMediaPickerGalleryInterfaceView.m \
             submodules/LegacyComponents/Sources/TGVideoEditAdjustments.m \
-            submodules/LegacyComponents/Sources/TGPhotoVideoEditor.m
+            submodules/LegacyComponents/Sources/TGPhotoVideoEditor.m \
+            submodules/LegacyComponents/Sources/TGMediaPickerGalleryVideoItemView.m
           echo "Restored Swiftgram TelegramCore BUILD and API-boundary source files after AyuGram merge."
           # The Swiftgram TelegramEngineMessages.swift imports SGGTranslate. AyuGram's
           # older TelegramCore BUILD omits that target, causing 'no such module SGGTranslate'.
