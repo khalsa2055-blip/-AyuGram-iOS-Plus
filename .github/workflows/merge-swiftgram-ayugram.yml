@@ -132,6 +132,8 @@ jobs:
             submodules/TelegramCore/Sources/Utils/PeerUtils.swift \
             submodules/TelegramUIPreferences/Sources/ChatSettings.swift \
             submodules/TelegramUIPreferences/Sources/PostboxKeys.swift \
+            submodules/TelegramPresentationData/Sources/Resources/PresentationResourcesRootController.swift \\
+            submodules/TelegramPresentationData/Sources/Resources/PresentationResourcesSettings.swift \\
             Swiftgram/SGIQTP/Sources/SGIQTP.swift \
             Swiftgram/SGConfig/Sources/File.swift \
             submodules/LegacyComponents/Sources/TGMediaPickerGalleryInterfaceView.m \
@@ -139,6 +141,9 @@ jobs:
             submodules/LegacyComponents/Sources/TGPhotoVideoEditor.m \
             submodules/LegacyComponents/PublicHeaders/LegacyComponents/TGMediaPickerGalleryVideoItemView.h \
             submodules/LegacyComponents/Sources/TGMediaPickerGalleryVideoItemView.m
+# These resource files use Swiftgram's PresentationResourceKey and settings-resource APIs.
+          # AyuGram's older overrides conflict with the current Swiftgram types and duplicate
+          # PresentationResourcesSettings; restore the compatible Swiftgram implementations.
           # Add the two Swiftgram gallery-model bridge methods needed by its restored
           # TGPhotoVideoEditor, without replacing AyuGram's model implementation.
           python3 - <<'PY'
