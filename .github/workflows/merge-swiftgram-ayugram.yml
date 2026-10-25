@@ -61,7 +61,7 @@ jobs:
               }
               let root = documents.appendingPathComponent("AyuGram/saved", isDirectory: true)
               let datePrefix = String(message.timestamp)
-              let messagePrefix = "(message.id.peerId.toInt64())_(message.id.id)"
+              let messagePrefix = String(message.id.id)
               
               for media in message.effectiveMedia {
                   var sourcePath: String?
@@ -106,7 +106,7 @@ jobs:
                   let directory = root.appendingPathComponent(folder, isDirectory: true)
                   do {
                       try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-                      let destination = directory.appendingPathComponent("(datePrefix)_(messagePrefix).(fileExtension)")
+                      let destination = directory.appendingPathComponent(datePrefix + "_" + messagePrefix + "." + fileExtension)
                       if !fileManager.fileExists(atPath: destination.path) {
                           try fileManager.copyItem(atPath: sourcePath, toPath: destination.path)
                       }
