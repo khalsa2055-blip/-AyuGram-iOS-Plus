@@ -114,6 +114,23 @@ jobs:
           else:
               print("TranslateUI sgdeps already has no TextFormat entry.")
           PY
+          # These files compile against Swiftgram's newer TelegramCore APIs.
+          # AyuGram's older versions introduce duplicate translation declarations,
+          # malformed merged Translate.swift, and PeerColor/PeerNameColor conflicts.
+          # Keep Swiftgram's implementations for these API-boundary files until
+          # AyuGram changes can be ported as compatible patches instead of wholesale
+          # overwrites. The first parent is the exact Swiftgram revision checked out
+          # before the merge.
+          git checkout HEAD^1 -- \
+            submodules/TelegramCore/Sources/TelegramEngine/Messages/Translate.swift \
+            submodules/TelegramCore/Sources/TelegramEngine/Messages/TelegramEngineMessages.swift \
+            submodules/TelegramCore/Sources/TelegramEngine/Peers/Peer.swift \
+            submodules/TelegramCore/Sources/SyncCore/SyncCore_TranslationMessageAttribute.swift \
+            submodules/TelegramCore/Sources/Account/AccountManager.swift \
+            submodules/TelegramCore/Sources/State/AccountTaskManager.swift \
+            submodules/TelegramCore/Sources/Utils/PeerUtils.swift \
+            Swiftgram/SGIQTP/Sources/SGIQTP.swift
+          echo "Restored Swiftgram API-boundary source files after AyuGram merge."
           git log -1 --oneline
 
       - name: Validate required build credentials
