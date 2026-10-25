@@ -45,11 +45,24 @@ jobs:
           echo "Merge base: $(git merge-base HEAD ayugram/master)"
           # Keep Swiftgram's newer history/features; when the same lines conflict,
           # prefer AyuGram's implementation so its fork-specific changes are retained.
-          git -c core.filemode=false merge --no-commit --no-ff -X theirs ayugram/master || {
+          if ! git -c core.filemode=false merge --no-commit --no-ff -X theirs ayugram/master; then
+            echo "Merge reported conflicts; resolving automatically while preserving Swiftgram deletions."
+            git diff --name-only --diff-filter=U -z | while IFS= read -r -d '' path; do
+              if git cat-file -e "HEAD:$path" 2>/dev/null; then
+                # Both branches have this path: prefer AyuGram's version for conflicted content.
+                git checkout --theirs -- "$path"
+                git add -- "$path"
+              else
+                # Swiftgram intentionally removed this path; do not resurrect it from the older fork.
+                git rm -f -- "$path"
+              fi
+            done
+          fi
+          if [ -n "$(git diff --name-only --diff-filter=U)" ]; then
             git status --short
-            echo "::error::Merge has unresolved conflicts. Review the listed paths before building."
+            echo "::error::Unresolved merge conflicts remain."
             exit 1
-          }
+          fi
           git commit -m "Integrate AyuGram iOS changes into current Swiftgram"
           git log -1 --oneline
 
