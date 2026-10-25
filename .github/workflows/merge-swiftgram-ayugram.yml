@@ -122,6 +122,7 @@ jobs:
           # overwrites. The first parent is the exact Swiftgram revision checked out
           # before the merge.
           git checkout HEAD^1 -- \
+            submodules/TelegramCore/BUILD \
             submodules/TelegramCore/Sources/TelegramEngine/Messages/Translate.swift \
             submodules/TelegramCore/Sources/TelegramEngine/Messages/TelegramEngineMessages.swift \
             submodules/TelegramCore/Sources/TelegramEngine/Peers/Peer.swift \
@@ -131,7 +132,10 @@ jobs:
             submodules/TelegramCore/Sources/Utils/PeerUtils.swift \
             Swiftgram/SGIQTP/Sources/SGIQTP.swift \
             submodules/LegacyComponents/Sources/TGMediaPickerGalleryInterfaceView.m
-          echo "Restored Swiftgram API-boundary source files after AyuGram merge."
+          echo "Restored Swiftgram TelegramCore BUILD and API-boundary source files after AyuGram merge."
+          # The Swiftgram TelegramEngineMessages.swift imports SGGTranslate. AyuGram's
+          # older TelegramCore BUILD omits that target, causing 'no such module SGGTranslate'.
+          # Keep Swiftgram's BUILD dependencies aligned with the restored source file.
           # Keep AyuGram's save-media and deleted-message implementations from the merge.
           # Do not add save/deleted-message files to the Swiftgram restore list above;
           # those features must be ported selectively only if a compile conflict proves it necessary.
