@@ -129,6 +129,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: AyuGram-iOS-Plus-SideStore-IPA
-          path: source/build/artifacts/AyuGram-iOS-Plus-unsigned.ipa
+          path: source/build/artifacts/AyuGram-iOS-Plus-SideStore.ipa
           if-no-files-found: error
           retention-days: 7
