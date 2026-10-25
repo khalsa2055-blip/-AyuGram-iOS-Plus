@@ -134,6 +134,7 @@ jobs:
             submodules/LegacyComponents/Sources/TGMediaPickerGalleryInterfaceView.m \
             submodules/LegacyComponents/Sources/TGVideoEditAdjustments.m \
             submodules/LegacyComponents/Sources/TGPhotoVideoEditor.m \
+            submodules/LegacyComponents/PublicHeaders/LegacyComponents/TGMediaPickerGalleryVideoItemView.h \
             submodules/LegacyComponents/Sources/TGMediaPickerGalleryVideoItemView.m
           echo "Restored Swiftgram TelegramCore BUILD and API-boundary source files after AyuGram merge."
           # The Swiftgram TelegramEngineMessages.swift imports SGGTranslate. AyuGram's
