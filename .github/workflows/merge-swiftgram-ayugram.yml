@@ -231,6 +231,17 @@ jobs:
           Path("ayugramplus-ci-configuration.json").write_text(json.dumps(template, indent=2))
           PY
 
+      # Reuse Bazel's downloaded external repositories across GitHub Actions runs.
+      # This is a safe first cache layer; it avoids re-downloading dependencies without
+      # restoring stale compiled outputs from a different Xcode/toolchain.
+      - name: Cache Bazel external repositories
+        uses: actions/cache@v4
+        with:
+          path: /private/var/tmp/_bazel_containerhost/cache/repos/v1
+          key: bazel-repositories-macos-26-${{ hashFiles('source/versions.json', 'source/WORKSPACE', 'source/WORKSPACE.bazel', 'source/MODULE.bazel') }}
+          restore-keys: |
+            bazel-repositories-macos-26-
+
       - name: Build iOS IPA
         working-directory: source
         shell: bash
