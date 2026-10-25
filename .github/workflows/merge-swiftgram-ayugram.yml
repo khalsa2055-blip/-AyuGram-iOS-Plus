@@ -1,0 +1,122 @@
+name: Merge Swiftgram + AyuGram iOS
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [integrate-swiftgram-ayugram]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  merge-and-build:
+    runs-on: macos-26
+    timeout-minutes: 180
+    env:
+      API_ID: ${{ secrets.TELEGRAM_API_ID }}
+      API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+      TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - name: Checkout integration configuration
+        uses: actions/checkout@v4
+
+      - name: Checkout latest Swiftgram base
+        uses: actions/checkout@v4
+        with:
+          repository: Swiftgram/Telegram-iOS
+          ref: master
+          path: source
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Fetch AyuGram iOS and merge its changes
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add ayugram https://github.com/maksakks/Ayugram-iOS.git
+          git fetch ayugram master --tags
+          echo "Swiftgram base: $(git rev-parse HEAD)"
+          echo "AyuGram source: $(git rev-parse ayugram/master)"
+          echo "Merge base: $(git merge-base HEAD ayugram/master)"
+          # Keep Swiftgram's newer history/features; when the same lines conflict,
+          # prefer AyuGram's implementation so its fork-specific changes are retained.
+          git -c core.filemode=false merge --no-commit --no-ff -X theirs ayugram/master || {
+            git status --short
+            echo "::error::Merge has unresolved conflicts. Review the listed paths before building."
+            exit 1
+          }
+          git commit -m "Integrate AyuGram iOS changes into current Swiftgram"
+          git log -1 --oneline
+
+      - name: Validate required build credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$API_ID" || { echo "::error::Add TELEGRAM_API_ID to repository Actions secrets"; exit 1; }
+          test -n "$API_HASH" || { echo "::error::Add TELEGRAM_API_HASH to repository Actions secrets"; exit 1; }
+          test -n "$TEAM_ID" || { echo "::error::Add APPLE_TEAM_ID to repository Actions secrets"; exit 1; }
+
+      - name: Select Xcode required by merged source
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          XCODE_VERSION="$(python3 -c 'import json; print(json.load(open("versions.json"))["xcode"])')"
+          sudo xcode-select -s "/Applications/Xcode_${XCODE_VERSION}.app/Contents/Developer"
+          xcodebuild -version
+
+      - name: Create app configuration
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          template = json.loads(Path("build-system/template_minimal_development_configuration.json").read_text())
+          template.update({
+              "bundle_id": "org.ayugram.iosplus",
+              "api_id": os.environ["API_ID"],
+              "api_hash": os.environ["API_HASH"],
+              "team_id": os.environ["TEAM_ID"],
+              "is_internal_build": "true",
+              "is_appstore_build": "false",
+              "appstore_id": "0",
+              "app_specific_url_scheme": "ayugramplus"
+          })
+          Path("ayugramplus-ci-configuration.json").write_text(json.dumps(template, indent=2))
+          PY
+
+      - name: Build iOS IPA
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 build-system/Make/ImportCertificates.py --path build-system/fake-codesigning/certs
+          BUILD_NUMBER="$(git rev-list --count HEAD)"
+          python3 -u build-system/Make/Make.py \
+            --bazelUserRoot="/private/var/tmp/_bazel_containerhost" \
+            build \
+            --configurationPath="ayugramplus-ci-configuration.json" \
+            --codesigningInformationPath=build-system/fake-codesigning \
+            --configuration=release_arm64 \
+            --buildNumber="$BUILD_NUMBER"
+          mkdir -p build/artifacts
+          found=0
+          for f in bazel-out/applebin_ios-ios_arm*-opt-ST-*/bin/Telegram/Telegram.ipa; do
+            if [ -f "$f" ]; then cp "$f" build/artifacts/AyuGram-iOS-Plus-unsigned.ipa; found=1; break; fi
+          done
+          test "$found" -eq 1
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AyuGram-iOS-Plus-unsigned-IPA
+          path: source/build/artifacts/AyuGram-iOS-Plus-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 7
