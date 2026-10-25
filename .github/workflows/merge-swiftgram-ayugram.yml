@@ -137,6 +137,50 @@ jobs:
             submodules/LegacyComponents/Sources/TGPhotoVideoEditor.m \
             submodules/LegacyComponents/PublicHeaders/LegacyComponents/TGMediaPickerGalleryVideoItemView.h \
             submodules/LegacyComponents/Sources/TGMediaPickerGalleryVideoItemView.m
+          # Add the two Swiftgram gallery-model bridge methods needed by its restored
+          # TGPhotoVideoEditor, without replacing AyuGram's model implementation.
+          python3 - <<'PY'
+          from pathlib import Path
+          model_h = Path("submodules/LegacyComponents/PublicHeaders/LegacyComponents/TGMediaPickerGalleryModel.h")
+          interface_h = Path("submodules/LegacyComponents/PublicHeaders/LegacyComponents/TGMediaPickerGalleryInterfaceView.h")
+          model_m = Path("submodules/LegacyComponents/Sources/TGMediaPickerGalleryModel.m")
+
+          p = model_h
+          s = p.read_text()
+          anchor = "@interface TGMediaPickerGalleryModel : TGModernGalleryModel"
+          declarations = "\n- (void)beginEditingCaption;\n- (void)setupGifEditing;\n"
+          if " - (void)beginEditingCaption;" not in s and "- (void)beginEditingCaption;" not in s:
+              if anchor not in s: raise SystemExit(f"Missing insertion point in {p}")
+              s = s.replace(anchor, anchor + declarations, 1)
+              p.write_text(s)
+
+          p = interface_h
+          s = p.read_text()
+          anchor = "- (void)onDismiss;"
+          declarations = "- (void)beginEditingCaption;\n- (void)setupGifEditing;\n\n"
+          if "- (void)setupGifEditing;" not in s:
+              if anchor not in s: raise SystemExit(f"Missing insertion point in {p}")
+              s = s.replace(anchor, declarations + anchor, 1)
+              p.write_text(s)
+
+          p = model_m
+          s = p.read_text()
+          if "- (void)setupGifEditing {" not in s:
+              anchor = "- (void)presentPhotoEditorForItem:(id<TGModernGalleryEditableItem>)item tab:(TGPhotoEditorTab)tab"
+              methods = """- (void)beginEditingCaption {
+              [_interfaceView beginEditingCaption];
+          }
+
+          - (void)setupGifEditing {
+              [_interfaceView setupGifEditing];
+          }
+
+          """
+              if anchor not in s: raise SystemExit(f"Missing insertion point in {p}")
+              s = s.replace(anchor, methods + anchor, 1)
+              p.write_text(s)
+          print("Patched Swiftgram gallery-model bridge methods into AyuGram files without replacing the model.")
+          PY
           echo "Restored Swiftgram TelegramCore BUILD and API-boundary source files after AyuGram merge."
           # The Swiftgram TelegramEngineMessages.swift imports SGGTranslate. AyuGram's
           # older TelegramCore BUILD omits that target, causing 'no such module SGGTranslate'.
