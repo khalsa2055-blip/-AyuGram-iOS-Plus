@@ -130,6 +130,7 @@ jobs:
             submodules/TelegramCore/Sources/State/AccountTaskManager.swift \
             submodules/TelegramCore/Sources/Utils/PeerUtils.swift \
             Swiftgram/SGIQTP/Sources/SGIQTP.swift
+            submodules/LegacyComponents/Sources/TGMediaPickerGalleryInterfaceView.m
           echo "Restored Swiftgram API-boundary source files after AyuGram merge."
           git log -1 --oneline
 
