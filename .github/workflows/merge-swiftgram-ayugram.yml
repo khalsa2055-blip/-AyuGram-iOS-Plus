@@ -130,6 +130,8 @@ jobs:
             submodules/TelegramCore/Sources/Account/AccountManager.swift \
             submodules/TelegramCore/Sources/State/AccountTaskManager.swift \
             submodules/TelegramCore/Sources/Utils/PeerUtils.swift \
+            submodules/TelegramUIPreferences/Sources/ChatSettings.swift \
+            submodules/TelegramUIPreferences/Sources/PostboxKeys.swift \
             Swiftgram/SGIQTP/Sources/SGIQTP.swift \
             Swiftgram/SGConfig/Sources/File.swift \
             submodules/LegacyComponents/Sources/TGMediaPickerGalleryInterfaceView.m \
