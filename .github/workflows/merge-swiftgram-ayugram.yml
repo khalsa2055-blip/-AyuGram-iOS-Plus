@@ -109,6 +109,37 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Use Swiftgram's bundle-ID-specific profiles for ph.telegra.Telegraph.
+          # The generic fake profiles do not include aps-environment for this app ID.
+          PROFILE_SOURCE="buildbox/fake-codesigning/profiles/appstore"
+          test -d "$PROFILE_SOURCE" || { echo "::error::Missing appstore provisioning profiles at $PROFILE_SOURCE"; exit 1; }
+          mkdir -p build-system/fake-codesigning/profiles
+          cp "$PROFILE_SOURCE"/*.mobileprovision build-system/fake-codesigning/profiles/
+          echo "Checking matching provisioning profile APS entitlement..."
+          python3 - <<'PY'
+          import os, plistlib, subprocess, sys
+          from pathlib import Path
+          team = os.environ.get("TEAM_ID") or "C67CF9S4VU"
+          bundle = "ph.telegra.Telegraph"
+          found = False
+          for path in Path("build-system/fake-codesigning/profiles").glob("*.mobileprovision"):
+              decoded = subprocess.run(
+                  ["openssl", "smime", "-inform", "der", "-verify", "-noverify", "-in", str(path)],
+                  check=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
+              ).stdout
+              profile = plistlib.loads(decoded)
+              ent = profile.get("Entitlements", {})
+              app_id = ent.get("application-identifier", "")
+              if app_id == f"{team}.{bundle}":
+                  found = True
+                  print(f"Matched profile: {path.name}; aps-environment={ent.get('aps-environment', '<missing>')}")
+                  if "aps-environment" not in ent:
+                      print("::error::Matching profile is missing aps-environment")
+                      sys.exit(1)
+          if not found:
+              print(f"::error::No profile matches {team}.{bundle}")
+              sys.exit(1)
+          PY
           python3 build-system/Make/ImportCertificates.py --path build-system/fake-codesigning/certs
           BUILD_NUMBER="$(git rev-list --count HEAD)"
           python3 -u build-system/Make/Make.py \
