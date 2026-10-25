@@ -24,8 +24,7 @@ jobs:
           repository: Swiftgram/Telegram-iOS
           ref: master
           path: upstream
-          submodules: recursive
-          fetch-depth: 0
+          fetch-depth: 1
 
       - name: Validate source tree
         shell: bash
