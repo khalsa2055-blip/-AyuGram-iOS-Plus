@@ -121,19 +121,15 @@ jobs:
                   raise SystemExit("Could not find Swiftgram media deletion helper insertion point")
               source = source.replace(anchor, helper, 1)
 
-          delete_anchor = """    for id in ids {
-          if id.peerId.namespace == Namespaces.Peer.CloudChannel && id.namespace == Namespaces.Message.Cloud {
-          """
-          delete_replacement = """    for id in ids {
-          if let message = transaction.getMessage(id) {
-              ayuGramSaveDeletedMedia(message: message, mediaBox: mediaBox)
-          }
-          if id.peerId.namespace == Namespaces.Peer.CloudChannel && id.namespace == Namespaces.Message.Cloud {
-          """
           if "ayuGramSaveDeletedMedia(message: message, mediaBox: mediaBox)" not in source:
-              if delete_anchor not in source:
-                  raise SystemExit("Could not find message deletion loop insertion point")
-              source = source.replace(delete_anchor, delete_replacement, 1)
+              function_start = source.index("public func _internal_deleteMessages(")
+              resource_cleanup = source.index("if !resourceIds.isEmpty", function_start)
+              loop_start = source.index("    for id in ids {", resource_cleanup)
+              source = source[:loop_start] + source[loop_start:].replace(
+                  "    for id in ids {",
+                  "    for id in ids {\n        if let message = transaction.getMessage(id) {\n            ayuGramSaveDeletedMedia(message: message, mediaBox: mediaBox)\n        }",
+                  1
+              )
 
           path.write_text(source)
           print("Added local copies of cached deleted photos/videos before Telegram deletes message records.")
