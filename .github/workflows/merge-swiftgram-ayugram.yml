@@ -43,6 +43,9 @@ jobs:
           echo "Swiftgram base: $(git rev-parse HEAD)"
           echo "AyuGram source: $(git rev-parse ayugram/master)"
           echo "Merge base: $(git merge-base HEAD ayugram/master)"
+          # Keep Swiftgram's BUILD rule definitions: AyuGram's older Telegram/BUILD
+          # uses the old plist_fragment API and breaks against Swiftgram's newer Bazel rules.
+          git show HEAD:Telegram/BUILD > /tmp/swiftgram-telegram-build
           # Keep Swiftgram's newer history/features; when the same lines conflict,
           # prefer AyuGram's implementation so its fork-specific changes are retained.
           if ! git -c core.filemode=false merge --no-commit --no-ff -X theirs ayugram/master; then
@@ -64,8 +67,9 @@ jobs:
             exit 1
           fi
           git commit -m "Integrate AyuGram iOS changes into current Swiftgram"
-          # AyuGram's older Telegram/BUILD can omit a Swiftgram entitlement
-          # fragment while newer Swiftgram targets still reference it.
+          # Restore Swiftgram's compatible BUILD definitions after the merge.
+          cp /tmp/swiftgram-telegram-build Telegram/BUILD
+          # Restore Swiftgram's notification-filtering entitlement fragment if needed.
           python3 - <<'PY'
           from pathlib import Path
           path = Path("Telegram/BUILD")
