@@ -92,14 +92,14 @@ jobs:
           from pathlib import Path
           template = json.loads(Path("build-system/template_minimal_development_configuration.json").read_text())
           template.update({
-              "bundle_id": "org.ayugram.iosplus",
+              "bundle_id": "ph.telegra.Telegraph",
               "api_id": os.environ["API_ID"],
               "api_hash": os.environ["API_HASH"],
-              "team_id": os.environ.get("TEAM_ID") or "0000000000",
+              "team_id": os.environ.get("TEAM_ID") or "C67CF9S4VU",
               "is_internal_build": "true",
               "is_appstore_build": "false",
               "appstore_id": "0",
-              "app_specific_url_scheme": "ayugramplus"
+              "app_specific_url_scheme": "tg"
           })
           Path("ayugramplus-ci-configuration.json").write_text(json.dumps(template, indent=2))
           PY
