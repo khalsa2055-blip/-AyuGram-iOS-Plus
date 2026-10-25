@@ -264,11 +264,15 @@ jobs:
             --configuration=release_arm64 \
             --buildNumber="$BUILD_NUMBER"
           mkdir -p build/artifacts
-          found=0
-          for f in bazel-out/applebin_ios-ios_arm*-opt-ST-*/bin/Telegram/Telegram.ipa; do
-            if [ -f "$f" ]; then cp "$f" build/artifacts/AyuGram-iOS-Plus-SideStore.ipa; found=1; break; fi
-          done
-          test "$found" -eq 1
+          ipa_path="$(find bazel-out bazel-bin -type f -name 'Telegram.ipa' -print -quit 2>/dev/null || true)"
+          if [ -z "$ipa_path" ]; then
+            echo "::error::Build completed, but Telegram.ipa was not found in bazel-out or bazel-bin."
+            find bazel-out bazel-bin -type f -name '*.ipa' -print 2>/dev/null || true
+            exit 1
+          fi
+          echo "Found IPA at: $ipa_path"
+          cp "$ipa_path" build/artifacts/AyuGram-iOS-Plus-SideStore.ipa
+          test -s build/artifacts/AyuGram-iOS-Plus-SideStore.ipa
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
