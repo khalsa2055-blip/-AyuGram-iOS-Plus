@@ -131,6 +131,7 @@ jobs:
             submodules/TelegramCore/Sources/State/AccountTaskManager.swift \
             submodules/TelegramCore/Sources/Utils/PeerUtils.swift \
             Swiftgram/SGIQTP/Sources/SGIQTP.swift \
+            Swiftgram/SGConfig/Sources/File.swift \
             submodules/LegacyComponents/Sources/TGMediaPickerGalleryInterfaceView.m \
             submodules/LegacyComponents/Sources/TGVideoEditAdjustments.m \
             submodules/LegacyComponents/Sources/TGPhotoVideoEditor.m \
