@@ -72,7 +72,6 @@ jobs:
           set -euo pipefail
           test -n "$API_ID" || { echo "::error::Add TELEGRAM_API_ID to repository Actions secrets"; exit 1; }
           test -n "$API_HASH" || { echo "::error::Add TELEGRAM_API_HASH to repository Actions secrets"; exit 1; }
-          test -n "$TEAM_ID" || { echo "::error::Add APPLE_TEAM_ID to repository Actions secrets"; exit 1; }
 
       - name: Select Xcode required by merged source
         working-directory: source
@@ -96,7 +95,7 @@ jobs:
               "bundle_id": "org.ayugram.iosplus",
               "api_id": os.environ["API_ID"],
               "api_hash": os.environ["API_HASH"],
-              "team_id": os.environ["TEAM_ID"],
+              "team_id": os.environ.get("TEAM_ID") or "0000000000",
               "is_internal_build": "true",
               "is_appstore_build": "false",
               "appstore_id": "0",
@@ -122,14 +121,14 @@ jobs:
           mkdir -p build/artifacts
           found=0
           for f in bazel-out/applebin_ios-ios_arm*-opt-ST-*/bin/Telegram/Telegram.ipa; do
-            if [ -f "$f" ]; then cp "$f" build/artifacts/AyuGram-iOS-Plus-unsigned.ipa; found=1; break; fi
+            if [ -f "$f" ]; then cp "$f" build/artifacts/AyuGram-iOS-Plus-SideStore.ipa; found=1; break; fi
           done
           test "$found" -eq 1
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AyuGram-iOS-Plus-unsigned-IPA
+          name: AyuGram-iOS-Plus-SideStore-IPA
           path: source/build/artifacts/AyuGram-iOS-Plus-unsigned.ipa
           if-no-files-found: error
           retention-days: 7
