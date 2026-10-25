@@ -13,7 +13,7 @@ permissions:
 jobs:
   merge-and-build:
     runs-on: macos-26
-    timeout-minutes: 180
+    timeout-minutes: 360
     env:
       API_ID: ${{ secrets.API_ID }}
       API_HASH: ${{ secrets.API_HASH }}
@@ -156,6 +156,26 @@ jobs:
           else:
               path.write_text(updated)
               print("Disabled only the iOS 27.1 fold/active-division query for compatibility with Xcode 26.6.")
+          PY
+
+      - name: Avoid Swift optimizer crash on fallback Xcode
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("build-system/Make/Make.py")
+          source = path.read_text()
+          needle = "            '--features=swift.opt_uses_wmo',"
+          replacement = "            # CI workaround: Swift 6.3.3 crashed in SIL CopyPropagation with WMO on Xcode 26.6.\n            # '--features=swift.opt_uses_wmo',"
+          if needle in source:
+              path.write_text(source.replace(needle, replacement, 1))
+              print("Disabled whole-module optimization for CI to avoid the observed Swift compiler crash.")
+          elif "'--features=swift.opt_uses_wmo'," not in source:
+              raise SystemExit("Could not find the expected Swift WMO flag in Make.py")
+          else:
+              print("WMO flag was already adjusted; leaving Make.py unchanged.")
           PY
 
       - name: Validate required build credentials
