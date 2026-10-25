@@ -90,6 +90,20 @@ jobs:
           else:
               print("Notification-filtering entitlement fragment already present or unused.")
           PY
+          # AyuGram adds TextFormat to sgdeps, while Swiftgram already declares
+          # the same dependency in TranslateUI's deps list. Remove the duplicate
+          # from sgdeps so Bazel can analyze the merged target.
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("submodules/TranslateUI/BUILD")
+          content = path.read_text()
+          duplicate = '    "//submodules/TextFormat:TextFormat"\\n'
+          if duplicate in content:
+              path.write_text(content.replace(duplicate, "", 1))
+              print("Removed duplicate TextFormat dependency from TranslateUI sgdeps.")
+          else:
+              print("TranslateUI sgdeps has no duplicate TextFormat entry; no change needed.")
+          PY
           git log -1 --oneline
 
       - name: Validate required build credentials
