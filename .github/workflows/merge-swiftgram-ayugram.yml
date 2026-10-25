@@ -99,12 +99,20 @@ jobs:
           from pathlib import Path
           path = Path("submodules/TranslateUI/BUILD")
           content = path.read_text()
-          duplicate = '    "//submodules/TextFormat:TextFormat"\\n'
-          if duplicate in content:
-              path.write_text(content.replace(duplicate, "", 1))
+          # Remove the TextFormat entry from sgdeps regardless of whitespace.
+          start = content.find("sgdeps = [")
+          end = content.find("]", start)
+          if start < 0 or end < 0:
+              raise SystemExit("Could not find sgdeps list in TranslateUI/BUILD")
+          block = content[start:end]
+          lines = block.splitlines(keepends=True)
+          filtered = [line for line in lines if "//submodules/TextFormat:TextFormat" not in line]
+          if len(filtered) != len(lines):
+              content = content[:start] + "".join(filtered) + content[end:]
+              path.write_text(content)
               print("Removed duplicate TextFormat dependency from TranslateUI sgdeps.")
           else:
-              print("TranslateUI sgdeps has no duplicate TextFormat entry; no change needed.")
+              print("TranslateUI sgdeps already has no TextFormat entry.")
           PY
           git log -1 --oneline
 
