@@ -46,6 +46,7 @@ jobs:
           # Keep Swiftgram's BUILD rule definitions: AyuGram's older Telegram/BUILD
           # uses the old plist_fragment API and breaks against Swiftgram's newer Bazel rules.
           git show HEAD:Telegram/BUILD > /tmp/swiftgram-telegram-build
+          git show HEAD:submodules/SettingsUI/BUILD > /tmp/swiftgram-settingsui-build
           # Keep Swiftgram's newer history/features; when the same lines conflict,
           # prefer AyuGram's implementation so its fork-specific changes are retained.
           if ! git -c core.filemode=false merge --no-commit --no-ff -X theirs ayugram/master; then
@@ -69,6 +70,7 @@ jobs:
           git commit -m "Integrate AyuGram iOS changes into current Swiftgram"
           # Restore Swiftgram's compatible BUILD definitions after the merge.
           cp /tmp/swiftgram-telegram-build Telegram/BUILD
+          cp /tmp/swiftgram-settingsui-build submodules/SettingsUI/BUILD
           # Restore Swiftgram's notification-filtering entitlement fragment if needed.
           python3 - <<'PY'
           from pathlib import Path
