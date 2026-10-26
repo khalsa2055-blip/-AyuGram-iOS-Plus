@@ -51,7 +51,7 @@ jobs:
               }
           }
           """
-          helper = anchor + r"""
+          helper = anchor + r'''
 
           // Keep a local copy of already-cached photo/video media before Telegram removes
           // the message and its media references. This is a selective iOS adaptation;
@@ -215,7 +215,7 @@ jobs:
               return retained
           }
 
-          """
+          '''
           if "private func ayuGramSaveDeletedMedia" not in source:
               if anchor not in source:
                   raise SystemExit("Could not find Swiftgram media deletion helper insertion point")
