@@ -228,26 +228,26 @@ jobs:
               # transaction-operation switch. Resolve IDs while the messages still exist,
               # retain eligible cloud messages, and delete only the remaining IDs.
               global_case = """            case let .DeleteMessagesWithGlobalIds(ids):
-                          var resourceIds: [MediaResourceId] = []
-                          transaction.deleteMessagesWithGlobalIds(ids, forEachMedia: { media in
-                              addMessageMediaResourceIdsToRemove(media: media, resourceIds: &resourceIds)
-                          })
-                          if !resourceIds.isEmpty {
-                              let _ = mediaBox.removeCachedResources(Array(Set(resourceIds)), force: true).start()
-                          }
-                          deletedMessageIds.append(contentsOf: ids.map { .global($0) })"""
+                  var resourceIds: [MediaResourceId] = []
+                  transaction.deleteMessagesWithGlobalIds(ids, forEachMedia: { media in
+                      addMessageMediaResourceIdsToRemove(media: media, resourceIds: &resourceIds)
+                  })
+                  if !resourceIds.isEmpty {
+                      let _ = mediaBox.removeCachedResources(Array(Set(resourceIds)), force: true).start()
+                  }
+                  deletedMessageIds.append(contentsOf: ids.map { .global($0) })"""
               global_replacement = """            case let .DeleteMessagesWithGlobalIds(ids):
-                          let resolvedMessageIds = transaction.messageIdsForGlobalIds(ids)
-                          let retainedDeletedMessageIds = ayuGramRetainDeletedMessages(transaction: transaction, mediaBox: mediaBox, ids: resolvedMessageIds)
-                          let messagesToDelete = resolvedMessageIds.filter { !retainedDeletedMessageIds.contains($0) }
-                          var resourceIds: [MediaResourceId] = []
-                          transaction.deleteMessages(messagesToDelete, forEachMedia: { media in
-                              addMessageMediaResourceIdsToRemove(media: media, resourceIds: &resourceIds)
-                          })
-                          if !resourceIds.isEmpty {
-                              let _ = mediaBox.removeCachedResources(Array(Set(resourceIds)), force: true).start()
-                          }
-                          deletedMessageIds.append(contentsOf: ids.map { .global($0) })"""
+                  let resolvedMessageIds = transaction.messageIdsForGlobalIds(ids)
+                  let retainedDeletedMessageIds = ayuGramRetainDeletedMessages(transaction: transaction, mediaBox: mediaBox, ids: resolvedMessageIds)
+                  let messagesToDelete = resolvedMessageIds.filter { !retainedDeletedMessageIds.contains($0) }
+                  var resourceIds: [MediaResourceId] = []
+                  transaction.deleteMessages(messagesToDelete, forEachMedia: { media in
+                      addMessageMediaResourceIdsToRemove(media: media, resourceIds: &resourceIds)
+                  })
+                  if !resourceIds.isEmpty {
+                      let _ = mediaBox.removeCachedResources(Array(Set(resourceIds)), force: true).start()
+                  }
+                  deletedMessageIds.append(contentsOf: ids.map { .global($0) })"""
               if global_case in update_source:
                   update_source = update_source.replace(global_case, global_replacement, 1)
                   print("Patched Swiftgram's optimized global-ID deletion operation.")
