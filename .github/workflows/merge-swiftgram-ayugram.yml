@@ -43,6 +43,8 @@ jobs:
 
           path = Path("submodules/TelegramCore/Sources/TelegramEngine/Messages/DeleteMessages.swift")
           source = path.read_text()
+          if "import SQLite3" not in source:
+              source = source.replace("import Foundation\\n", "import Foundation\\nimport SQLite3\\n", 1)
           anchor = """func addMessageMediaResourceIdsToRemove(message: Message, resourceIds: inout [MediaResourceId]) {
               for media in message.effectiveMedia {
                   addMessageMediaResourceIdsToRemove(media: media, resourceIds: &resourceIds)
@@ -123,18 +125,46 @@ jobs:
               guard let documents = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first else {
                   return
               }
-              let directory = documents.appendingPathComponent("AyuGram/saved/messages", isDirectory: true)
-              let record: [String: Any] = [
-                  "messageId": message.id.id,
-                  "peerId": String(describing: message.id.peerId),
-                  "timestamp": message.timestamp,
-                  "text": message.text
-              ]
+              let directory = documents.appendingPathComponent("AyuGram/saved", isDirectory: true)
               do {
                   try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-                  let data = try JSONSerialization.data(withJSONObject: record, options: [.prettyPrinted, .sortedKeys])
-                  let filename = String(message.timestamp) + "_" + String(message.id.id) + "_" + UUID().uuidString + ".json"
-                  try data.write(to: directory.appendingPathComponent(filename), options: .atomic)
+                  let databaseURL = directory.appendingPathComponent("ayugram.sqlite")
+                  var database: OpaquePointer?
+                  let openResult = sqlite3_open_v2(databaseURL.path, &database, SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX, nil)
+                  guard openResult == SQLITE_OK, let database else {
+                      if let database { sqlite3_close(database) }
+                      return
+                  }
+                  defer { sqlite3_close(database) }
+                  let schema = """
+                  CREATE TABLE IF NOT EXISTS deleted_messages (
+                      id INTEGER PRIMARY KEY AUTOINCREMENT,
+                      peer_id TEXT NOT NULL,
+                      message_id INTEGER NOT NULL,
+                      timestamp INTEGER NOT NULL,
+                      text TEXT NOT NULL,
+                      saved_at INTEGER NOT NULL,
+                      UNIQUE(peer_id, message_id)
+                  );
+                  CREATE INDEX IF NOT EXISTS idx_deleted_messages_timestamp ON deleted_messages(timestamp);
+                  """
+                  guard sqlite3_exec(database, schema, nil, nil, nil) == SQLITE_OK else { return }
+                  func sqlQuote(_ value: String) -> String {
+                      return "'" + value.replacingOccurrences(of: "'", with: "''") + "'"
+                  }
+                  let peerId = sqlQuote(String(describing: message.id.peerId))
+                  let text = sqlQuote(message.text)
+                  let timestamp = Int(message.timestamp)
+                  let messageId = Int(message.id.id)
+                  let savedAt = Int(Date().timeIntervalSince1970)
+                  let statement = """
+                  INSERT OR IGNORE INTO deleted_messages (peer_id, message_id, timestamp, text, saved_at)
+                  VALUES (\(peerId), \(messageId), \(timestamp), \(text), \(savedAt));
+                  """
+                  guard sqlite3_exec(database, statement, nil, nil, nil) == SQLITE_OK else {
+                      // Retention must never block Telegram's deletion operation.
+                      return
+                  }
               } catch {
                   // Retention must never block Telegram's deletion operation.
               }
