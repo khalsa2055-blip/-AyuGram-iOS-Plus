@@ -115,6 +115,30 @@ jobs:
                   }
               }
           }
+
+          // Persist message text/metadata as well as cached photo/video files.
+          // One JSON record per deleted message, stored locally inside the app.
+          private func ayuGramSaveDeletedMessage(message: Message) {
+              let fileManager = FileManager.default
+              guard let documents = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first else {
+                  return
+              }
+              let directory = documents.appendingPathComponent("AyuGram/saved/messages", isDirectory: true)
+              let record: [String: Any] = [
+                  "messageId": message.id.id,
+                  "peerId": String(describing: message.id.peerId),
+                  "timestamp": message.timestamp,
+                  "text": message.text
+              ]
+              do {
+                  try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+                  let data = try JSONSerialization.data(withJSONObject: record, options: [.prettyPrinted, .sortedKeys])
+                  let filename = String(message.timestamp) + "_" + String(message.id.id) + "_" + UUID().uuidString + ".json"
+                  try data.write(to: directory.appendingPathComponent(filename), options: .atomic)
+              } catch {
+                  // Retention must never block Telegram's deletion operation.
+              }
+          }
           """
           if "private func ayuGramSaveDeletedMedia" not in source:
               if anchor not in source:
@@ -127,6 +151,7 @@ jobs:
               # Save before any cache cleanup can remove the local media resource.
               insertion = """    for id in ids {
                   if let message = transaction.getMessage(id) {
+                      ayuGramSaveDeletedMessage(message: message)
                       ayuGramSaveDeletedMedia(message: message, mediaBox: mediaBox)
                   }
               }
@@ -134,7 +159,7 @@ jobs:
               source = source[:resource_cleanup] + insertion + source[resource_cleanup:]
 
           path.write_text(source)
-          print("Added local copies of cached deleted photos/videos before Telegram deletes message records.")
+          print("Added local JSON records for deleted message text and local copies of cached photos/videos before Telegram deletes message records.")
           PY
 
       - name: Keep the iOS 27-only Duo API compatible with runner Xcode
