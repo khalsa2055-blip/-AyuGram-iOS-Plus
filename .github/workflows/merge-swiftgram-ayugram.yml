@@ -123,13 +123,15 @@ jobs:
 
           if "ayuGramSaveDeletedMedia(message: message, mediaBox: mediaBox)" not in source:
               function_start = source.index("public func _internal_deleteMessages(")
-              resource_cleanup = source.index("if !resourceIds.isEmpty", function_start)
-              loop_start = source.index("    for id in ids {", resource_cleanup)
-              source = source[:loop_start] + source[loop_start:].replace(
-                  "    for id in ids {",
-                  "    for id in ids {\n        if let message = transaction.getMessage(id) {\n            ayuGramSaveDeletedMedia(message: message, mediaBox: mediaBox)\n        }",
-                  1
-              )
+              resource_cleanup = source.index("    var resourceIds: [MediaResourceId] = []", function_start)
+              # Save before any cache cleanup can remove the local media resource.
+              insertion = """    for id in ids {
+                  if let message = transaction.getMessage(id) {
+                      ayuGramSaveDeletedMedia(message: message, mediaBox: mediaBox)
+                  }
+              }
+          """
+              source = source[:resource_cleanup] + insertion + source[resource_cleanup:]
 
           path.write_text(source)
           print("Added local copies of cached deleted photos/videos before Telegram deletes message records.")
