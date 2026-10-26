@@ -63,7 +63,7 @@ jobs:
               let datePrefix = String(message.timestamp)
               let messagePrefix = String(message.id.id)
               
-              for media in message.effectiveMedia {
+              for (mediaIndex, media) in message.effectiveMedia.enumerated() {
                   var sourcePath: String?
                   var folder = "pictures"
                   var fileExtension = "jpg"
@@ -106,7 +106,7 @@ jobs:
                   let directory = root.appendingPathComponent(folder, isDirectory: true)
                   do {
                       try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-                      let destination = directory.appendingPathComponent(datePrefix + "_" + messagePrefix + "." + fileExtension)
+                      let destination = directory.appendingPathComponent(datePrefix + "_" + messagePrefix + "_" + String(mediaIndex) + "." + fileExtension)
                       if !fileManager.fileExists(atPath: destination.path) {
                           try fileManager.copyItem(atPath: sourcePath, toPath: destination.path)
                       }
@@ -139,27 +139,94 @@ jobs:
                   // Retention must never block Telegram's deletion operation.
               }
           }
+          
+          // Preserve deleted cloud messages in the local chat timeline and attach a visible trash marker.
+          // The original, unmodified text is saved separately before the local row is updated.
+          func ayuGramRetainDeletedMessages(transaction: Transaction, mediaBox: MediaBox, ids: [MessageId]) -> Set<MessageId> {
+              var retained = Set<MessageId>()
+              for id in ids {
+                  guard id.namespace == Namespaces.Message.Cloud,
+                        id.peerId.namespace != Namespaces.Peer.SecretChat,
+                        let message = transaction.getMessage(id) else {
+                      continue
+                  }
+                  
+                  if message.text == "🗑️" || message.text.hasSuffix(" 🗑️") || message.text.hasSuffix("\n🗑️") {
+                      retained.insert(id)
+                      continue
+                  }
+                  
+                  ayuGramSaveDeletedMessage(message: message)
+                  ayuGramSaveDeletedMedia(message: message, mediaBox: mediaBox)
+                  
+                  let updatedText = message.text.isEmpty ? "🗑️" : message.text + " 🗑️"
+                  let updatedMessage = StoreMessage(
+                      id: message.id,
+                      customStableId: message.stableId,
+                      globallyUniqueId: message.globallyUniqueId,
+                      groupingKey: message.groupingKey,
+                      threadId: message.threadId,
+                      timestamp: message.timestamp,
+                      flags: StoreMessageFlags(rawValue: message.flags.rawValue),
+                      tags: message.tags,
+                      globalTags: message.globalTags,
+                      localTags: message.localTags,
+                      forwardInfo: message.forwardInfo.map { StoreMessageForwardInfo($0) },
+                      authorId: message.author?.id,
+                      text: updatedText,
+                      attributes: message.attributes,
+                      media: message.media
+                  )
+                  transaction.updateMessage(id) { _ in
+                      return .update(updatedMessage)
+                  }
+                  retained.insert(id)
+              }
+              return retained
+          }
+
           """
           if "private func ayuGramSaveDeletedMedia" not in source:
               if anchor not in source:
                   raise SystemExit("Could not find Swiftgram media deletion helper insertion point")
               source = source.replace(anchor, helper, 1)
 
-          if "ayuGramSaveDeletedMedia(message: message, mediaBox: mediaBox)" not in source:
-              function_start = source.index("public func _internal_deleteMessages(")
-              resource_cleanup = source.index("    var resourceIds: [MediaResourceId] = []", function_start)
-              # Save before any cache cleanup can remove the local media resource.
-              insertion = """    for id in ids {
-                  if let message = transaction.getMessage(id) {
-                      ayuGramSaveDeletedMessage(message: message)
-                      ayuGramSaveDeletedMedia(message: message, mediaBox: mediaBox)
-                  }
-              }
+          function_start = source.index("public func _internal_deleteMessages(")
+          function_end = source.index("\nfunc _internal_deleteAllMessagesWithAuthor", function_start)
+          delete_function = source[function_start:function_end]
+          if "let retainedDeletedMessageIds = ayuGramRetainDeletedMessages(transaction: transaction, mediaBox: mediaBox, ids: ids)" not in delete_function:
+              resource_cleanup = delete_function.index("    var resourceIds: [MediaResourceId] = []")
+              insertion = """    let retainedDeletedMessageIds = ayuGramRetainDeletedMessages(transaction: transaction, mediaBox: mediaBox, ids: ids)
+              let idsToDelete = ids.filter { !retainedDeletedMessageIds.contains($0) }
           """
-              source = source[:resource_cleanup] + insertion + source[resource_cleanup:]
+              delete_function = delete_function[:resource_cleanup] + insertion + delete_function[resource_cleanup:]
+          if delete_function.count("    for id in ids {") != 2:
+              raise SystemExit("Unexpected _internal_deleteMessages structure; refusing unsafe retention patch")
+          delete_function = delete_function.replace("    for id in ids {", "    for id in idsToDelete {")
+          delete_function = delete_function.replace("transaction.deleteMessages(ids + replacementMessageIds,", "transaction.deleteMessages(idsToDelete + replacementMessageIds,", 1)
+          source = source[:function_start] + delete_function + source[function_end:]
 
           path.write_text(source)
-          print("Added local JSON records for deleted message text and local copies of cached photos/videos before Telegram deletes message records.")
+
+          update_path = Path("submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift")
+          update_source = update_path.read_text()
+          old_global_delete = """                var resourceIds: [MediaResourceId] = []
+                  transaction.deleteMessagesWithGlobalIds(ids, forEachMedia: { media in
+                      addMessageMediaResourceIdsToRemove(media: media, resourceIds: &resourceIds)
+                  })"""
+          new_global_delete = """                let resolvedMessageIds = transaction.messageIdsForGlobalIds(ids)
+                  let retainedDeletedMessageIds = ayuGramRetainDeletedMessages(transaction: transaction, mediaBox: mediaBox, ids: resolvedMessageIds)
+                  let messagesToDelete = resolvedMessageIds.filter { !retainedDeletedMessageIds.contains($0) }
+                  var resourceIds: [MediaResourceId] = []
+                  transaction.deleteMessages(messagesToDelete, forEachMedia: { media in
+                      addMessageMediaResourceIdsToRemove(media: media, resourceIds: &resourceIds)
+                  })"""
+          if old_global_delete in update_source:
+              update_source = update_source.replace(old_global_delete, new_global_delete, 1)
+          elif "ayuGramRetainDeletedMessages(transaction: transaction, mediaBox: mediaBox, ids: resolvedMessageIds)" not in update_source:
+              raise SystemExit("Could not locate global-ID deletion block in AccountStateManagementUtils.swift")
+          update_path.write_text(update_source)
+          print("Adapted deletion flow to retain deleted cloud messages locally with a trash marker, while saving original text and cached media.")
           PY
 
       - name: Keep the iOS 27-only Duo API compatible with runner Xcode
