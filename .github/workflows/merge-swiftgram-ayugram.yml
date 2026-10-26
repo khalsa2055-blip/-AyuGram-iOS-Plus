@@ -323,10 +323,11 @@ jobs:
             --configuration=debug_arm64 \
             --buildNumber="$BUILD_NUMBER"
           mkdir -p build/artifacts
-          ipa_path="$(find bazel-out bazel-bin -type f -name 'Telegram.ipa' -print -quit 2>/dev/null || true)"
+          # Swiftgram's current Bazel target emits Swiftgram.ipa, not Telegram.ipa.
+          ipa_path="$(find bazel-bin bazel-out -type f \( -name 'Swiftgram.ipa' -o -name 'Telegram.ipa' -o -name '*.ipa' \) -print -quit 2>/dev/null || true)"
           if [ -z "$ipa_path" ]; then
-            echo "::error::Build completed, but Telegram.ipa was not found in bazel-out or bazel-bin."
-            find bazel-out bazel-bin -type f -name '*.ipa' -print 2>/dev/null || true
+            echo "::error::Build completed, but no IPA was found under bazel-bin or bazel-out."
+            find bazel-bin bazel-out -type f -name '*.ipa' -print 2>/dev/null || true
             exit 1
           fi
           echo "Found IPA at: $ipa_path"
