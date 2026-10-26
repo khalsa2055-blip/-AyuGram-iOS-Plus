@@ -248,9 +248,14 @@ jobs:
                       let _ = mediaBox.removeCachedResources(Array(Set(resourceIds)), force: true).start()
                   }
                   deletedMessageIds.append(contentsOf: ids.map { .global($0) })"""
-              if global_case in update_source:
-                  update_source = update_source.replace(global_case, global_replacement, 1)
+              import re
+              global_pattern = r"(?ms)^\s*case let \.DeleteMessagesWithGlobalIds\(ids\):\n.*?^\s*deletedMessageIds\.append\(contentsOf: ids\.map \{ \.global\(\$0\) \}\)"
+              global_match = re.search(global_pattern, update_source)
+              if global_match:
+                  update_source = update_source[:global_match.start()] + global_replacement + update_source[global_match.end():]
                   print("Patched Swiftgram's optimized global-ID deletion operation.")
+              elif "ayuGramRetainDeletedMessages(transaction: transaction, mediaBox: mediaBox, ids: resolvedMessageIds)" in update_source:
+                  print("Global-ID deletion hook already present.")
               else:
                   print("Global-ID deletion block has changed; skipping this secondary hook for now.")
           else:
