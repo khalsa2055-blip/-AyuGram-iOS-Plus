@@ -44,7 +44,7 @@ jobs:
           path = Path("submodules/TelegramCore/Sources/TelegramEngine/Messages/DeleteMessages.swift")
           source = path.read_text()
           if "import SQLite3" not in source:
-              source = source.replace("import Foundation\\n", "import Foundation\\nimport SQLite3\\n", 1)
+              source = source.replace("import Foundation\n", "import Foundation\nimport SQLite3\n", 1)
           anchor = """func addMessageMediaResourceIdsToRemove(message: Message, resourceIds: inout [MediaResourceId]) {
               for media in message.effectiveMedia {
                   addMessageMediaResourceIdsToRemove(media: media, resourceIds: &resourceIds)
