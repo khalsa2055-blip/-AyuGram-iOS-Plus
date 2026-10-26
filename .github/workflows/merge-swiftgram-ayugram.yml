@@ -320,7 +320,7 @@ jobs:
             build \
             --configurationPath="ayugramplus-ci-configuration.json" \
             --codesigningInformationPath=build-system/fake-codesigning \
-            --configuration=release_arm64 \
+            --configuration=debug_arm64 \
             --buildNumber="$BUILD_NUMBER"
           mkdir -p build/artifacts
           ipa_path="$(find bazel-out bazel-bin -type f -name 'Telegram.ipa' -print -quit 2>/dev/null || true)"
