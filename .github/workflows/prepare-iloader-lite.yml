@@ -1,0 +1,63 @@
+name: Prepare iLoader Lite IPA
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: "GitHub Actions run ID that contains AyuGram-iOS-Plus-SideStore-IPA"
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: macos-26
+    timeout-minutes: 15
+    steps:
+      - name: Download the existing IPA artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: AyuGram-iOS-Plus-SideStore-IPA
+          path: incoming
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepare reduced-extension IPA for sideloading
+        shell: bash
+        run: |
+          set -euo pipefail
+          IPA="$(find incoming -type f -name '*.ipa' -print -quit)"
+          test -n "$IPA" || { echo "::error::No IPA found in the selected artifact"; exit 1; }
+          mkdir -p work/Payload output
+          unzip -q "$IPA" -d work
+          APP="$(find work/Payload -maxdepth 1 -type d -name '*.app' -print -quit)"
+          test -n "$APP" || { echo "::error::IPA has no top-level .app bundle"; exit 1; }
+
+          echo "Embedded app extensions before filtering:"
+          find "$APP" -type d \( -name '*.appex' -o -name '*.app' \) -print || true
+
+          # Optional compatibility build: remove nested app extensions, which otherwise
+          # need separate free-account App IDs when iLoader signs the IPA. The original
+          # artifact is not modified. Removing extensions can disable their features.
+          find "$APP" -depth -type d \( -name '*.appex' -o -name '*.app' \) -not -path "$APP" -print0 |
+            while IFS= read -r -d '' item; do rm -rf "$item"; done
+
+          # Remove extension-only provisioning profiles and repackage the main app.
+          find "$APP" -type f -name 'embedded.mobileprovision' -delete
+          (cd work && /usr/bin/zip -qry ../output/AyuGram-iOS-Plus-iLoader-Lite.ipa Payload)
+          test -s output/AyuGram-iOS-Plus-iLoader-Lite.ipa
+
+          echo "Remaining bundle identifiers:"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist"
+          echo "NOTE: This Lite IPA omits nested extensions; the main app still needs at least one available App ID."
+      - name: Upload iLoader Lite IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: AyuGram-iOS-Plus-iLoader-Lite-IPA
+          path: output/AyuGram-iOS-Plus-iLoader-Lite.ipa
+          if-no-files-found: error
+          retention-days: 7
