@@ -371,12 +371,16 @@ jobs:
               raise SystemExit("Could not locate the media Save context-menu block; refusing to patch an unknown source layout.")
 
           replacement = r'''        if !message.containsSecretMedia && !isCopyProtected {
-            var mediaReferences: [(reference: AnyMediaReference, isVideo: Bool)] = []
-            for media in message.effectiveMedia {
-                if let image = media as? TelegramMediaImage, largestImageRepresentation(image.representations) != nil {
-                    mediaReferences.append((ImageMediaReference.standalone(media: image).abstract, false))
-                } else if let file = media as? TelegramMediaFile, file.isVideo {
-                    mediaReferences.append((FileMediaReference.standalone(media: file).abstract, true))
+            var mediaReferences: [(reference: AnyMediaReference, isVideo: Bool, peerId: PeerId)] = []
+            // The context-menu callback may contain every message in a grouped album.
+            // Collect media from all supplied messages instead of saving only messages.first.
+            for mediaMessage in messages {
+                for media in mediaMessage.effectiveMedia {
+                    if let image = media as? TelegramMediaImage, largestImageRepresentation(image.representations) != nil {
+                        mediaReferences.append((ImageMediaReference.standalone(media: image).abstract, false, mediaMessage.id.peerId))
+                    } else if let file = media as? TelegramMediaFile, file.isVideo {
+                        mediaReferences.append((FileMediaReference.standalone(media: file).abstract, true, mediaMessage.id.peerId))
+                    }
                 }
             }
 
@@ -391,7 +395,7 @@ jobs:
                     let total = mediaReferences.count
                     var completedCount = 0
                     for mediaReference in mediaReferences {
-                        let _ = (saveToCameraRoll(context: context, userLocation: .peer(message.id.peerId), mediaReference: mediaReference.reference)
+                        let _ = (saveToCameraRoll(context: context, userLocation: .peer(mediaReference.peerId), mediaReference: mediaReference.reference)
                                  |> deliverOnMainQueue).startStandalone(completed: {
                             completedCount += 1
                             if completedCount == total {
