@@ -386,7 +386,7 @@ jobs:
 
             if !mediaReferences.isEmpty {
                 let allVideos = mediaReferences.allSatisfy { $0.isVideo }
-                let saveTitle = mediaReferences.count == 1 && allVideos
+                let saveTitle = allVideos
                     ? chatPresentationInterfaceState.strings.Gallery_SaveVideo
                     : chatPresentationInterfaceState.strings.Gallery_SaveImage
                 actions.append(.action(ContextMenuActionItem(text: saveTitle, icon: { theme in
