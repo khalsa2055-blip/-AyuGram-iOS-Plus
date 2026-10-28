@@ -35,6 +35,26 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
+      - name: Match Bazel checksum to Intel runner architecture
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          path = Path("versions.json")
+          versions = json.loads(path.read_text())
+          bazel_version = versions["bazel"].split(":", 1)[0]
+          if bazel_version == "9.2.0":
+              # Official Bazel 9.2.0 darwin-x86_64 release SHA-256.
+              versions["bazel"] = "9.2.0:14c9bcb01303b38192e0e2895051c1bcf19bf89d7e416f5aeeeb48b6b624cfbf"
+              path.write_text(json.dumps(versions, indent=4) + "\n")
+              print("Set Bazel 9.2.0 checksum for the macos-26-intel x86_64 runner.")
+          else:
+              raise SystemExit(f"Unexpected Bazel version {bazel_version}; refusing to guess a checksum.")
+          PY
+
       - name: Port deleted-media retention onto Swiftgram
         working-directory: source
         shell: bash
