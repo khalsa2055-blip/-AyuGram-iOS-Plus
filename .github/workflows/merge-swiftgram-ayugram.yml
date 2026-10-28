@@ -10,9 +10,13 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ayugram-ios-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   merge-and-build:
-    runs-on: macos-26
+    runs-on: macos-26-intel
     timeout-minutes: 360
     env:
       API_ID: ${{ secrets.API_ID }}
