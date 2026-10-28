@@ -376,6 +376,11 @@ jobs:
 
           path = Path("submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift")
           source = path.read_text()
+          # PeerId is defined by Postbox; TelegramCore does not re-export it into this file.
+          if "import Postbox\n" not in source:
+              if "import TelegramCore\n" not in source:
+                  raise SystemExit("Could not find TelegramCore import anchor for PeerId dependency.")
+              source = source.replace("import TelegramCore\n", "import TelegramCore\nimport Postbox\n", 1)
           start = source.find("        if resourceAvailable, !message.containsSecretMedia && !isCopyProtected {")
           end = source.find("        var downloadableMediaResourceInfos: [String] = []", start)
           if start < 0 or end < 0:
