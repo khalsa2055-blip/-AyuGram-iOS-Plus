@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   merge-and-build:
-    runs-on: macos-26-intel
+    runs-on: macos-26
     timeout-minutes: 360
     env:
       API_ID: ${{ secrets.API_ID }}
@@ -35,25 +35,12 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
-      - name: Match Bazel checksum to Intel runner architecture
-        working-directory: source
+      - name: Enable Rosetta for Intel Bazel tools on Apple Silicon
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-          path = Path("versions.json")
-          versions = json.loads(path.read_text())
-          bazel_version = versions["bazel"].split(":", 1)[0]
-          if bazel_version == "9.2.0":
-              # Official Bazel 9.2.0 darwin-x86_64 release SHA-256.
-              versions["bazel"] = "9.2.0:14c9bcb01303b38192e0e2895051c1bcf19bf89d7e416f5aeeeb48b6b624cfbf"
-              path.write_text(json.dumps(versions, indent=4) + "\n")
-              print("Set Bazel 9.2.0 checksum for the macos-26-intel x86_64 runner.")
-          else:
-              raise SystemExit(f"Unexpected Bazel version {bazel_version}; refusing to guess a checksum.")
-          PY
+          sudo softwareupdate --install-rosetta --agree-to-license
+          echo "Rosetta is ready for x86_64 build tools."
 
       - name: Port deleted-media retention onto Swiftgram
         working-directory: source
@@ -547,9 +534,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /private/var/tmp/_bazel_containerhost/cache/repos/v1
-          key: bazel-repositories-macos-26-${{ hashFiles('source/versions.json', 'source/WORKSPACE', 'source/WORKSPACE.bazel', 'source/MODULE.bazel') }}
+          key: bazel-repositories-macos-26-arm-${{ hashFiles('source/versions.json', 'source/WORKSPACE', 'source/WORKSPACE.bazel', 'source/MODULE.bazel') }}
           restore-keys: |
-            bazel-repositories-macos-26-
+            bazel-repositories-macos-26-arm-
 
       - name: Build iOS IPA
         working-directory: source
