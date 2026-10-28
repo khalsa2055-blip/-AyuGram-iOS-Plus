@@ -376,26 +376,21 @@ jobs:
 
           path = Path("submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift")
           source = path.read_text()
-          # PeerId is defined by Postbox; TelegramCore does not re-export it into this file.
-          if "import Postbox\n" not in source:
-              if "import TelegramCore\n" not in source:
-                  raise SystemExit("Could not find TelegramCore import anchor for PeerId dependency.")
-              source = source.replace("import TelegramCore\n", "import TelegramCore\nimport Postbox\n", 1)
           start = source.find("        if resourceAvailable, !message.containsSecretMedia && !isCopyProtected {")
           end = source.find("        var downloadableMediaResourceInfos: [String] = []", start)
           if start < 0 or end < 0:
               raise SystemExit("Could not locate the media Save context-menu block; refusing to patch an unknown source layout.")
 
           replacement = r'''        if !message.containsSecretMedia && !isCopyProtected {
-            var mediaReferences: [(reference: AnyMediaReference, isVideo: Bool, peerId: PeerId)] = []
+            var mediaReferences: [(reference: AnyMediaReference, isVideo: Bool, message: Message)] = []
             // The context-menu callback may contain every message in a grouped album.
             // Collect media from all supplied messages instead of saving only messages.first.
             for mediaMessage in messages {
                 for media in mediaMessage.effectiveMedia {
                     if let image = media as? TelegramMediaImage, largestImageRepresentation(image.representations) != nil {
-                        mediaReferences.append((ImageMediaReference.standalone(media: image).abstract, false, mediaMessage.id.peerId))
+                        mediaReferences.append((ImageMediaReference.standalone(media: image).abstract, false, mediaMessage))
                     } else if let file = media as? TelegramMediaFile, file.isVideo {
-                        mediaReferences.append((FileMediaReference.standalone(media: file).abstract, true, mediaMessage.id.peerId))
+                        mediaReferences.append((FileMediaReference.standalone(media: file).abstract, true, mediaMessage))
                     }
                 }
             }
@@ -411,7 +406,7 @@ jobs:
                     let total = mediaReferences.count
                     var completedCount = 0
                     for mediaReference in mediaReferences {
-                        let _ = (saveToCameraRoll(context: context, userLocation: .peer(mediaReference.peerId), mediaReference: mediaReference.reference)
+                        let _ = (saveToCameraRoll(context: context, userLocation: .peer(mediaReference.message.id.peerId), mediaReference: mediaReference.reference)
                                  |> deliverOnMainQueue).startStandalone(completed: {
                             completedCount += 1
                             if completedCount == total {
