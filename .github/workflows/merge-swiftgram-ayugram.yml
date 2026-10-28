@@ -414,7 +414,7 @@ jobs:
             }
         }
 
-'''
+          '''
           source = source[:start] + replacement + source[end:]
           path.write_text(source)
           print("Manual Save is now kept in the main long-press menu, is not hidden by the Swiftgram setting, and processes every image/video in an album.")
