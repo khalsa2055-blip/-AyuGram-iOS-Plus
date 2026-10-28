@@ -353,6 +353,69 @@ jobs:
           print("Moved the visible trash marker out of message text and into timestamp rows.")
           PY
 
+
+      - name: Fix manual Save action in long-press media menu
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          path = Path("submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift")
+          source = path.read_text()
+          start = source.find("        if resourceAvailable, !message.containsSecretMedia && !isCopyProtected {")
+          end = source.find("        var downloadableMediaResourceInfos: [String] = []", start)
+          if start < 0 or end < 0:
+              raise SystemExit("Could not locate the media Save context-menu block; refusing to patch an unknown source layout.")
+
+          replacement = r'''        if !message.containsSecretMedia && !isCopyProtected {
+            var mediaReferences: [(reference: AnyMediaReference, isVideo: Bool)] = []
+            for media in message.effectiveMedia {
+                if let image = media as? TelegramMediaImage, largestImageRepresentation(image.representations) != nil {
+                    mediaReferences.append((ImageMediaReference.standalone(media: image).abstract, false))
+                } else if let file = media as? TelegramMediaFile, file.isVideo {
+                    mediaReferences.append((FileMediaReference.standalone(media: file).abstract, true))
+                }
+            }
+
+            if !mediaReferences.isEmpty {
+                let allVideos = mediaReferences.allSatisfy { $0.isVideo }
+                let saveTitle = mediaReferences.count == 1 && allVideos
+                    ? chatPresentationInterfaceState.strings.Gallery_SaveVideo
+                    : chatPresentationInterfaceState.strings.Gallery_SaveImage
+                actions.append(.action(ContextMenuActionItem(text: saveTitle, icon: { theme in
+                    return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Save"), color: theme.actionSheet.primaryTextColor)
+                }, action: { _, f in
+                    let total = mediaReferences.count
+                    var completedCount = 0
+                    for mediaReference in mediaReferences {
+                        let _ = (saveToCameraRoll(context: context, userLocation: .peer(message.id.peerId), mediaReference: mediaReference.reference)
+                                 |> deliverOnMainQueue).startStandalone(completed: {
+                            completedCount += 1
+                            if completedCount == total {
+                                Queue.mainQueue().after(0.2) {
+                                    let presentationData = context.sharedContext.currentPresentationData.with { $0 }
+                                    let savedText = allVideos
+                                        ? presentationData.strings.Gallery_VideoSaved
+                                        : presentationData.strings.Gallery_ImageSaved
+                                    controllerInteraction.presentControllerInCurrent(UndoOverlayController(presentationData: presentationData, content: .mediaSaved(text: savedText), elevatedLayout: false, animateInAsReplacement: false, action: { _ in return true }), nil)
+                                }
+                            }
+                        })
+                    }
+                    f(.default)
+                })))
+            }
+        }
+
+'''
+          source = source[:start] + replacement + source[end:]
+          path.write_text(source)
+          print("Manual Save is now kept in the main long-press menu, is not hidden by the Swiftgram setting, and processes every image/video in an album.")
+          PY
+
       - name: Keep the iOS 27-only Duo API compatible with runner Xcode
         working-directory: source
         shell: bash
