@@ -630,16 +630,7 @@ jobs:
           echo "Found IPA at: $ipa_path"
           cp "$ipa_path" build/artifacts/AyuGram-iOS-Plus-SideStore.ipa
           test -s build/artifacts/AyuGram-iOS-Plus-SideStore.ipa
-
-      - name: Expose app Documents in iOS Files
-        working-directory: source
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import os
           import plistlib
-          import tempfile
           import zipfile
           from pathlib import Path
 
