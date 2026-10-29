@@ -360,8 +360,13 @@ jobs:
           from pathlib import Path
           path = Path("submodules/AyuGramIOS/Sources/AyuGramMediaArchive.swift")
           source = path.read_text()
-          source = source.replace('            "senderName": message.fromName ?? "",\\n', "")
-          source = source.replace('            "deletedAt": message.deletedAt.map { NSNumber(value: $0) } ?? NSNull(),\\n', "")
+          lines = path.read_text().splitlines(keepends=True)
+          lines = [
+              line for line in lines
+              if '"senderName": message.fromName' not in line
+              and '"deletedAt": message.deletedAt' not in line
+          ]
+          source = "".join(lines)
           path.write_text(source)
           if "message.fromName" in source or "message.deletedAt" in source:
               raise SystemExit("Unsupported AyuMessage properties remain in AyuGramMediaArchive.swift")
