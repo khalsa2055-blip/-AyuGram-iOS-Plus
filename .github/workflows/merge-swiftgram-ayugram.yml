@@ -389,7 +389,7 @@ jobs:
               anchor = '        "//submodules/TelegramCore:TelegramCore",'
               if anchor not in text:
                   raise SystemExit("Could not find TelegramUI dependency insertion point")
-              text = text.replace(anchor, anchor + "\\n" + dep, 1)
+              text = text.replace(anchor, anchor + "\n" + dep, 1)
               build.write_text(text)
           menu = Path("submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift")
           text = menu.read_text()
@@ -397,7 +397,7 @@ jobs:
               anchor = "import TelegramNotices"
               if anchor not in text:
                   raise SystemExit("Could not find context-menu import insertion point")
-              text = text.replace(anchor, anchor + "\\nimport AyuGramIOS", 1)
+              text = text.replace(anchor, anchor + "\nimport AyuGramIOS", 1)
               menu.write_text(text)
           print("Ported ezz AyuGramIOS save service and linked it to TelegramUI.")
           PY
