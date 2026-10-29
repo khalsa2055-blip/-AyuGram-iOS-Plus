@@ -1,5 +1,5 @@
 name: Merge Swiftgram + AyuGram iOS
-run-name: Test 71 - Diagnose workflow startup
+run-name: Test 75 - Ensure Save action for tapped media
 
 on:
   workflow_dispatch:
@@ -36,11 +36,11 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
-      - name: Test 71 startup diagnostics
+      - name: Verify build workflow startup
         shell: bash
         run: |
           set -euo pipefail
-          echo "Workflow startup diagnostic is running."
+          echo "Workflow startup diagnostic passed."
           echo "Runner: $RUNNER_OS / $RUNNER_ARCH"
           echo "Branch: $GITHUB_REF_NAME"
           git --version
@@ -367,7 +367,11 @@ jobs:
             var mediaReferences: [(reference: AnyMediaReference, isVideo: Bool, fileName: String)] = []
             // Preserve album support, but export files into the app's Documents directory,
             // which is exposed in Files by UIFileSharingEnabled in the packaged Info.plist.
-            for mediaMessage in messages {
+            // Always inspect the exact message that opened this context menu first.
+            // Some menu entry points supply a grouped-message array that does not contain
+            // the tapped message; keep album support without relying on that array alone.
+            let mediaMessages = [message] + messages.filter { $0.id != message.id }
+            for mediaMessage in mediaMessages {
                 for media in mediaMessage.effectiveMedia {
                     if let image = media as? TelegramMediaImage, largestImageRepresentation(image.representations) != nil {
                         let fileName = "image-\(mediaMessage.id.id)-\(UUID().uuidString).jpg"
