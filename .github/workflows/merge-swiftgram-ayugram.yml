@@ -358,7 +358,7 @@ jobs:
             for mediaMessage in messages {
                 for media in mediaMessage.effectiveMedia {
                     if let image = media as? TelegramMediaImage, largestImageRepresentation(image.representations) != nil {
-                        let fileName = "image-\\(mediaMessage.id.id)-\\(UUID().uuidString).jpg"
+                        let fileName = "image-\(mediaMessage.id.id)-\(UUID().uuidString).jpg"
                         mediaReferences.append((ImageMediaReference.standalone(media: image).abstract, false, fileName))
                     } else if let file = media as? TelegramMediaFile, file.isVideo {
                         let rawName = file.fileName ?? "video"
@@ -368,7 +368,7 @@ jobs:
                             : rawExtension.lowercased()
                         let rawBaseName = (rawName as NSString).deletingPathExtension
                         let baseName = URL(fileURLWithPath: rawBaseName.isEmpty ? "video" : rawBaseName).lastPathComponent
-                        let fileName = "\\(baseName)-\\(mediaMessage.id.id)-\\(UUID().uuidString).\\(fileExtension)"
+                        let fileName = "\(baseName)-\(mediaMessage.id.id)-\(UUID().uuidString).\(fileExtension)"
                         mediaReferences.append((FileMediaReference.standalone(media: file).abstract, true, fileName))
                     }
                 }
@@ -392,14 +392,14 @@ jobs:
                                 return
                             }
                             let folder = mediaReference.isVideo ? "videos" : "pictures"
-                            let directory = documents.appendingPathComponent("AyuGram/saved/\\(folder)", isDirectory: true)
+                            let directory = documents.appendingPathComponent("AyuGram/saved/\(folder)", isDirectory: true)
                             do {
                                 try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
                                 let destination = directory.appendingPathComponent(mediaReference.fileName)
                                 try fileManager.copyItem(atPath: data.path, toPath: destination.path)
                                 copiedIndices.insert(index)
                             } catch {
-                                print("AyuGram Save to Files failed: \\(error)")
+                                print("AyuGram Save to Files failed: \(error)")
                             }
                         }, completed: {
                             finishedCount += 1
@@ -408,7 +408,7 @@ jobs:
                                     let presentationData = context.sharedContext.currentPresentationData.with { $0 }
                                     let savedText = copiedIndices.count == total
                                         ? "Saved to Files"
-                                        : "Saved \\(copiedIndices.count) of \\(total) items to Files"
+                                        : "Saved \(copiedIndices.count) of \(total) items to Files"
                                     controllerInteraction.presentControllerInCurrent(UndoOverlayController(presentationData: presentationData, content: .mediaSaved(text: savedText), elevatedLayout: false, animateInAsReplacement: false, action: { _ in return true }), nil)
                                 }
                             }
@@ -422,7 +422,7 @@ jobs:
           '''
           source = source[:start] + replacement + source[end:]
           path.write_text(source)
-          print("Manual Save is now kept in the main long-press menu, is not hidden by the Swiftgram setting, and processes every image/video in an album.")
+          print("Manual Save now exports every image/video in an album to the app's Files-visible Documents folders.")
           PY
 
       - name: Keep the iOS 27-only Duo API compatible with runner Xcode
