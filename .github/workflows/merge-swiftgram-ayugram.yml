@@ -352,39 +352,63 @@ jobs:
               raise SystemExit("Could not locate the media Save context-menu block; refusing to patch an unknown source layout.")
 
           replacement = r'''        if !message.containsSecretMedia && !isCopyProtected {
-            var mediaReferences: [(reference: AnyMediaReference, isVideo: Bool)] = []
-            // The context-menu callback may contain every message in a grouped album.
-            // Collect media from all supplied messages instead of saving only messages.first.
+            var mediaReferences: [(reference: AnyMediaReference, isVideo: Bool, fileName: String)] = []
+            // Preserve album support, but export files into the app's Documents directory,
+            // which is exposed in Files by UIFileSharingEnabled in the packaged Info.plist.
             for mediaMessage in messages {
                 for media in mediaMessage.effectiveMedia {
                     if let image = media as? TelegramMediaImage, largestImageRepresentation(image.representations) != nil {
-                        mediaReferences.append((ImageMediaReference.standalone(media: image).abstract, false))
+                        let fileName = "image-\\(mediaMessage.id.id)-\\(UUID().uuidString).jpg"
+                        mediaReferences.append((ImageMediaReference.standalone(media: image).abstract, false, fileName))
                     } else if let file = media as? TelegramMediaFile, file.isVideo {
-                        mediaReferences.append((FileMediaReference.standalone(media: file).abstract, true))
+                        let rawName = file.fileName ?? "video"
+                        let rawExtension = (rawName as NSString).pathExtension
+                        let fileExtension = rawExtension.isEmpty
+                            ? (file.mimeType.lowercased().contains("quicktime") ? "mov" : "mp4")
+                            : rawExtension.lowercased()
+                        let rawBaseName = (rawName as NSString).deletingPathExtension
+                        let baseName = URL(fileURLWithPath: rawBaseName.isEmpty ? "video" : rawBaseName).lastPathComponent
+                        let fileName = "\\(baseName)-\\(mediaMessage.id.id)-\\(UUID().uuidString).\\(fileExtension)"
+                        mediaReferences.append((FileMediaReference.standalone(media: file).abstract, true, fileName))
                     }
                 }
             }
 
             if !mediaReferences.isEmpty {
-                let allVideos = mediaReferences.allSatisfy { $0.isVideo }
-                let saveTitle = allVideos
-                    ? chatPresentationInterfaceState.strings.Gallery_SaveVideo
-                    : chatPresentationInterfaceState.strings.Gallery_SaveImage
-                actions.append(.action(ContextMenuActionItem(text: saveTitle, icon: { theme in
+                actions.append(.action(ContextMenuActionItem(text: "Save to Files", icon: { theme in
                     return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Save"), color: theme.actionSheet.primaryTextColor)
                 }, action: { _, f in
                     let total = mediaReferences.count
-                    var completedCount = 0
-                    for mediaReference in mediaReferences {
-                        let _ = (saveToCameraRoll(context: context, userLocation: .peer(message.id.peerId), mediaReference: mediaReference.reference)
-                                 |> deliverOnMainQueue).startStandalone(completed: {
-                            completedCount += 1
-                            if completedCount == total {
+                    var copiedIndices = Set<Int>()
+                    var finishedCount = 0
+                    for (index, mediaReference) in mediaReferences.enumerated() {
+                        let _ = (fetchMediaData(context: context, userLocation: .peer(message.id.peerId), mediaReference: mediaReference.reference)
+                                 |> deliverOnMainQueue).startStandalone(next: { state, _ in
+                            guard case let .data(data) = state, data.isComplete, !copiedIndices.contains(index) else {
+                                return
+                            }
+                            let fileManager = FileManager.default
+                            guard let documents = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first else {
+                                return
+                            }
+                            let folder = mediaReference.isVideo ? "videos" : "pictures"
+                            let directory = documents.appendingPathComponent("AyuGram/saved/\\(folder)", isDirectory: true)
+                            do {
+                                try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+                                let destination = directory.appendingPathComponent(mediaReference.fileName)
+                                try fileManager.copyItem(atPath: data.path, toPath: destination.path)
+                                copiedIndices.insert(index)
+                            } catch {
+                                print("AyuGram Save to Files failed: \\(error)")
+                            }
+                        }, completed: {
+                            finishedCount += 1
+                            if finishedCount == total {
                                 Queue.mainQueue().after(0.2) {
                                     let presentationData = context.sharedContext.currentPresentationData.with { $0 }
-                                    let savedText = allVideos
-                                        ? presentationData.strings.Gallery_VideoSaved
-                                        : presentationData.strings.Gallery_ImageSaved
+                                    let savedText = copiedIndices.count == total
+                                        ? "Saved to Files"
+                                        : "Saved \\(copiedIndices.count) of \\(total) items to Files"
                                     controllerInteraction.presentControllerInCurrent(UndoOverlayController(presentationData: presentationData, content: .mediaSaved(text: savedText), elevatedLayout: false, animateInAsReplacement: false, action: { _ in return true }), nil)
                                 }
                             }
@@ -393,7 +417,7 @@ jobs:
                     f(.default)
                 })))
             }
-                  }
+        }
 
           '''
           source = source[:start] + replacement + source[end:]
@@ -606,6 +630,52 @@ jobs:
           echo "Found IPA at: $ipa_path"
           cp "$ipa_path" build/artifacts/AyuGram-iOS-Plus-SideStore.ipa
           test -s build/artifacts/AyuGram-iOS-Plus-SideStore.ipa
+
+      - name: Expose app Documents in iOS Files
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import plistlib
+          import tempfile
+          import zipfile
+          from pathlib import Path
+
+          ipa = Path("build/artifacts/AyuGram-iOS-Plus-SideStore.ipa")
+          patched = ipa.with_suffix(".patched.ipa")
+          if not ipa.is_file():
+              raise SystemExit(f"IPA not found: {ipa}")
+
+          with zipfile.ZipFile(ipa, "r") as source:
+              entries = source.infolist()
+              app_info = next((entry for entry in entries if entry.filename.startswith("Payload/") and entry.filename.count("/") == 2 and entry.filename.endswith(".app/Info.plist")), None)
+              if app_info is None:
+                  app_info = next((entry for entry in entries if entry.filename.startswith("Payload/") and ".app/Info.plist" in entry.filename), None)
+              if app_info is None:
+                  raise SystemExit("Could not find the main app Info.plist inside the IPA")
+
+              with zipfile.ZipFile(patched, "w") as target:
+                  for entry in entries:
+                      data = source.read(entry.filename)
+                      if entry.filename == app_info.filename:
+                          info = plistlib.loads(data)
+                          info["UIFileSharingEnabled"] = True
+                          info["LSSupportsOpeningDocumentsInPlace"] = True
+                          data = plistlib.dumps(info, fmt=plistlib.FMT_BINARY)
+                          print(f"Enabled Files access in {entry.filename}")
+                      target.writestr(entry, data)
+
+          os.replace(patched, ipa)
+          with zipfile.ZipFile(ipa, "r") as check:
+              check.testzip()
+              info_path = next(name for name in check.namelist() if name.startswith("Payload/") and name.endswith(".app/Info.plist") and name.count("/") == 2)
+              info = plistlib.loads(check.read(info_path))
+              assert info.get("UIFileSharingEnabled") is True
+              assert info.get("LSSupportsOpeningDocumentsInPlace") is True
+          print("Files app access flags verified; saved media will appear under On My iPhone > app name > AyuGram > saved.")
+          PY
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
