@@ -347,98 +347,108 @@ jobs:
           PY
 
 
-      - name: Fix manual Save action in long-press media menu
+      - name: Port AyuGram Save implementation from ezz
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL https://raw.githubusercontent.com/khalsa2055-blip/ezz/main/patches/ayugram-1.3.0.patch -o /tmp/ezz-ayugram.patch
+          # Import only the AyuGramIOS implementation files; do not apply unrelated desktop/UI features.
+          git apply --include='submodules/AyuGramIOS/BUILD' --include='submodules/AyuGramIOS/Sources/*.swift' /tmp/ezz-ayugram.patch
+          python3 - <<'PY'
+          from pathlib import Path
+          build = Path("submodules/TelegramUI/BUILD")
+          text = build.read_text()
+          dep = '        "//submodules/AyuGramIOS:AyuGramIOS",'
+          if dep not in text:
+              anchor = '        "//submodules/TelegramCore:TelegramCore",'
+              if anchor not in text:
+                  raise SystemExit("Could not find TelegramUI dependency insertion point")
+              text = text.replace(anchor, anchor + "\\n" + dep, 1)
+              build.write_text(text)
+          menu = Path("submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift")
+          text = menu.read_text()
+          if "import AyuGramIOS" not in text:
+              anchor = "import TelegramNotices"
+              if anchor not in text:
+                  raise SystemExit("Could not find context-menu import insertion point")
+              text = text.replace(anchor, anchor + "\\nimport AyuGramIOS", 1)
+              menu.write_text(text)
+          print("Ported ezz AyuGramIOS save service and linked it to TelegramUI.")
+          PY
+
+      - name: Replace custom Save with ezz AyuGram Save
         working-directory: source
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import re
           from pathlib import Path
-
           path = Path("submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift")
           source = path.read_text()
           start = source.find("        if resourceAvailable, !message.containsSecretMedia && !isCopyProtected {")
           end = source.find("        var downloadableMediaResourceInfos: [String] = []", start)
           if start < 0 or end < 0:
-              raise SystemExit("Could not locate the media Save context-menu block; refusing to patch an unknown source layout.")
-
+              raise SystemExit("Could not locate the Save context-menu block; refusing unsafe patch.")
           replacement = r'''        if !message.containsSecretMedia && !isCopyProtected {
-            var mediaReferences: [(reference: AnyMediaReference, isVideo: Bool, fileName: String)] = []
-            // Preserve album support, but export files into the app's Documents directory,
-            // which is exposed in Files by UIFileSharingEnabled in the packaged Info.plist.
-            // Always inspect the exact message that opened this context menu first.
-            // Some menu entry points supply a grouped-message array that does not contain
-            // the tapped message; keep album support without relying on that array alone.
-            let mediaMessages = [message] + messages.filter { $0.id != message.id }
-            for mediaMessage in mediaMessages {
-                for media in mediaMessage.effectiveMedia {
-                    if let image = media as? TelegramMediaImage, largestImageRepresentation(image.representations) != nil {
-                        let fileName = "image-\(mediaMessage.id.id)-\(UUID().uuidString).jpg"
-                        mediaReferences.append((ImageMediaReference.standalone(media: image).abstract, false, fileName))
-                    } else if let file = media as? TelegramMediaFile, file.isVideo {
-                        let rawName = file.fileName ?? "video"
-                        let rawExtension = (rawName as NSString).pathExtension
-                        let fileExtension = rawExtension.isEmpty
-                            ? (file.mimeType.lowercased().contains("quicktime") ? "mov" : "mp4")
-                            : rawExtension.lowercased()
-                        let rawBaseName = (rawName as NSString).deletingPathExtension
-                        let baseName = URL(fileURLWithPath: rawBaseName.isEmpty ? "video" : rawBaseName).lastPathComponent
-                        let fileName = "\(baseName)-\(mediaMessage.id.id)-\(UUID().uuidString).\(fileExtension)"
-                        mediaReferences.append((FileMediaReference.standalone(media: file).abstract, true, fileName))
-                    }
-                }
-            }
-
-            if !mediaReferences.isEmpty {
-                actions.append(.action(ContextMenuActionItem(text: "Save to Files", icon: { theme in
-                    return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Save"), color: theme.actionSheet.primaryTextColor)
-                }, action: { _, f in
-                    let total = mediaReferences.count
-                    var copiedIndices = Set<Int>()
-                    var finishedCount = 0
-                    for (index, mediaReference) in mediaReferences.enumerated() {
-                        let _ = (fetchMediaData(context: context, userLocation: .peer(message.id.peerId), mediaReference: mediaReference.reference)
-                                 |> deliverOnMainQueue).startStandalone(next: { state, _ in
-                            guard case let .data(data) = state, data.isComplete, !copiedIndices.contains(index) else {
-                                return
-                            }
-                            let fileManager = FileManager.default
-                            guard let documents = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first else {
-                                return
-                            }
-                            let folder = mediaReference.isVideo ? "videos" : "pictures"
-                            let directory = documents.appendingPathComponent("AyuGram/saved/\(folder)", isDirectory: true)
-                            do {
-                                try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-                                let destination = directory.appendingPathComponent(mediaReference.fileName)
-                                try fileManager.copyItem(atPath: data.path, toPath: destination.path)
-                                copiedIndices.insert(index)
-                            } catch {
-                                print("AyuGram Save to Files failed: \(error)")
-                            }
-                        }, completed: {
-                            finishedCount += 1
-                            if finishedCount == total {
-                                Queue.mainQueue().after(0.2) {
-                                    let presentationData = context.sharedContext.currentPresentationData.with { $0 }
-                                    let savedText = copiedIndices.count == total
-                                        ? "Saved to Files"
-                                        : "Saved \(copiedIndices.count) of \(total) items to Files"
-                                    controllerInteraction.presentControllerInCurrent(UndoOverlayController(presentationData: presentationData, content: .mediaSaved(text: savedText), elevatedLayout: false, animateInAsReplacement: false, action: { _ in return true }), nil)
-                                }
-                            }
-                        })
-                    }
-                    f(.default)
-                })))
-            }
-                  }
+              let savableMessages = messages.filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !$0.effectiveMedia.isEmpty }
+              if !savableMessages.isEmpty {
+                  actions.append(.action(ContextMenuActionItem(text: "AyuGram Save", icon: { theme in
+                      return generateTintedImage(image: UIImage(systemName: "tray.and.arrow.down"), color: theme.actionSheet.primaryTextColor)
+                  }, action: { c, _ in
+                      c?.dismiss(completion: {
+                          let accountID = context.account.peerId.toInt64()
+                          let groups: [(AyuMessage, [(MediaResource, AyuMediaResourceInfo, String?)])] = savableMessages.map { item in
+                              let snapshot = AyuGramPostboxBridge.snapshot(message: item, accountID: accountID, isDeleted: false)
+                              let resources: [(MediaResource, AyuMediaResourceInfo, String?)] = item.effectiveMedia.flatMap { media in
+                                  if let image = media as? TelegramMediaImage, let representation = largestImageRepresentation(image.representations) {
+                                      return [(representation.resource, AyuMediaResourceInfo(id: representation.resource.id.stringRepresentation, mimeType: "image/jpeg"), "jpg")]
+                                  } else if let file = media as? TelegramMediaFile {
+                                      return [(file.resource, AyuMediaResourceInfo(id: file.resource.id.stringRepresentation, mimeType: file.mimeType), nil)]
+                                  }
+                                  return []
+                              }
+                              return (snapshot, resources)
+                          }
+                          let fetchSignals: [Signal<Bool, NoError>] = groups.flatMap { group in
+                              group.1.map { resource, _, ext in
+                                  Signal { subscriber in
+                                      let fetched = context.account.postbox.mediaBox.fetchedResource(resource, parameters: nil).start()
+                                      let data = context.account.postbox.mediaBox.resourceData(resource, pathExtension: ext, option: .complete(waitUntilFetchStatus: false), attemptSynchronously: false)
+                                          |> filter { $0.complete }
+                                          |> take(1)
+                                      let disposable = data.start(next: { _ in subscriber.putNext(true); subscriber.putCompletion() })
+                                      return ActionDisposable { fetched.dispose(); disposable.dispose() }
+                                  }
+                              }
+                          }
+                          let fetchAll: Signal<[Bool], NoError> = fetchSignals.isEmpty ? .single([]) : (combineLatest(fetchSignals) |> take(1))
+                          _ = (fetchAll |> deliverOnMainQueue).startStandalone(next: { states in
+                              var index = 0
+                              var allSaved = true
+                              for (snapshot, resources) in groups {
+                                  var ready = true
+                                  for _ in resources {
+                                      if index >= states.count || !states[index] { ready = false }
+                                      index += 1
+                                  }
+                                  if ready {
+                                      allSaved = AyuGramCaptureService.saveNow(mediaBox: context.account.postbox.mediaBox, snapshot: snapshot, resources: resources.map { $0.1 }) && allSaved
+                                  } else {
+                                      allSaved = false
+                                  }
+                              }
+                              controllerInteraction.displayUndo(.info(title: nil, text: allSaved ? "Saved to AyuGram" : "AyuGram could not save all selected messages", timeout: 2.0, customUndoText: nil))
+                          })
+                      })
+                  })))
+              }
+          }
 
           '''
           source = source[:start] + replacement + source[end:]
           path.write_text(source)
-          print("Manual Save now exports every image/video in an album to the app's Files-visible Documents folders.")
+          print("Replaced the custom Save to Files implementation with ezz's AyuGram Save service.")
           PY
 
       - name: Keep the iOS 27-only Duo API compatible with runner Xcode
