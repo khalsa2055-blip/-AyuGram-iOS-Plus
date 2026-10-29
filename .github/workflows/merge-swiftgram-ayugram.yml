@@ -354,7 +354,7 @@ jobs:
           set -euo pipefail
           curl -fsSL https://raw.githubusercontent.com/khalsa2055-blip/ezz/main/patches/ayugram-1.3.0.patch -o /tmp/ezz-ayugram.patch
           # Import only the AyuGramIOS implementation files; do not apply unrelated desktop/UI features.
-          git apply --include='submodules/AyuGramIOS/BUILD' --include='submodules/AyuGramIOS/Sources/*.swift' /tmp/ezz-ayugram.patch
+          git apply --recount --include='submodules/AyuGramIOS/BUILD' --include='submodules/AyuGramIOS/Sources/*.swift' /tmp/ezz-ayugram.patch
           python3 - <<'PY'
           from pathlib import Path
           build = Path("submodules/TelegramUI/BUILD")
