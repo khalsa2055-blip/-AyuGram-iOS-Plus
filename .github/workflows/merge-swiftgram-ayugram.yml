@@ -365,7 +365,17 @@ jobs:
               "submodules/AyuGramIOS/Sources/AyuGramMediaArchive.swift",
               "submodules/AyuGramIOS/Sources/AyuGramPostboxBridge.swift",
               "submodules/AyuGramIOS/Sources/AyuGramPostboxHistoryStore.swift",
+              "submodules/AyuGramIOS/Sources/AyuGramSmokeTest.swift",
           ])
+          header = [line for line in path.read_text().splitlines() if line.startswith("#")]
+          body = sorted(line for line in entries if line and not line.startswith("#"))
+          path.write_text("\n".join(header + [""] + body) + "\n")
+          PY
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("submodules/Postbox/AllowedPostboxAccess.txt")
+          entries = set(path.read_text().splitlines())
+          entries.add("submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift")
           header = [line for line in path.read_text().splitlines() if line.startswith("#")]
           body = sorted(line for line in entries if line and not line.startswith("#"))
           path.write_text("\n".join(header + [""] + body) + "\n")
