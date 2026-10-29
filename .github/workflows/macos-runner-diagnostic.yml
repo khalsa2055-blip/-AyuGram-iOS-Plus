@@ -1,0 +1,26 @@
+name: macOS Runner Diagnostic
+run-name: macOS Runner Diagnostic
+
+on:
+  push:
+    branches:
+      - integrate-swiftgram-ayugram
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose-macos:
+    runs-on: macos-26
+    timeout-minutes: 5
+    steps:
+      - name: Verify macOS runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "macOS runner started successfully."
+          echo "OS: $RUNNER_OS"
+          echo "Architecture: $RUNNER_ARCH"
+          sw_vers
+          xcodebuild -version
