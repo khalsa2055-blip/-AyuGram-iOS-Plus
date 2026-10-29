@@ -368,7 +368,7 @@ jobs:
           ])
           header = [line for line in path.read_text().splitlines() if line.startswith("#")]
           body = sorted(line for line in entries if line and not line.startswith("#"))
-          path.write_text("\\n".join(header + [""] + body) + "\\n")
+          path.write_text("\n".join(header + [""] + body) + "\n")
           PY
           python3 - <<'PY'
           from pathlib import Path
