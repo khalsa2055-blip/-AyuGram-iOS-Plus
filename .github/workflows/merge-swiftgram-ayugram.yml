@@ -402,6 +402,25 @@ jobs:
           print("Ported ezz AyuGramIOS save service and linked it to TelegramUI.")
           PY
 
+      - name: Allow AyuGramIOS to use the Postbox target
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("submodules/Postbox/BUILD")
+          source = path.read_text()
+          anchor = '        "//submodules/AccountContext",\\n'
+          dep = '        "//submodules/AyuGramIOS",\\n'
+          if dep not in source:
+              if anchor not in source:
+                  raise SystemExit("Could not find Postbox clients package-group insertion point")
+              source = source.replace(anchor, anchor + dep, 1)
+              path.write_text(source)
+          print("Allowed AyuGramIOS as a Postbox client package for the imported Save bridge.")
+          PY
+
       - name: Replace custom Save with ezz AyuGram Save
         working-directory: source
         shell: bash
