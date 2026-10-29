@@ -192,7 +192,7 @@ jobs:
                       continue
                   }
                   
-                  if message.text == "🗑️" || message.text.hasSuffix(" 🗑️") || message.text.hasSuffix("\n🗑️") {
+                  if message.text.hasSuffix("\u{2063}") {
                       retained.insert(id)
                       continue
                   }
@@ -200,7 +200,7 @@ jobs:
                   ayuGramSaveDeletedMessage(message: message)
                   ayuGramSaveDeletedMedia(message: message, mediaBox: mediaBox)
                   
-                  let updatedText = message.text.isEmpty ? "🗑️" : message.text + " 🗑️"
+                  let updatedText = message.text + "\u{2063}"
                   let updatedMessage = StoreMessage(
                       id: message.id,
                       customStableId: message.stableId,
@@ -313,55 +313,25 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
-          # AyuGram Desktop keeps deleted-message data separate from the visible message.
-          # On iOS, render the retention marker in the timestamp row rather than appending
-          # an emoji to the user's message text.
+          # Keep the retention sentinel invisible in message text. Render the visible trash
+          # icon only in the timestamp row, so it cannot be mistaken for message content.
           timestamp_files = [
               Path("submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift"),
               Path("submodules/TelegramUI/Components/Chat/ChatMessageTextBubbleContentNode/Sources/ChatMessageTextBubbleContentNode.swift"),
               Path("submodules/TelegramUI/Components/Chat/ChatMessageRichDataBubbleContentNode/Sources/ChatMessageRichDataBubbleContentNode.swift"),
               Path("submodules/TelegramUI/Components/Chat/ChatMessageMediaBubbleContentNode/Sources/ChatMessageMediaBubbleContentNode.swift"),
           ]
+          needle = "let dateText = stringForMessageTimestampStatus("
+          replacement = r'let dateText = (item.message.text.hasSuffix("\u{2063}") ? "🗑️ " : "") + stringForMessageTimestampStatus('
           for path in timestamp_files:
               source = path.read_text()
-              needle = "let dateText = stringForMessageTimestampStatus("
-              if needle in source:
-                  lines = source.splitlines()
-                  updated = []
-                  count = 0
-                  for line in lines:
-                      if needle in line:
-                          indent = line[:len(line) - len(line.lstrip())]
-                          line = line.replace("let dateText =", "let ayuBaseDateText =", 1)
-                          updated.append(line)
-                          updated.append(indent + 'let dateText = (item.message.text == "🗑️" || item.message.text.hasSuffix(" 🗑️") || item.message.text.hasSuffix("\\n🗑️")) ? "🗑️ " + ayuBaseDateText : ayuBaseDateText')
-                          count += 1
-                      else:
-                          updated.append(line)
-                  if count:
-                      path.write_text("\n".join(updated) + "\n")
-                      print(f"Added timestamp marker to {path} ({count} call site(s))")
-                  else:
-                      raise SystemExit(f"Could not patch timestamp call in {path}")
-              else:
+              count = source.count(needle)
+              if count < 1:
                   raise SystemExit(f"Could not find timestamp call in {path}")
-
-          # Remove the persistence sentinel from rendered message text. The timestamp
-          # checks the stored original marker above, so the trash remains beside the time.
-          path = timestamp_files[0]
-          source = path.read_text()
-          anchor = "                    var message = message\n"
-          replacement = anchor + '''                    if message.text == "🗑️" {
-                        message = message.withUpdatedText("")
-                    } else if message.text.hasSuffix(" 🗑️") || message.text.hasSuffix("\\n🗑️") {
-                        message = message.withUpdatedText(String(message.text.dropLast(2)))
-                    }
-          '''
-          if anchor not in source:
-              raise SystemExit("Could not find message-rendering anchor to hide sentinel")
-          source = source.replace(anchor, replacement, 1)
-          path.write_text(source)
-          print("Moved the visible trash marker out of message text and into timestamp rows.")
+              source = source.replace(needle, replacement)
+              path.write_text(source)
+              print(f"Added timestamp trash marker to {path} ({count} call site(s))")
+          
           PY
 
 
