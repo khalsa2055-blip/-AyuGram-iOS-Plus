@@ -1,0 +1,30 @@
+name: Actions Diagnostic
+run-name: Actions Diagnostic
+
+on:
+  push:
+    branches:
+      - integrate-swiftgram-ayugram
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    name: Verify GitHub Actions runner startup
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Print runner diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "GitHub Actions runner started successfully."
+          echo "OS: $RUNNER_OS"
+          echo "Architecture: $RUNNER_ARCH"
+          echo "Branch: $GITHUB_REF_NAME"
+          git --version
+          echo "Diagnostic completed."
