@@ -1,4 +1,5 @@
 name: Merge Swiftgram + AyuGram iOS
+run-name: Test 71 - Diagnose workflow startup
 
 on:
   workflow_dispatch:
@@ -34,6 +35,17 @@ jobs:
           path: source
           fetch-depth: 0
           submodules: recursive
+
+      - name: Test 71 startup diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Workflow startup diagnostic is running."
+          echo "Runner: $RUNNER_OS / $RUNNER_ARCH"
+          echo "Branch: $GITHUB_REF_NAME"
+          git --version
+          python3 --version
+          echo "Diagnostic step passed."
 
       - name: Enable Rosetta for Intel Bazel tools on Apple Silicon
         shell: bash
