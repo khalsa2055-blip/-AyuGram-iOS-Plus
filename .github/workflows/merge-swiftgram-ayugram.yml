@@ -630,6 +630,8 @@ jobs:
           echo "Found IPA at: $ipa_path"
           cp "$ipa_path" build/artifacts/AyuGram-iOS-Plus-SideStore.ipa
           test -s build/artifacts/AyuGram-iOS-Plus-SideStore.ipa
+          python3 - <<'PY'
+          import os
           import plistlib
           import zipfile
           from pathlib import Path
