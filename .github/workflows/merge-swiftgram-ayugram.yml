@@ -355,6 +355,21 @@ jobs:
           curl -fsSL https://raw.githubusercontent.com/khalsa2055-blip/ezz/main/patches/ayugram-1.3.0.patch -o /tmp/ezz-ayugram.patch
           # Import only the AyuGramIOS implementation files; do not apply unrelated desktop/UI features.
           git apply --recount --include='submodules/AyuGramIOS/BUILD' --include='submodules/AyuGramIOS/Sources/*.swift' /tmp/ezz-ayugram.patch
+          # ezz's save bridge intentionally uses Postbox APIs; register these files with the repo's import guard.
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("submodules/Postbox/AllowedImporters.txt")
+          entries = set(path.read_text().splitlines())
+          entries.update([
+              "submodules/AyuGramIOS/Sources/AyuGramCaptureService.swift",
+              "submodules/AyuGramIOS/Sources/AyuGramMediaArchive.swift",
+              "submodules/AyuGramIOS/Sources/AyuGramPostboxBridge.swift",
+              "submodules/AyuGramIOS/Sources/AyuGramPostboxHistoryStore.swift",
+          ])
+          header = [line for line in path.read_text().splitlines() if line.startswith("#")]
+          body = sorted(line for line in entries if line and not line.startswith("#"))
+          path.write_text("\\n".join(header + [""] + body) + "\\n")
+          PY
           python3 - <<'PY'
           from pathlib import Path
           build = Path("submodules/TelegramUI/BUILD")
