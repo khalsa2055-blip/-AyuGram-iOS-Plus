@@ -411,8 +411,8 @@ jobs:
           from pathlib import Path
           path = Path("submodules/Postbox/BUILD")
           source = path.read_text()
-          anchor = '        "//submodules/AccountContext",\\n'
-          dep = '        "//submodules/AyuGramIOS",\\n'
+          anchor = '        "//submodules/AccountContext",\n'
+          dep = '        "//submodules/AyuGramIOS",\n'
           if dep not in source:
               if anchor not in source:
                   raise SystemExit("Could not find Postbox clients package-group insertion point")
