@@ -13,7 +13,7 @@ final class MediaEditArchiveTests: XCTestCase {
         ))
 
         let record = try await archive.mediaDidChange(
-            messageID: 100, replacementKind: .photo,
+            messageID: 100, groupID: 7, replacementKind: .photo,
             replacementBytes: Data(repeating: 0, count: 4)
         )
 
@@ -33,7 +33,7 @@ final class MediaEditArchiveTests: XCTestCase {
         ))
 
         let record = try await archive.mediaDidChange(
-            messageID: 101, replacementKind: .video,
+            messageID: 101, groupID: 7, replacementKind: .video,
             replacementBytes: Data("black-video".utf8)
         )
 
@@ -53,7 +53,7 @@ final class MediaEditArchiveTests: XCTestCase {
         ))
 
         let record = try await archive.mediaDidChange(
-            messageID: 102, replacementKind: .photo, replacementBytes: bytes
+            messageID: 102, groupID: 7, replacementKind: .photo, replacementBytes: bytes
         )
         XCTAssertNil(record)
     }
@@ -73,7 +73,7 @@ final class MediaEditArchiveTests: XCTestCase {
         ))
 
         let record = try await archive.mediaDidChange(
-            messageID: 103, replacementKind: .photo, replacementBytes: Data("black".utf8)
+            messageID: 103, groupID: 7, replacementKind: .photo, replacementBytes: Data("black".utf8)
         )
         let archived = try await archive.originalMedia(for: XCTUnwrap(record))
         XCTAssertEqual(archived, first)
@@ -89,7 +89,7 @@ final class MediaEditArchiveTests: XCTestCase {
             kind: .photo, bytes: original
         ))
         let record = try await firstLaunchArchive.mediaDidChange(
-            messageID: 104, replacementKind: .photo,
+            messageID: 104, groupID: 9, replacementKind: .photo,
             replacementBytes: Data("replacement".utf8)
         )
         XCTAssertNotNil(record)
@@ -100,12 +100,42 @@ final class MediaEditArchiveTests: XCTestCase {
         let restoredOriginal = try await relaunchedArchive.originalMedia(for: XCTUnwrap(restoredRecords.first))
         XCTAssertEqual(restoredOriginal, original)
         let secondEdit = try await relaunchedArchive.mediaDidChange(
-            messageID: 104, replacementKind: .photo,
+            messageID: 104, groupID: 9, replacementKind: .photo,
             replacementBytes: Data("second-replacement".utf8)
         )
         XCTAssertNotNil(secondEdit)
         let restoredSnapshot = try await relaunchedArchive.originalMedia(for: XCTUnwrap(secondEdit))
         XCTAssertEqual(restoredSnapshot, original)
+    }
+
+
+    func testSameMessageIDInDifferentGroupsKeepsSeparateOriginals() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let archive = try MediaEditArchive(directory: directory)
+        let first = Data("group-seven-original".utf8)
+        let second = Data("group-eight-original".utf8)
+
+        try await archive.captureOriginal(.init(
+            messageID: 200, groupID: 7, senderName: "first",
+            kind: .photo, bytes: first
+        ))
+        try await archive.captureOriginal(.init(
+            messageID: 200, groupID: 8, senderName: "second",
+            kind: .photo, bytes: second
+        ))
+
+        let firstRecord = try await archive.mediaDidChange(
+            messageID: 200, groupID: 7, replacementKind: .photo,
+            replacementBytes: Data("black-one".utf8)
+        )
+        let secondRecord = try await archive.mediaDidChange(
+            messageID: 200, groupID: 8, replacementKind: .photo,
+            replacementBytes: Data("black-two".utf8)
+        )
+
+        XCTAssertEqual(try await archive.originalMedia(for: XCTUnwrap(firstRecord)), first)
+        XCTAssertEqual(try await archive.originalMedia(for: XCTUnwrap(secondRecord)), second)
     }
 
 }
