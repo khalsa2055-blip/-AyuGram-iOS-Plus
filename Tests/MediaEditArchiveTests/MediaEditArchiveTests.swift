@@ -18,7 +18,8 @@ final class MediaEditArchiveTests: XCTestCase {
         )
 
         XCTAssertNotNil(record)
-        XCTAssertEqual(try await archive.originalMedia(for: XCTUnwrap(record)), original)
+        let archived = try await archive.originalMedia(for: XCTUnwrap(record))
+        XCTAssertEqual(archived, original)
     }
 
     func testVideoReplacedWithDifferentMediaArchivesOriginal() async throws {
@@ -73,6 +74,7 @@ final class MediaEditArchiveTests: XCTestCase {
         let record = try await archive.mediaDidChange(
             messageID: 103, replacementKind: .photo, replacementBytes: Data("black".utf8)
         )
-        XCTAssertEqual(try await archive.originalMedia(for: XCTUnwrap(record)), first)
+        let archived = try await archive.originalMedia(for: XCTUnwrap(record))
+        XCTAssertEqual(archived, first)
     }
 }
