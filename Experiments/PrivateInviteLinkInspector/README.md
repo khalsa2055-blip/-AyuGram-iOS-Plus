@@ -50,4 +50,4 @@ Invite links are bearer-style secrets. Never commit real invite links, hashes, a
 
 ## Current status
 
-The isolated Swift core and six unit tests have been added. Local Swift 6.2 Linux test run: **6 passed, 0 failed**. No MTProto adapter, Swiftgram UI integration, or iOS simulator test has been completed yet.
+The isolated Swift core and six unit tests have been added. Local Swift 6.2 Linux test run: **6 passed, 0 failed**. GitHub Actions CI is pinned to Ubuntu 24.04 because the setup-swift action does not yet support the newer Ubuntu 26.04 runner image. No MTProto adapter, Swiftgram UI integration, or iOS simulator test has been completed yet.
