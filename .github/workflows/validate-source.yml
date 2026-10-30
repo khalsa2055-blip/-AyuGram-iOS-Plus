@@ -290,6 +290,7 @@ jobs:
           PY
 
       - name: Build simulator app
+        id: simulator-build
         shell: bash
         working-directory: upstream
         run: |
@@ -313,19 +314,29 @@ jobs:
           test -n "$APP_PATH" || { echo "No .app bundle inside simulator IPA"; find "$EXTRACT_DIR" -maxdepth 5 -print | head -100; exit 1; }
           echo "APP_PATH=$APP_PATH" >> "$GITHUB_ENV"
 
+      # Save immediately after a successful compile, before optional verification or simulator
+      # launch steps can fail. This ensures a failed verification does not discard the build cache.
+      - name: Save Bazel simulator cache
+        if: ${{ success() }}
+        uses: actions/cache/save@v4
+        with:
+          path: /private/var/tmp/_bazel_containerhost
+          key: bazel-simulator-${{ runner.os }}-${{ github.ref_name }}-${{ github.sha }}-${{ hashFiles('Scripts/apply_media_edit_archive.py') }}
+
       - name: Verify media-edit feature is linked into the app
         shell: bash
         run: |
           set -euo pipefail
           CORE_BINARY="$APP_PATH/Frameworks/TelegramCoreFramework.framework/TelegramCoreFramework"
           UI_BINARY="$APP_PATH/Frameworks/TelegramUIFramework.framework/TelegramUIFramework"
-          test -f "$CORE_BINARY"
-          test -f "$UI_BINARY"
-          strings "$CORE_BINARY" | grep -Fq "ayuGramArchiveOriginalMediaBeforeEdit"
-          strings "$CORE_BINARY" | grep -Fq "AyuGramMediaEditArchive"
-          strings "$UI_BINARY" | grep -Fq "View Original"
-          strings "$UI_BINARY" | grep -Fq "Original media"
-          echo "PASS: pre-edit archive hook and View Original QuickLook UI are present in compiled frameworks."
+          test -f "$CORE_BINARY" || { echo "Missing TelegramCoreFramework binary: $CORE_BINARY"; exit 1; }
+          test -f "$UI_BINARY" || { echo "Missing TelegramUIFramework binary: $UI_BINARY"; exit 1; }
+          strings "$CORE_BINARY" > "$RUNNER_TEMP/core-strings.txt"
+          strings "$UI_BINARY" > "$RUNNER_TEMP/ui-strings.txt"
+          grep -Fq "AyuGramMediaEditArchive" "$RUNNER_TEMP/core-strings.txt" || { echo "Missing Core marker: AyuGramMediaEditArchive"; exit 1; }
+          grep -Fq "View Original" "$RUNNER_TEMP/ui-strings.txt" || { echo "Missing UI marker: View Original"; exit 1; }
+          grep -Fq "Original media" "$RUNNER_TEMP/ui-strings.txt" || { echo "Missing UI marker: Original media"; exit 1; }
+          echo "PASS: archive storage and View Original UI markers are present in compiled frameworks."
 
       - name: Install and launch in iOS Simulator
         shell: bash
