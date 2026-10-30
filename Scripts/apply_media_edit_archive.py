@@ -34,7 +34,7 @@ private func ayuGramEditableMediaCandidate(_ media: [Media]) -> AyuGramEditableM
             }
         } else if let file = item as? TelegramMediaFile, file.isVideo {
             let allowedExtensions = Set(["mp4", "mov", "m4v", "webm", "mkv"])
-            let candidateExtension = (file.fileName as NSString?)?.pathExtension.lowercased() ?? ""
+            let candidateExtension = file.fileName.map { ($0 as NSString).pathExtension.lowercased() } ?? ""
             return AyuGramEditableMediaCandidate(
                 kind: "video",
                 resources: [file.resource],
