@@ -1,0 +1,150 @@
+name: Private Invite Preview — iOS Simulator
+
+on:
+  push:
+    branches:
+      - experiment/private-invite-preview
+    paths:
+      - ".github/workflows/private-invite-preview-simulator.yml"
+      - "Experiments/PrivateInviteLinkInspector/**"
+      - "Scripts/apply_private_invite_preview.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-launch-ios-simulator:
+    name: Build and launch iPhone Simulator
+    runs-on: xcode-27
+    timeout-minutes: 180
+    env:
+      API_ID: ${{ secrets.API_ID }}
+      API_HASH: ${{ secrets.API_HASH }}
+    steps:
+      - name: Check out project
+        uses: actions/checkout@v4
+
+      - name: Check out Swiftgram source
+        uses: actions/checkout@v4
+        with:
+          repository: Swiftgram/Telegram-iOS
+          ref: master
+          path: upstream
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Test invite access policy and audit native Telegram preview path
+        shell: bash
+        run: |
+          set -euo pipefail
+          swift test --package-path Experiments/PrivateInviteLinkInspector
+          python3 Scripts/apply_private_invite_preview.py --upstream upstream --package Experiments/PrivateInviteLinkInspector
+
+      - name: Validate simulator build inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$API_ID" || { echo "Missing API_ID secret"; exit 1; }
+          test -n "$API_HASH" || { echo "Missing API_HASH secret"; exit 1; }
+          xcodebuild -version
+          xcrun simctl list devices available
+
+      - name: Resolve app identity
+        id: app
+        shell: bash
+        working-directory: upstream
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import plistlib, subprocess
+          from pathlib import Path
+          profile = Path("build-system/fake-codesigning/profiles/Telegram.mobileprovision")
+          decoded = subprocess.check_output(["security", "cms", "-D", "-i", str(profile)])
+          data = plistlib.loads(decoded)
+          app_id = data["Entitlements"]["application-identifier"]
+          team_id = data["TeamIdentifier"][0]
+          prefix = team_id + "."
+          if not app_id.startswith(prefix):
+              raise SystemExit(f"Fake profile TeamIdentifier mismatch: {app_id}")
+          bundle_id = app_id[len(prefix):]
+          if not bundle_id or "*" in bundle_id:
+              raise SystemExit(f"Unsupported application-identifier: {app_id}")
+          print(f"team_id={team_id}")
+          print(f"bundle_id={bundle_id}")
+          PY
+
+      - name: Create simulator configuration
+        shell: bash
+        env:
+          TEAM_ID: ${{ steps.app.outputs.team_id }}
+          BUNDLE_ID: ${{ steps.app.outputs.bundle_id }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          template = json.loads(Path("upstream/build-system/template_minimal_development_configuration.json").read_text())
+          template.update({
+              "bundle_id": os.environ["BUNDLE_ID"],
+              "api_id": os.environ["API_ID"],
+              "api_hash": os.environ["API_HASH"],
+              "team_id": os.environ["TEAM_ID"],
+              "is_internal_build": "true",
+              "is_appstore_build": "false",
+              "appstore_id": "0",
+              "app_specific_url_scheme": "ayugramplus"
+          })
+          Path("upstream/private-invite-simulator-configuration.json").write_text(json.dumps(template, indent=2))
+          PY
+
+      - name: Build simulator app
+        shell: bash
+        working-directory: upstream
+        run: |
+          set -euo pipefail
+          BUILD_NUMBER="$(git rev-list --count HEAD)"
+          python3 -u build-system/Make/Make.py \
+            --bazelUserRoot="/private/var/tmp/_bazel_containerhost" \
+            build \
+            --configurationPath="private-invite-simulator-configuration.json" \
+            --codesigningInformationPath=build-system/fake-codesigning \
+            --disableProvisioningProfiles \
+            --configuration=debug_sim_arm64 \
+            --buildNumber="$BUILD_NUMBER"
+          IPA_PATH="bazel-bin/Telegram/Swiftgram.ipa"
+          test -f "$IPA_PATH" || { echo "Simulator IPA was not produced"; find bazel-out -name '*.ipa' -print | head -50; exit 1; }
+          EXTRACT_DIR="$RUNNER_TEMP/private-invite-simulator-ipa"
+          rm -rf "$EXTRACT_DIR"
+          mkdir -p "$EXTRACT_DIR"
+          ditto -x -k "$IPA_PATH" "$EXTRACT_DIR"
+          APP_PATH="$(find "$EXTRACT_DIR" -type d -name '*.app' -print -quit)"
+          test -n "$APP_PATH" || { echo "No .app bundle inside simulator IPA"; find "$EXTRACT_DIR" -maxdepth 5 -print | head -100; exit 1; }
+          echo "APP_PATH=$APP_PATH" >> "$GITHUB_ENV"
+
+      - name: Install and launch in iOS Simulator
+        shell: bash
+        env:
+          BUNDLE_ID: ${{ steps.app.outputs.bundle_id }}
+        run: |
+          set -euo pipefail
+          DEVICE_UDID="$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for group in d["devices"].values() for x in group if x["isAvailable"] and x["name"].startswith("iPhone")))' )"
+          xcrun simctl boot "$DEVICE_UDID" || true
+          xcrun simctl bootstatus "$DEVICE_UDID" -b
+          xcrun simctl install "$DEVICE_UDID" "$APP_PATH"
+          xcrun simctl launch "$DEVICE_UDID" "$BUNDLE_ID"
+          sleep 20
+          xcrun simctl io "$DEVICE_UDID" screenshot simulator-launch.png
+          xcrun simctl spawn "$DEVICE_UDID" log show --last 2m --style compact --predicate 'process == "Telegram"' > simulator-app.log || true
+
+      - name: Upload simulator evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Private-Invite-Preview-Simulator-Evidence
+          path: |
+            simulator-launch.png
+            simulator-app.log
+            upstream/bazel-bin/Telegram/Swiftgram.ipa
+          if-no-files-found: warn
+          retention-days: 7

@@ -1,0 +1,31 @@
+name: Private Invite Preview Core Tests
+
+on:
+  push:
+    branches:
+      - experiment/private-invite-preview
+    paths:
+      - "Experiments/PrivateInviteLinkInspector/**"
+      - ".github/workflows/private-invite-preview-tests.yml"
+  pull_request:
+    paths:
+      - "Experiments/PrivateInviteLinkInspector/**"
+      - ".github/workflows/private-invite-preview-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  swift-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Swift
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "6.0"
+      - name: Run parser and access-policy tests
+        working-directory: Experiments/PrivateInviteLinkInspector
+        run: swift test
