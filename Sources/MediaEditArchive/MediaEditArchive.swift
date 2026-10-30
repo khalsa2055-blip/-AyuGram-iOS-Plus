@@ -112,8 +112,16 @@ public actor MediaEditArchive {
         let metadataURL = directory.appendingPathComponent("\(stem).json")
         try snapshot.bytes.write(to: mediaURL, options: .atomic)
 
+        let metadata = SnapshotMetadata(
+            messageID: snapshot.messageID,
+            groupID: snapshot.groupID,
+            senderName: snapshot.senderName,
+            kind: snapshot.kind,
+            fileName: mediaURL.lastPathComponent,
+            capturedAt: snapshot.capturedAt
+        )
         do {
-            try encoder.encode(snapshot).write(to: metadataURL, options: .atomic)
+            try encoder.encode(metadata).write(to: metadataURL, options: .atomic)
             originals[snapshot.messageID] = snapshot
         } catch {
             try? fileManager.removeItem(at: mediaURL)
