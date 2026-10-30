@@ -26,10 +26,10 @@ Reference: https://core.telegram.org/api/invites and https://core.telegram.org/m
 
 - `InviteLinkParser`: parses supported `t.me/+` and `joinchat` invite forms locally.
 - `InviteCheckResult`: normalized outcomes for peek, basic metadata, already-member, approval-required, expired, invalid, and denied.
-- `PeekSession`: only starts from a server-granted `.peek` result and rejects reads after the server expiry.
+- `PeekSession`: only starts from a server-granted `.peek` result, validates bounded fetch limits, and checks expiry immediately before every message-provider request.
 - `PeekMessageProvider`: read-only integration boundary for the future MTProto adapter.
 - `PreviewMessage` / `MediaKind`: normalized message and media model for the viewer.
-- Swift Package tests cover parsing, non-peek rejection, and expiry enforcement.
+- Swift Package tests cover parsing, non-peek rejection, expiry enforcement, successful read-only retrieval, blocked expired retrieval, and invalid fetch limits.
 
 ## Still required before app integration
 
@@ -50,4 +50,4 @@ Invite links are bearer-style secrets. Never commit real invite links, hashes, a
 
 ## Current status
 
-The isolated Swift core and six unit tests have been added. Local Swift 6.2 Linux test run: **6 passed, 0 failed**. GitHub Actions CI is pinned to Ubuntu 24.04 because the setup-swift action does not yet support the newer Ubuntu 26.04 runner image. No MTProto adapter, Swiftgram UI integration, or iOS simulator test has been completed yet.
+The isolated Swift core now includes a guarded read-only fetch entry point and nine unit tests. Every retrieval through `PeekSession.fetchMessages` checks the server expiry immediately before calling the provider and rejects limits outside 1...100. The provider is a test seam only: it is not yet connected to Telegram MTProto. No real `messages.checkChatInvite` adapter, real history/media provider, Swiftgram UI integration, or iOS simulator test has been completed. The feature is therefore **not yet usable in the app**. Do not treat passing core tests as proof that Telegram preview works.
