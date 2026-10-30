@@ -75,7 +75,8 @@ jobs:
     env:
       API_ID: ${{ secrets.API_ID }}
       API_HASH: ${{ secrets.API_HASH }}
-      TEAM_ID: ${{ secrets.APPLE_TEAM_ID || '0000000000' }}
+      TEAM_ID: ${{ steps.signing.outputs.team_id }}
+      BUNDLE_ID: ${{ steps.signing.outputs.bundle_id }}
     steps:
       - name: Check out project
         uses: actions/checkout@v4
@@ -112,6 +113,33 @@ jobs:
           xcodebuild -version
           xcode-select -p
 
+      - name: Resolve fake signing profile identity
+        id: signing
+        shell: bash
+        working-directory: upstream
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import plistlib, subprocess
+          from pathlib import Path
+          profile = Path("build-system/fake-codesigning/profiles/Telegram.mobileprovision")
+          decoded = subprocess.check_output([
+              "security", "cms", "-D", "-i", str(profile)
+          ])
+          data = plistlib.loads(decoded)
+          app_id = data["Entitlements"]["application-identifier"]
+          team_id = data["TeamIdentifier"][0]
+          prefix = team_id + "."
+          if not app_id.startswith(prefix):
+              raise SystemExit(f"Fake profile TeamIdentifier mismatch: {app_id}")
+          bundle_id = app_id[len(prefix):]
+          if not bundle_id or "*" in bundle_id:
+              raise SystemExit(f"Fake Telegram profile has unsupported application-identifier: {app_id}")
+          print(f"team_id={team_id}")
+          print(f"bundle_id={bundle_id}")
+          print(f"Using upstream fake signing identity: {app_id}")
+          PY
+
       - name: Create project configuration
         shell: bash
         run: |
@@ -121,7 +149,7 @@ jobs:
           from pathlib import Path
           template = json.loads(Path("upstream/build-system/template_minimal_development_configuration.json").read_text())
           template.update({
-              "bundle_id": "org.ayugram.iosplus",
+              "bundle_id": os.environ["BUNDLE_ID"],
               "api_id": os.environ["API_ID"],
               "api_hash": os.environ["API_HASH"],
               "team_id": os.environ["TEAM_ID"],
@@ -144,8 +172,7 @@ jobs:
             --bazelUserRoot="/private/var/tmp/_bazel_containerhost" \
             build \
             --configurationPath="ayugramplus-ci-configuration.json" \
-            --xcodeManagedCodesigning \
-            --disableProvisioningProfiles \
+            --codesigningInformationPath=build-system/fake-codesigning \
             --configuration=release_arm64 \
             --buildNumber="$BUILD_NUMBER"
           mkdir -p build/artifacts
