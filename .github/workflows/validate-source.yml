@@ -135,7 +135,7 @@ jobs:
               raise SystemExit(f"Fake Telegram profile has unsupported application-identifier: {app_id}")
           print(f"team_id={team_id}")
           print(f"bundle_id={bundle_id}")
-                    PY
+          PY
 
       - name: Create project configuration
         shell: bash
