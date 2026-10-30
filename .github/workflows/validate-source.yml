@@ -219,6 +219,19 @@ jobs:
           set -euo pipefail
           python3 Scripts/apply_media_edit_archive.py upstream
 
+      # Reuse Bazel's downloaded dependencies and compiled action outputs between runs.
+      # The cache is scoped to the runner OS and upstream revision, with a fallback
+      # to the previous simulator cache so a small code change stays incremental.
+      - name: Cache Bazel simulator build
+        id: bazel-cache
+        uses: actions/cache@v4
+        with:
+          path: /private/var/tmp/_bazel_containerhost
+          key: bazel-simulator-${{ runner.os }}-${{ github.ref_name }}-${{ hashFiles('upstream/.git/HEAD', 'Scripts/apply_media_edit_archive.py') }}
+          restore-keys: |
+            bazel-simulator-${{ runner.os }}-${{ github.ref_name }}-
+            bazel-simulator-${{ runner.os }}-
+
       - name: Validate simulator build inputs
         shell: bash
         run: |
