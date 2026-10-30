@@ -227,7 +227,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /private/var/tmp/_bazel_containerhost
-          key: bazel-simulator-${{ runner.os }}-${{ github.ref_name }}-${{ hashFiles('upstream/.git/HEAD', 'Scripts/apply_media_edit_archive.py') }}
+          key: bazel-simulator-${{ runner.os }}-${{ github.ref_name }}-${{ github.sha }}-${{ hashFiles('Scripts/apply_media_edit_archive.py') }}
           restore-keys: |
             bazel-simulator-${{ runner.os }}-${{ github.ref_name }}-
             bazel-simulator-${{ runner.os }}-
