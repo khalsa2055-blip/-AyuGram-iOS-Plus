@@ -68,7 +68,7 @@ jobs:
   build-unsigned-ipa:
     name: Build unsigned IPA (requires repository secrets)
     needs: validate-upstream
-    if: ${{ vars.ENABLE_IPA_BUILD == 'true' || github.ref == 'refs/heads/feature/media-edit-archive' }}
+    if: ${{ vars.ENABLE_IPA_BUILD == 'true' }}
     runs-on: xcode-27
     permissions:
       contents: read
@@ -188,4 +188,135 @@ jobs:
           name: AyuGram-iOS-Plus-unsigned-IPA
           path: upstream/build/artifacts/AyuGram-iOS-Plus-unsigned.ipa
           if-no-files-found: error
+          retention-days: 7
+
+  build-and-launch-ios-simulator:
+    name: Build and launch iOS Simulator
+    needs: validate-upstream
+    if: ${{ github.ref == 'refs/heads/feature/media-edit-archive' }}
+    runs-on: xcode-27
+    permissions:
+      contents: read
+    env:
+      API_ID: ${{ secrets.API_ID }}
+      API_HASH: ${{ secrets.API_HASH }}
+    steps:
+      - name: Check out project
+        uses: actions/checkout@v4
+
+      - name: Check out Swiftgram source
+        uses: actions/checkout@v4
+        with:
+          repository: Swiftgram/Telegram-iOS
+          ref: master
+          path: upstream
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Apply media-edit archive integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 Scripts/apply_media_edit_archive.py upstream
+
+      - name: Validate simulator build inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$API_ID" || { echo "Missing API_ID secret"; exit 1; }
+          test -n "$API_HASH" || { echo "Missing API_HASH secret"; exit 1; }
+          xcodebuild -version
+          xcrun simctl list devices available
+
+      - name: Resolve app identity
+        id: app
+        shell: bash
+        working-directory: upstream
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import plistlib, subprocess
+          from pathlib import Path
+          profile = Path("build-system/fake-codesigning/profiles/Telegram.mobileprovision")
+          decoded = subprocess.check_output(["security", "cms", "-D", "-i", str(profile)])
+          data = plistlib.loads(decoded)
+          app_id = data["Entitlements"]["application-identifier"]
+          team_id = data["TeamIdentifier"][0]
+          prefix = team_id + "."
+          if not app_id.startswith(prefix):
+              raise SystemExit(f"Fake profile TeamIdentifier mismatch: {app_id}")
+          bundle_id = app_id[len(prefix):]
+          if not bundle_id or "*" in bundle_id:
+              raise SystemExit(f"Unsupported application-identifier: {app_id}")
+          print(f"team_id={team_id}")
+          print(f"bundle_id={bundle_id}")
+          PY
+
+      - name: Create simulator configuration
+        shell: bash
+        env:
+          TEAM_ID: ${{ steps.app.outputs.team_id }}
+          BUNDLE_ID: ${{ steps.app.outputs.bundle_id }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          template = json.loads(Path("upstream/build-system/template_minimal_development_configuration.json").read_text())
+          template.update({
+              "bundle_id": os.environ["BUNDLE_ID"],
+              "api_id": os.environ["API_ID"],
+              "api_hash": os.environ["API_HASH"],
+              "team_id": os.environ["TEAM_ID"],
+              "is_internal_build": "true",
+              "is_appstore_build": "false",
+              "appstore_id": "0",
+              "app_specific_url_scheme": "ayugramplus"
+          })
+          Path("upstream/ayugramplus-simulator-configuration.json").write_text(json.dumps(template, indent=2))
+          PY
+
+      - name: Build simulator app
+        shell: bash
+        working-directory: upstream
+        run: |
+          set -euo pipefail
+          BUILD_NUMBER="$(git rev-list --count HEAD)"
+          python3 -u build-system/Make/Make.py \
+            --bazelUserRoot="/private/var/tmp/_bazel_containerhost" \
+            build \
+            --configurationPath="ayugramplus-simulator-configuration.json" \
+            --codesigningInformationPath=build-system/fake-codesigning \
+            --disableProvisioningProfiles \
+            --configuration=debug_sim_arm64 \
+            --buildNumber="$BUILD_NUMBER"
+          APP_PATH="$(find bazel-out -type d -name '*.app' -path '*ios_sim*' -print -quit)"
+          test -n "$APP_PATH" || { echo "Simulator .app bundle was not produced"; find bazel-out -maxdepth 7 -name '*.app' -print | head -50; exit 1; }
+          echo "APP_PATH=$APP_PATH" >> "$GITHUB_ENV"
+
+      - name: Install and launch in iOS Simulator
+        shell: bash
+        env:
+          BUNDLE_ID: ${{ steps.app.outputs.bundle_id }}
+        run: |
+          set -euo pipefail
+          DEVICE_UDID="$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for group in d["devices"].values() for x in group if x["isAvailable"] and x["name"].startswith("iPhone")))' )"
+          xcrun simctl boot "$DEVICE_UDID" || true
+          xcrun simctl bootstatus "$DEVICE_UDID" -b
+          xcrun simctl install "$DEVICE_UDID" "upstream/$APP_PATH"
+          xcrun simctl launch "$DEVICE_UDID" "$BUNDLE_ID"
+          sleep 20
+          xcrun simctl io "$DEVICE_UDID" screenshot simulator-launch.png
+          xcrun simctl spawn "$DEVICE_UDID" log show --last 2m --style compact --predicate 'process == "Telegram"' > simulator-app.log || true
+
+      - name: Upload simulator evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AyuGram-iOS-Plus-Simulator-Evidence
+          path: |
+            simulator-launch.png
+            simulator-app.log
+            upstream/bazel-out/**/Telegram.app
+          if-no-files-found: warn
           retention-days: 7
