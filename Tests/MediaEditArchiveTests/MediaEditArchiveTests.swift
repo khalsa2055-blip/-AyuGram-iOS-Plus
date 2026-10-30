@@ -99,6 +99,13 @@ final class MediaEditArchiveTests: XCTestCase {
         XCTAssertEqual(restoredRecords.count, 1)
         let restoredOriginal = try await relaunchedArchive.originalMedia(for: XCTUnwrap(restoredRecords.first))
         XCTAssertEqual(restoredOriginal, original)
+        let secondEdit = try await relaunchedArchive.mediaDidChange(
+            messageID: 104, replacementKind: .photo,
+            replacementBytes: Data("second-replacement".utf8)
+        )
+        XCTAssertNotNil(secondEdit)
+        let restoredSnapshot = try await relaunchedArchive.originalMedia(for: XCTUnwrap(secondEdit))
+        XCTAssertEqual(restoredSnapshot, original)
     }
 
 }
