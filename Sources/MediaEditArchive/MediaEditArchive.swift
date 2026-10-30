@@ -6,7 +6,7 @@ public enum ArchivedMediaKind: String, Codable, Sendable {
     case other
 }
 
-public struct MediaEditSnapshot: Sendable {
+public struct MediaEditSnapshot: Codable, Sendable {
     public let messageID: Int64
     public let groupID: Int64
     public let senderName: String
@@ -48,32 +48,67 @@ public enum MediaEditArchiveError: Error {
     case cannotCreateDirectory
 }
 
-/// Standalone archive core. The Telegram integration must call captureOriginal
-/// while the old media is still available and before applying the server update.
+/// Local, persistent archive core. Telegram integration must capture the
+/// currently available media before applying a server-side message update.
 public actor MediaEditArchive {
     private let directory: URL
     private let fileManager: FileManager
+    private let encoder = JSONEncoder()
+    private let decoder = JSONDecoder()
     private var originals: [Int64: MediaEditSnapshot] = [:]
+    private var editRecords: [MediaEditRecord] = []
+
+    private var recordsURL: URL {
+        directory.appendingPathComponent("edit-records.json")
+    }
 
     public init(directory: URL, fileManager: FileManager = .default) throws {
         self.directory = directory
         self.fileManager = fileManager
         do {
             try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+            let snapshotFiles = try fileManager.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: nil
+            ).filter { $0.lastPathComponent.hasPrefix("snapshot-") && $0.pathExtension == "json" }
+
+            for url in snapshotFiles {
+                let snapshot = try decoder.decode(
+                    MediaEditSnapshot.self,
+                    from: Data(contentsOf: url)
+                )
+                originals[snapshot.messageID] = snapshot
+            }
+
+            if fileManager.fileExists(atPath: recordsURL.path) {
+                editRecords = try decoder.decode([MediaEditRecord].self, from: Data(contentsOf: recordsURL))
+            }
         } catch {
             throw MediaEditArchiveError.cannotCreateDirectory
         }
     }
 
-    /// Cache the currently displayed media before processing an edit update.
-    /// The first snapshot is retained so repeated edits never overwrite it.
-    public func captureOriginal(_ snapshot: MediaEditSnapshot) {
+    /// Persist the first snapshot before Telegram replaces the message media.
+    /// Repeated captures for the same message never overwrite that first copy.
+    public func captureOriginal(_ snapshot: MediaEditSnapshot) throws {
         guard originals[snapshot.messageID] == nil else { return }
-        originals[snapshot.messageID] = snapshot
+
+        let stem = "snapshot-\(snapshot.messageID)"
+        let mediaURL = directory.appendingPathComponent("\(stem).media")
+        let metadataURL = directory.appendingPathComponent("\(stem).json")
+        try snapshot.bytes.write(to: mediaURL, options: .atomic)
+
+        do {
+            try encoder.encode(snapshot).write(to: metadataURL, options: .atomic)
+            originals[snapshot.messageID] = snapshot
+        } catch {
+            try? fileManager.removeItem(at: mediaURL)
+            throw error
+        }
     }
 
-    /// Call when Telegram delivers a changed media payload. Caption-only edits
-    /// should not call this method, so they do not create false edit markers.
+    /// Call only when the media payload or media kind actually changes.
+    /// Caption-only edits must not call this method.
     public func mediaDidChange(
         messageID: Int64,
         replacementKind: ArchivedMediaKind,
@@ -89,11 +124,11 @@ public actor MediaEditArchive {
         }
 
         let id = UUID()
-        let fileName = "\(id.uuidString).media"
+        let fileName = "original-\(id.uuidString).media"
         let fileURL = directory.appendingPathComponent(fileName)
-        try replacementSafeWrite(original.bytes, to: fileURL)
+        try original.bytes.write(to: fileURL, options: .atomic)
 
-        return MediaEditRecord(
+        let record = MediaEditRecord(
             id: id,
             messageID: original.messageID,
             groupID: original.groupID,
@@ -104,13 +139,24 @@ public actor MediaEditArchive {
             capturedAt: original.capturedAt,
             editedAt: editedAt
         )
+
+        editRecords.append(record)
+        do {
+            try encoder.encode(editRecords).write(to: recordsURL, options: .atomic)
+        } catch {
+            editRecords.removeLast()
+            try? fileManager.removeItem(at: fileURL)
+            throw error
+        }
+        return record
     }
 
     public func originalMedia(for record: MediaEditRecord) throws -> Data {
         try Data(contentsOf: directory.appendingPathComponent(record.originalFileName))
     }
 
-    private func replacementSafeWrite(_ data: Data, to url: URL) throws {
-        try data.write(to: url, options: .atomic)
+    /// Records are reloaded from disk when the archive is recreated.
+    public func allEditRecords() -> [MediaEditRecord] {
+        editRecords
     }
 }
