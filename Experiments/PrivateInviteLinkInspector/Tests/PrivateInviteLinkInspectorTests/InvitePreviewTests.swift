@@ -1,6 +1,23 @@
 import XCTest
 @testable import PrivateInviteLinkInspector
 
+private actor MockPeekMessageProvider: PeekMessageProvider {
+    private(set) var requestCount = 0
+
+    func fetchMessages(for session: PeekSession, limit: Int) async throws -> [PreviewMessage] {
+        requestCount += 1
+        return [
+            PreviewMessage(
+                id: 1,
+                senderDisplayName: "Test sender",
+                text: "Preview message",
+                timestamp: Date(timeIntervalSince1970: 50),
+                mediaKind: nil
+            )
+        ]
+    }
+}
+
 final class InvitePreviewTests: XCTestCase {
     func testParsesPlusInvite() {
         XCTAssertEqual(
@@ -39,5 +56,61 @@ final class InvitePreviewTests: XCTestCase {
         XCTAssertThrowsError(try session.authorizeRead(at: expiry)) { error in
             XCTAssertEqual(error as? PeekAccessError, .peekExpired)
         }
+    }
+
+    func testAuthorizedPeekFetchesMessages() async throws {
+        let provider = MockPeekMessageProvider()
+        let session = try PeekSession.start(
+            from: .peek(PeekChat(id: 7, title: "Private group", expiresAt: Date(timeIntervalSince1970: 200)))
+        )
+
+        let messages = try await session.fetchMessages(
+            using: provider,
+            limit: 20,
+            now: Date(timeIntervalSince1970: 100)
+        )
+
+        XCTAssertEqual(messages.map(\\.text), ["Preview message"])
+        XCTAssertEqual(await provider.requestCount, 1)
+    }
+
+    func testExpiredPeekDoesNotCallProvider() async throws {
+        let provider = MockPeekMessageProvider()
+        let session = try PeekSession.start(
+            from: .peek(PeekChat(id: 7, title: "Private group", expiresAt: Date(timeIntervalSince1970: 100)))
+        )
+
+        do {
+            _ = try await session.fetchMessages(
+                using: provider,
+                limit: 20,
+                now: Date(timeIntervalSince1970: 100)
+            )
+            XCTFail("An expired peek must not fetch messages")
+        } catch {
+            XCTAssertEqual(error as? PeekAccessError, .peekExpired)
+        }
+
+        XCTAssertEqual(await provider.requestCount, 0)
+    }
+
+    func testInvalidLimitDoesNotCallProvider() async throws {
+        let provider = MockPeekMessageProvider()
+        let session = try PeekSession.start(
+            from: .peek(PeekChat(id: 7, title: "Private group", expiresAt: Date(timeIntervalSince1970: 200)))
+        )
+
+        do {
+            _ = try await session.fetchMessages(
+                using: provider,
+                limit: 101,
+                now: Date(timeIntervalSince1970: 100)
+            )
+            XCTFail("The fetch limit must be bounded")
+        } catch {
+            XCTAssertEqual(error as? PeekAccessError, .invalidMessageLimit)
+        }
+
+        XCTAssertEqual(await provider.requestCount, 0)
     }
 }
