@@ -1,0 +1,3 @@
+[submodule "upstream/Swiftgram"]
+	path = upstream/Swiftgram
+	url = https://github.com/Swiftgram/Telegram-iOS.git
