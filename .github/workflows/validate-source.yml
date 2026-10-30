@@ -73,8 +73,8 @@ jobs:
     permissions:
       contents: read
     env:
-      API_ID: ${{ secrets.TELEGRAM_API_ID }}
-      API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+      API_ID: ${{ secrets.API_ID }}
+      API_HASH: ${{ secrets.API_HASH }}
       TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
     steps:
       - name: Check out project
@@ -99,8 +99,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$API_ID" || { echo "Missing TELEGRAM_API_ID secret"; exit 1; }
-          test -n "$API_HASH" || { echo "Missing TELEGRAM_API_HASH secret"; exit 1; }
+          test -n "$API_ID" || { echo "Missing API_ID secret"; exit 1; }
+          test -n "$API_HASH" || { echo "Missing API_HASH secret"; exit 1; }
           test -n "$TEAM_ID" || { echo "Missing APPLE_TEAM_ID secret"; exit 1; }
 
       - name: Select matching Xcode
