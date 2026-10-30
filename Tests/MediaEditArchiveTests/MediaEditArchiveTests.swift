@@ -7,7 +7,7 @@ final class MediaEditArchiveTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let archive = try MediaEditArchive(directory: directory)
         let original = Data([0x10, 0x20, 0x30, 0x40])
-        await archive.captureOriginal(.init(
+        try await archive.captureOriginal(.init(
             messageID: 100, groupID: 7, senderName: "sender",
             kind: .photo, bytes: original
         ))
@@ -27,7 +27,7 @@ final class MediaEditArchiveTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let archive = try MediaEditArchive(directory: directory)
         let original = Data("original-video".utf8)
-        await archive.captureOriginal(.init(
+        try await archive.captureOriginal(.init(
             messageID: 101, groupID: 7, senderName: "sender",
             kind: .video, bytes: original
         ))
@@ -47,7 +47,7 @@ final class MediaEditArchiveTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let archive = try MediaEditArchive(directory: directory)
         let bytes = Data("same-media".utf8)
-        await archive.captureOriginal(.init(
+        try await archive.captureOriginal(.init(
             messageID: 102, groupID: 7, senderName: "sender",
             kind: .photo, bytes: bytes
         ))
@@ -63,11 +63,11 @@ final class MediaEditArchiveTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let archive = try MediaEditArchive(directory: directory)
         let first = Data("first".utf8)
-        await archive.captureOriginal(.init(
+        try await archive.captureOriginal(.init(
             messageID: 103, groupID: 7, senderName: "sender",
             kind: .photo, bytes: first
         ))
-        await archive.captureOriginal(.init(
+        try await archive.captureOriginal(.init(
             messageID: 103, groupID: 7, senderName: "sender",
             kind: .photo, bytes: Data("second".utf8)
         ))
