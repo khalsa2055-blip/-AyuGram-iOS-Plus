@@ -2,7 +2,7 @@ name: AyuGram-iOS-Plus CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, feature/media-edit-archive]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -25,6 +25,15 @@ jobs:
           ref: master
           path: upstream
           fetch-depth: 1
+
+      - name: Apply media-edit archive integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 Scripts/apply_media_edit_archive.py upstream
+          grep -q "ayuGramArchiveOriginalMediaBeforeEdit" upstream/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift
+          grep -q "AyuGramMediaEditOriginalPreviewController" upstream/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
+          echo "Pre-edit archive hook and View Original action are present."
 
       - name: Validate source tree
         shell: bash
@@ -79,6 +88,12 @@ jobs:
           path: upstream
           submodules: recursive
           fetch-depth: 0
+
+      - name: Apply media-edit archive integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 Scripts/apply_media_edit_archive.py upstream
 
       - name: Validate required secrets
         shell: bash
