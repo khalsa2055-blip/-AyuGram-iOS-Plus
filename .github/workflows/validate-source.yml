@@ -100,7 +100,7 @@ jobs:
           set -euo pipefail
           test -n "$API_ID" || { echo "Missing API_ID secret"; exit 1; }
           test -n "$API_HASH" || { echo "Missing API_HASH secret"; exit 1; }
-          if [ "$TEAM_ID" = "0000000000" ]; then echo "No Apple Team ID supplied; using placeholder for unsigned IPA (iLoader signs on device)."; fi
+          echo "Telegram API credentials are present; fake signing identity is resolved from the upstream profile in the next step."
 
       - name: Select available Xcode
         shell: bash
