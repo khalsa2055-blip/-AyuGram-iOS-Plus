@@ -103,13 +103,14 @@ jobs:
           test -n "$API_HASH" || { echo "Missing API_HASH secret"; exit 1; }
           if [ "$TEAM_ID" = "0000000000" ]; then echo "No Apple Team ID supplied; using placeholder for unsigned IPA (iLoader signs on device)."; fi
 
-      - name: Select matching Xcode
+      - name: Select available Xcode
         shell: bash
         run: |
           set -euo pipefail
-          XCODE_VERSION="$(python3 -c 'import json; print(json.load(open("upstream/versions.json"))["xcode"])')"
-          sudo xcode-select -s "/Applications/Xcode_${XCODE_VERSION}.app/Contents/Developer"
+          echo "Upstream requests Xcode: $(python3 -c 'import json; print(json.load(open("upstream/versions.json"))["xcode"])')"
+          echo "Using Xcode preselected on the GitHub macOS runner:"
           xcodebuild -version
+          xcode-select -p
 
       - name: Create project configuration
         shell: bash
