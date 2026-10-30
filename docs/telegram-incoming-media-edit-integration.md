@@ -43,3 +43,32 @@ The current isolated package tests prove only local archive persistence and comp
 - `submodules/TelegramCore/Sources/PendingMessages/ChatUpdatingMessageMedia.swift`
 
 Upstream source: https://github.com/Swiftgram/Telegram-iOS
+
+
+## Deeper upstream trace (verified)
+
+The edit is represented before the Postbox replay layer, while finalStateWithUpdateGroups(...) builds its mutable state in:
+
+- submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift
+
+Two concrete edit branches were found:
+
+- case .updateEditMessage: converts the API message with StoreMessage, then calls updatedState.editMessage(messageId, message: message).
+- The channel edit path: after validating channel pts, calls updatedState.editMessage(messageId, message: message.withUpdatedAttributes(attributes)).
+
+This changes the recommended interception design: the first candidate is immediately before these updatedState.editMessage(...) calls, not merely before replayFinalState. At that point the builder still has its pre-edit mutable state and the newly decoded message side by side. The implementation must first confirm how AccountMutableState exposes the old message and whether the media resources are locally complete.
+
+## MediaBox facts verified
+
+In submodules/Postbox/Sources/MediaBox.swift:
+
+- MediaBox.storePathsForId(_ id: MediaResourceId) exposes complete and partial storage paths.
+- MediaBox.resourceStatus(...) can check whether a resource is local.
+- MediaBox.storeResourceData(...) writes asynchronously on its data queue by default.
+- MediaResourceData exposes path, offset, size and completeness.
+
+Do not treat a partial resource as a complete original. The archive should copy only a complete, already-local resource; avoid blocking the state-building or Postbox transaction queue with media-sized file I/O.
+
+## Remaining implementation gate
+
+The upstream inspection now identifies the two exact edit application sites, but does not yet prove the old-message accessor or a safe asynchronous copy/commit handoff. No hook has been added to upstream TelegramCore and no iOS/Bazel compile has been run. The feature remains research + standalone archive only until those two details are implemented and tested.
