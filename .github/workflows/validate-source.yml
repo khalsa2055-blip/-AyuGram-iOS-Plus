@@ -69,7 +69,7 @@ jobs:
     name: Build unsigned IPA (requires repository secrets)
     needs: validate-upstream
     if: ${{ vars.ENABLE_IPA_BUILD == 'true' || github.ref == 'refs/heads/feature/media-edit-archive' }}
-    runs-on: macos-26
+    runs-on: xcode-27
     permissions:
       contents: read
     env:
