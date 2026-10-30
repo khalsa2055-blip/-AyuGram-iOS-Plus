@@ -53,24 +53,33 @@ public struct PeekSession: Equatable, Sendable {
         return PeekSession(chat: chat)
     }
 
-    /// The only supported entry point for preview message retrieval.
-    /// Authorization is checked immediately before every request.
+    /// Production entry point: callers cannot supply or spoof the current time.
     public func fetchMessages(
         using provider: any PeekMessageProvider,
+        limit: Int
+    ) async throws -> [PreviewMessage] {
+        try await fetchMessages(using: provider, limit: limit, now: Date())
+    }
+
+    /// Internal clock-injected seam for deterministic unit tests.
+    func fetchMessages(
+        using provider: any PeekMessageProvider,
         limit: Int,
-        now: Date = Date()
+        now: Date
     ) async throws -> [PreviewMessage] {
         guard (1...100).contains(limit) else {
             throw PeekAccessError.invalidMessageLimit
         }
         try authorizeRead(at: now)
+        // The provider must re-check expiry immediately before its actual MTProto request.
         return try await provider.fetchMessages(for: self, limit: limit)
     }
 }
 
 /// Read-only boundary used by the app's MTProto integration.
-/// Implementations should use messages.getHistory/channels.getMessages only after
-/// PeekSession authorization succeeds. No send, join, or import operation is exposed.
+/// Implementations MUST call session.authorizeRead() immediately before each
+/// network request, including pagination/media requests. Use only read methods
+/// such as messages.getHistory/channels.getMessages. Never join, import, or send.
 public protocol PeekMessageProvider: Sendable {
     func fetchMessages(for session: PeekSession, limit: Int) async throws -> [PreviewMessage]
 }
