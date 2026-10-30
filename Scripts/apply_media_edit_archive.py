@@ -120,7 +120,7 @@ CORE_HOOK_NEW = """            case let .EditMessage(id, message):
                     let peers: [PeerId:Peer] = previousMessage.peers.reduce([:], { current, value in
 """
 
-UI_IMPORT_ANCHOR = "import UIKit\n"
+UI_IMPORT_ANCHOR = "import TelegramCore\n"
 UI_CLASS_ANCHOR = "private struct MessageContextMenuData {\n"
 UI_CLASS = r'''
 private final class AyuGramMediaEditOriginalPreviewItem: NSObject, QLPreviewItem {
