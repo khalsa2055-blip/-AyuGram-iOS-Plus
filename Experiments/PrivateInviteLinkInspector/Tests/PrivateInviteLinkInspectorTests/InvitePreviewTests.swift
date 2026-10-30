@@ -71,7 +71,8 @@ final class InvitePreviewTests: XCTestCase {
         )
 
         XCTAssertEqual(messages.map(\\.text), ["Preview message"])
-        XCTAssertEqual(await provider.requestCount, 1)
+        let requestCount = await provider.requestCount
+        XCTAssertEqual(requestCount, 1)
     }
 
     func testExpiredPeekDoesNotCallProvider() async throws {
@@ -91,7 +92,8 @@ final class InvitePreviewTests: XCTestCase {
             XCTAssertEqual(error as? PeekAccessError, .peekExpired)
         }
 
-        XCTAssertEqual(await provider.requestCount, 0)
+        let requestCount = await provider.requestCount
+        XCTAssertEqual(requestCount, 0)
     }
 
     func testInvalidLimitDoesNotCallProvider() async throws {
