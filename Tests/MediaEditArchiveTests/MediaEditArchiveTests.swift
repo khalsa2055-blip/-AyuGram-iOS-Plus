@@ -78,4 +78,27 @@ final class MediaEditArchiveTests: XCTestCase {
         let archived = try await archive.originalMedia(for: XCTUnwrap(record))
         XCTAssertEqual(archived, first)
     }
+    func testOriginalAndEditRecordSurviveArchiveReopen() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let original = Data("persistent-original".utf8)
+
+        let firstLaunchArchive = try MediaEditArchive(directory: directory)
+        try await firstLaunchArchive.captureOriginal(.init(
+            messageID: 104, groupID: 9, senderName: "sender",
+            kind: .photo, bytes: original
+        ))
+        let record = try await firstLaunchArchive.mediaDidChange(
+            messageID: 104, replacementKind: .photo,
+            replacementBytes: Data("replacement".utf8)
+        )
+        XCTAssertNotNil(record)
+
+        let relaunchedArchive = try MediaEditArchive(directory: directory)
+        let restoredRecords = await relaunchedArchive.allEditRecords()
+        XCTAssertEqual(restoredRecords.count, 1)
+        let restoredOriginal = try await relaunchedArchive.originalMedia(for: XCTUnwrap(restoredRecords.first))
+        XCTAssertEqual(restoredOriginal, original)
+    }
+
 }
