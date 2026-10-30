@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - experiment/private-invite-preview
+      - feature/media-edit-archive
+      - main
     paths:
       - "Experiments/PrivateInviteLinkInspector/**"
       - ".github/workflows/private-invite-preview-tests.yml"
