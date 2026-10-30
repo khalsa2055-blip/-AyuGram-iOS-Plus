@@ -1,0 +1,17 @@
+name: Media Edit Archive — Tests
+
+on:
+  push:
+    branches: [ "feature/media-edit-archive" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  swift-tests:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Swift
+        run: swift --version
+      - name: Run isolated unit tests
+        run: swift test
