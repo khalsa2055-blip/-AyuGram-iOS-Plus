@@ -64,8 +64,12 @@ public actor MediaEditArchive {
     private let fileManager: FileManager
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
-    private var originals: [Int64: MediaEditSnapshot] = [:]
+    private var originals: [String: MediaEditSnapshot] = [:]
     private var editRecords: [MediaEditRecord] = []
+
+    private static func snapshotKey(groupID: Int64, messageID: Int64) -> String {
+        "\(groupID):\(messageID)"
+    }
 
     private var recordsURL: URL {
         directory.appendingPathComponent("edit-records.json")
@@ -84,7 +88,7 @@ public actor MediaEditArchive {
             for url in snapshotFiles {
                 let metadata = try decoder.decode(SnapshotMetadata.self, from: Data(contentsOf: url))
                 let bytes = try Data(contentsOf: directory.appendingPathComponent(metadata.fileName))
-                originals[metadata.messageID] = MediaEditSnapshot(
+                originals[Self.snapshotKey(groupID: metadata.groupID, messageID: metadata.messageID)] = MediaEditSnapshot(
                     messageID: metadata.messageID,
                     groupID: metadata.groupID,
                     senderName: metadata.senderName,
@@ -105,9 +109,10 @@ public actor MediaEditArchive {
     /// Persist the first snapshot before Telegram replaces the message media.
     /// Repeated captures for the same message never overwrite that first copy.
     public func captureOriginal(_ snapshot: MediaEditSnapshot) throws {
-        guard originals[snapshot.messageID] == nil else { return }
+        let key = Self.snapshotKey(groupID: snapshot.groupID, messageID: snapshot.messageID)
+        guard originals[key] == nil else { return }
 
-        let stem = "snapshot-\(snapshot.messageID)"
+        let stem = "snapshot-\(snapshot.groupID)-\(snapshot.messageID)"
         let mediaURL = directory.appendingPathComponent("\(stem).media")
         let metadataURL = directory.appendingPathComponent("\(stem).json")
         try snapshot.bytes.write(to: mediaURL, options: .atomic)
@@ -122,7 +127,7 @@ public actor MediaEditArchive {
         )
         do {
             try encoder.encode(metadata).write(to: metadataURL, options: .atomic)
-            originals[snapshot.messageID] = snapshot
+            originals[key] = snapshot
         } catch {
             try? fileManager.removeItem(at: mediaURL)
             throw error
@@ -133,11 +138,13 @@ public actor MediaEditArchive {
     /// Caption-only edits must not call this method.
     public func mediaDidChange(
         messageID: Int64,
+        groupID: Int64,
         replacementKind: ArchivedMediaKind,
         replacementBytes: Data,
         editedAt: Date = Date()
     ) throws -> MediaEditRecord? {
-        guard let original = originals[messageID] else {
+        let key = Self.snapshotKey(groupID: groupID, messageID: messageID)
+        guard let original = originals[key] else {
             throw MediaEditArchiveError.missingOriginal
         }
 
