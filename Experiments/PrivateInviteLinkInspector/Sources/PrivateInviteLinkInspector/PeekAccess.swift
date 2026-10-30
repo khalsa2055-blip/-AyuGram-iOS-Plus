@@ -28,6 +28,7 @@ public enum InviteCheckResult: Equatable, Sendable {
 public enum PeekAccessError: Error, Equatable {
     case serverDidNotGrantPeek
     case peekExpired
+    case invalidMessageLimit
 }
 
 /// Central guard for history/media requests. Only a server-issued peek session can read,
@@ -51,11 +52,25 @@ public struct PeekSession: Equatable, Sendable {
         }
         return PeekSession(chat: chat)
     }
+
+    /// The only supported entry point for preview message retrieval.
+    /// Authorization is checked immediately before every request.
+    public func fetchMessages(
+        using provider: any PeekMessageProvider,
+        limit: Int,
+        now: Date = Date()
+    ) async throws -> [PreviewMessage] {
+        guard (1...100).contains(limit) else {
+            throw PeekAccessError.invalidMessageLimit
+        }
+        try authorizeRead(at: now)
+        return try await provider.fetchMessages(for: self, limit: limit)
+    }
 }
 
 /// Read-only boundary used by the app's MTProto integration.
 /// Implementations should use messages.getHistory/channels.getMessages only after
-/// PeekSession.authorizeRead succeeds. No send, join, or import operation is exposed.
+/// PeekSession authorization succeeds. No send, join, or import operation is exposed.
 public protocol PeekMessageProvider: Sendable {
     func fetchMessages(for session: PeekSession, limit: Int) async throws -> [PreviewMessage]
 }
