@@ -447,6 +447,8 @@ jobs:
           from pathlib import Path
           path = Path("submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift")
           source = path.read_text()
+          if "import Postbox\\n" not in source:
+              source = source.replace("import TelegramCore\\n", "import TelegramCore\\nimport Postbox\\n", 1)
           start = source.find("        if resourceAvailable, !message.containsSecretMedia && !isCopyProtected {")
           end = source.find("        var downloadableMediaResourceInfos: [String] = []", start)
           if start < 0 or end < 0:
@@ -459,13 +461,13 @@ jobs:
                   }, action: { c, _ in
                       c?.dismiss(completion: {
                           let accountID = context.account.peerId.toInt64()
-                          let groups: [(AyuMessage, [(MediaResource, AyuMediaResourceInfo, String?)])] = savableMessages.map { item in
+                          let groups: [(AyuMessage, [(MediaResource, AyuMediaResourceInfo, String)])] = savableMessages.map { item in
                               let snapshot = AyuGramPostboxBridge.snapshot(message: item, accountID: accountID, isDeleted: false)
-                              let resources: [(MediaResource, AyuMediaResourceInfo, String?)] = item.effectiveMedia.flatMap { media in
+                              let resources: [(MediaResource, AyuMediaResourceInfo, String)] = item.effectiveMedia.flatMap { media in
                                   if let image = media as? TelegramMediaImage, let representation = largestImageRepresentation(image.representations) {
                                       return [(representation.resource, AyuMediaResourceInfo(id: representation.resource.id.stringRepresentation, mimeType: "image/jpeg"), "jpg")]
                                   } else if let file = media as? TelegramMediaFile {
-                                      return [(file.resource, AyuMediaResourceInfo(id: file.resource.id.stringRepresentation, mimeType: file.mimeType), nil)]
+                                      return [(file.resource, AyuMediaResourceInfo(id: file.resource.id.stringRepresentation, mimeType: file.mimeType), "")]
                                   }
                                   return []
                               }
