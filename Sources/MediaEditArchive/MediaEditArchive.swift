@@ -51,6 +51,15 @@ public enum MediaEditArchiveError: Error {
 /// Local, persistent archive core. Telegram integration must capture the
 /// currently available media before applying a server-side message update.
 public actor MediaEditArchive {
+    private struct SnapshotMetadata: Codable {
+        let messageID: Int64
+        let groupID: Int64
+        let senderName: String
+        let kind: ArchivedMediaKind
+        let fileName: String
+        let capturedAt: Date
+    }
+
     private let directory: URL
     private let fileManager: FileManager
     private let encoder = JSONEncoder()
@@ -73,11 +82,16 @@ public actor MediaEditArchive {
             ).filter { $0.lastPathComponent.hasPrefix("snapshot-") && $0.pathExtension == "json" }
 
             for url in snapshotFiles {
-                let snapshot = try decoder.decode(
-                    MediaEditSnapshot.self,
-                    from: Data(contentsOf: url)
+                let metadata = try decoder.decode(SnapshotMetadata.self, from: Data(contentsOf: url))
+                let bytes = try Data(contentsOf: directory.appendingPathComponent(metadata.fileName))
+                originals[metadata.messageID] = MediaEditSnapshot(
+                    messageID: metadata.messageID,
+                    groupID: metadata.groupID,
+                    senderName: metadata.senderName,
+                    kind: metadata.kind,
+                    bytes: bytes,
+                    capturedAt: metadata.capturedAt
                 )
-                originals[snapshot.messageID] = snapshot
             }
 
             if fileManager.fileExists(atPath: recordsURL.path) {
