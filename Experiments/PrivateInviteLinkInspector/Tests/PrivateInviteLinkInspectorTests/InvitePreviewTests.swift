@@ -113,6 +113,7 @@ final class InvitePreviewTests: XCTestCase {
             XCTAssertEqual(error as? PeekAccessError, .invalidMessageLimit)
         }
 
-        XCTAssertEqual(await provider.requestCount, 0)
+        let requestCount = await provider.requestCount
+        XCTAssertEqual(requestCount, 0)
     }
 }
