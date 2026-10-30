@@ -134,8 +134,10 @@ final class MediaEditArchiveTests: XCTestCase {
             replacementBytes: Data("black-two".utf8)
         )
 
-        XCTAssertEqual(try await archive.originalMedia(for: XCTUnwrap(firstRecord)), first)
-        XCTAssertEqual(try await archive.originalMedia(for: XCTUnwrap(secondRecord)), second)
+        let firstArchived = try await archive.originalMedia(for: XCTUnwrap(firstRecord))
+        let secondArchived = try await archive.originalMedia(for: XCTUnwrap(secondRecord))
+        XCTAssertEqual(firstArchived, first)
+        XCTAssertEqual(secondArchived, second)
     }
 
 }
