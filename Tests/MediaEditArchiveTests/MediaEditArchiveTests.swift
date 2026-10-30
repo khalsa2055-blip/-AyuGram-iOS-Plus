@@ -38,7 +38,8 @@ final class MediaEditArchiveTests: XCTestCase {
         )
 
         XCTAssertNotNil(record)
-        XCTAssertEqual(try await archive.originalMedia(for: XCTUnwrap(record)), original)
+        let archived = try await archive.originalMedia(for: XCTUnwrap(record))
+        XCTAssertEqual(archived, original)
     }
 
     func testUnchangedMediaDoesNotCreateEditRecord() async throws {
