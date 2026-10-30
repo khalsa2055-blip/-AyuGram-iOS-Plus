@@ -13,5 +13,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Select Swift
         run: swift --version
-      - name: Run isolated unit tests
+      - name: Run media archive unit tests
         run: swift test
+      - name: Run group preview access-policy tests
+        run: swift test --package-path Experiments/PrivateInviteLinkInspector
