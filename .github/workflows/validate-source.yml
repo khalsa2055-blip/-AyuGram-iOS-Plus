@@ -300,6 +300,20 @@ jobs:
           test -n "$APP_PATH" || { echo "No .app bundle inside simulator IPA"; find "$EXTRACT_DIR" -maxdepth 5 -print | head -100; exit 1; }
           echo "APP_PATH=$APP_PATH" >> "$GITHUB_ENV"
 
+      - name: Verify media-edit feature is linked into the app
+        shell: bash
+        run: |
+          set -euo pipefail
+          CORE_BINARY="$APP_PATH/Frameworks/TelegramCoreFramework.framework/TelegramCoreFramework"
+          UI_BINARY="$APP_PATH/Frameworks/TelegramUIFramework.framework/TelegramUIFramework"
+          test -f "$CORE_BINARY"
+          test -f "$UI_BINARY"
+          strings "$CORE_BINARY" | grep -Fq "ayuGramArchiveOriginalMediaBeforeEdit"
+          strings "$CORE_BINARY" | grep -Fq "AyuGramMediaEditArchive"
+          strings "$UI_BINARY" | grep -Fq "View Original"
+          strings "$UI_BINARY" | grep -Fq "Original media"
+          echo "PASS: pre-edit archive hook and View Original QuickLook UI are present in compiled frameworks."
+
       - name: Install and launch in iOS Simulator
         shell: bash
         env:
@@ -313,7 +327,7 @@ jobs:
           xcrun simctl launch "$DEVICE_UDID" "$BUNDLE_ID"
           sleep 20
           xcrun simctl io "$DEVICE_UDID" screenshot simulator-launch.png
-          xcrun simctl spawn "$DEVICE_UDID" log show --last 2m --style compact --predicate 'process == "Telegram"' > simulator-app.log || true
+          xcrun simctl spawn "$DEVICE_UDID" log show --last 2m --style compact --predicate 'process == "Swiftgram"' > simulator-app.log || true
 
       - name: Upload simulator evidence
         if: always()
