@@ -75,7 +75,7 @@ jobs:
     env:
       API_ID: ${{ secrets.API_ID }}
       API_HASH: ${{ secrets.API_HASH }}
-      TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      TEAM_ID: ${{ secrets.APPLE_TEAM_ID || '0000000000' }}
     steps:
       - name: Check out project
         uses: actions/checkout@v4
@@ -101,7 +101,7 @@ jobs:
           set -euo pipefail
           test -n "$API_ID" || { echo "Missing API_ID secret"; exit 1; }
           test -n "$API_HASH" || { echo "Missing API_HASH secret"; exit 1; }
-          test -n "$TEAM_ID" || { echo "Missing APPLE_TEAM_ID secret"; exit 1; }
+          if [ "$TEAM_ID" = "0000000000" ]; then echo "No Apple Team ID supplied; using placeholder for unsigned IPA (iLoader signs on device)."; fi
 
       - name: Select matching Xcode
         shell: bash
