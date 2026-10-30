@@ -34,6 +34,13 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
+      - name: Test invite access policy and audit native Telegram preview path
+        shell: bash
+        run: |
+          set -euo pipefail
+          swift test --package-path Experiments/PrivateInviteLinkInspector
+          python3 Scripts/apply_private_invite_preview.py --upstream upstream --package Experiments/PrivateInviteLinkInspector
+
       - name: Validate simulator build inputs
         shell: bash
         run: |
