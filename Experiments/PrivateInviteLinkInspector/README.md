@@ -33,6 +33,8 @@ Reference: https://core.telegram.org/api/invites and https://core.telegram.org/m
 
 ## Still required before app integration
 
+See [UPSTREAM_INTEGRATION.md](./UPSTREAM_INTEGRATION.md) for the verified Swiftgram TL schema declarations, the adapter sequence, and the repository integration blocker.
+
 This repository is currently a project shell; the Swiftgram application source is checked out by CI rather than present in this branch. The isolated package is not yet wired to Swiftgram's generated MTProto types or UI. Next work is to import/use the exact upstream Telegram API types, map the `chatInvitePeek` constructor, implement the read-only message provider, and then add the native viewer screen.
 
 ## Privacy and secret handling
