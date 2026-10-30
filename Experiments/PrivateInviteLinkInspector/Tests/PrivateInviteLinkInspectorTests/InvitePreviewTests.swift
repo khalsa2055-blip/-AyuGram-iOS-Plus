@@ -70,7 +70,7 @@ final class InvitePreviewTests: XCTestCase {
             now: Date(timeIntervalSince1970: 100)
         )
 
-        XCTAssertEqual(messages.map(\\.text), ["Preview message"])
+        XCTAssertEqual(messages.map(\.text), ["Preview message"])
         let requestCount = await provider.requestCount
         XCTAssertEqual(requestCount, 1)
     }
