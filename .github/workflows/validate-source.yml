@@ -219,6 +219,13 @@ jobs:
           set -euo pipefail
           python3 Scripts/apply_media_edit_archive.py upstream
 
+      - name: Test invite-preview policy and audit native Telegram route
+        shell: bash
+        run: |
+          set -euo pipefail
+          swift test --package-path Experiments/PrivateInviteLinkInspector
+          python3 Scripts/apply_private_invite_preview.py --upstream upstream --package Experiments/PrivateInviteLinkInspector
+
       # Reuse Bazel's downloaded dependencies and compiled action outputs between runs.
       # The cache is scoped to the runner OS and upstream revision, with a fallback
       # to the previous simulator cache so a small code change stays incremental.
