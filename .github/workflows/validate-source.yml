@@ -290,8 +290,14 @@ jobs:
             --disableProvisioningProfiles \
             --configuration=debug_sim_arm64 \
             --buildNumber="$BUILD_NUMBER"
-          APP_PATH="$(find bazel-out -type d -name '*.app' -path '*ios_sim*' -print -quit)"
-          test -n "$APP_PATH" || { echo "Simulator .app bundle was not produced"; find bazel-out -maxdepth 7 -name '*.app' -print | head -50; exit 1; }
+          IPA_PATH="bazel-bin/Telegram/Swiftgram.ipa"
+          test -f "$IPA_PATH" || { echo "Simulator IPA was not produced"; find bazel-out -name '*.ipa' -print | head -50; exit 1; }
+          EXTRACT_DIR="$RUNNER_TEMP/swiftgram-simulator-ipa"
+          rm -rf "$EXTRACT_DIR"
+          mkdir -p "$EXTRACT_DIR"
+          ditto -x -k "$IPA_PATH" "$EXTRACT_DIR"
+          APP_PATH="$(find "$EXTRACT_DIR" -type d -name '*.app' -print -quit)"
+          test -n "$APP_PATH" || { echo "No .app bundle inside simulator IPA"; find "$EXTRACT_DIR" -maxdepth 5 -print | head -100; exit 1; }
           echo "APP_PATH=$APP_PATH" >> "$GITHUB_ENV"
 
       - name: Install and launch in iOS Simulator
@@ -303,7 +309,7 @@ jobs:
           DEVICE_UDID="$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for group in d["devices"].values() for x in group if x["isAvailable"] and x["name"].startswith("iPhone")))' )"
           xcrun simctl boot "$DEVICE_UDID" || true
           xcrun simctl bootstatus "$DEVICE_UDID" -b
-          xcrun simctl install "$DEVICE_UDID" "upstream/$APP_PATH"
+          xcrun simctl install "$DEVICE_UDID" "$APP_PATH"
           xcrun simctl launch "$DEVICE_UDID" "$BUNDLE_ID"
           sleep 20
           xcrun simctl io "$DEVICE_UDID" screenshot simulator-launch.png
@@ -317,6 +323,6 @@ jobs:
           path: |
             simulator-launch.png
             simulator-app.log
-            upstream/bazel-out/**/Telegram.app
+            upstream/bazel-bin/Telegram/Swiftgram.ipa
           if-no-files-found: warn
           retention-days: 7
