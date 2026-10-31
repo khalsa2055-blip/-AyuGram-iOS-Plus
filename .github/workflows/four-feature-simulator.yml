@@ -394,13 +394,24 @@ jobs:
           from pathlib import Path
           p = Path("build-system/Make/Make.py")
           s = p.read_text(encoding="utf-8")
-          needle = "    bazel_command_line.set_custom_target(arguments.target)\\n"
-          hook = needle + "    if arguments.configuration in ('debug_sim_arm64', 'release_sim_arm64'):\\n        bazel_command_line.set_disable_provisioning_profiles()\\n    if arguments.configuration == 'debug_arm64':\\n        # Keep the Xcode-managed profile on the host app; omit extensions\\n        # because the CI runner has no per-extension signing profiles.\\n        bazel_command_line.common_args.append('--//Telegram:disableExtensions')\\n"
-          if hook not in s:
-              if needle not in s:
-                  raise SystemExit("Make.py build hook anchor was not found")
-              s = s.replace(needle, hook, 1)
-              p.write_text(s, encoding="utf-8")
+          lines = s.splitlines()
+          anchor = "bazel_command_line.set_custom_target(arguments.target)"
+          for index, line in enumerate(lines):
+              if line.strip() == anchor:
+                  indent = line[:len(line) - len(line.lstrip())]
+                  additions = [
+                      indent + "if arguments.configuration in ('debug_sim_arm64', 'release_sim_arm64'):",
+                      indent + "    bazel_command_line.set_disable_provisioning_profiles()",
+                      indent + "if arguments.configuration == 'debug_arm64':",
+                      indent + "    # Keep Xcode-managed profile on the app; omit extensions without profiles.",
+                      indent + "    bazel_command_line.common_args.append('--//Telegram:disableExtensions')",
+                  ]
+                  if additions[0] not in lines[index + 1:index + 6]:
+                      lines[index + 1:index + 1] = additions
+                  break
+          else:
+              raise SystemExit("Make.py build hook anchor was not found")
+          p.write_text(chr(10).join(lines) + chr(10), encoding="utf-8")
           PY
 
       - name: Build Telegram for iOS Simulator
