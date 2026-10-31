@@ -2633,50 +2633,6 @@ diff --git a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/BUILD b/su
          "//submodules/AnimationUI",
          "//submodules/AppBundle",
          "//submodules/AsyncDisplayKit",
-diff --git a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreen.swift b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreen.swift
---- a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreen.swift
-+++ b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreen.swift
-@@ -113,6 +113,6 @@
- import EdgeEffect
- import Pasteboard
- import AccountPeerContextItem
- 
- public enum PeerInfoAvatarEditingMode {
-     case generic
-@@ -183,6 +183,6 @@
-     case emojiStatus
-     case profileColor
-     case powerSaving
-     case businessSetup
-     case profile
-     case premiumManagement
-diff --git a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreenSettingsActions.swift b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreenSettingsActions.swift
---- a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreenSettingsActions.swift
-+++ b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreenSettingsActions.swift
-@@ -15,6 +15,6 @@
- import InstantPageCache
- 
- extension PeerInfoScreenNode {
-@@ -271,6 +271,6 @@
-             self.interaction.editingOpenNameColorSetup()
-         case .powerSaving:
-             push(energySavingSettingsScreen(context: self.context))
-         case .businessSetup:
-             guard let controller = self.controller, !controller.presentAccountFrozenInfoIfNeeded() else {
-                 return
-diff --git a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift
---- a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift
-+++ b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift
-@@ -145,8 +145,8 @@
-             items[.accounts]!.append(PeerInfoScreenActionItem(id: 100, text: presentationData.strings.Settings_AddAccount, icon: PresentationResourcesItemList.plusIconImage(presentationData.theme), action: {
-                 interaction.openSettings(.addAccount)
-             }))
-         }
-         
-         items[.myProfile]!.append(PeerInfoScreenDisclosureItem(id: 0, text: presentationData.strings.Settings_MyProfile, icon: PresentationResourcesSettings.myProfile, action: {
-             interaction.openSettings(.profile)
-         }))
-
 diff --git a/submodules/TelegramUI/Sources/AyuMessageShotRenderer.swift b/submodules/TelegramUI/Sources/AyuMessageShotRenderer.swift
 new file mode 100644
 --- /dev/null
