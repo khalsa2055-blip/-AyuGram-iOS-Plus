@@ -176,8 +176,8 @@ private func ayuSettingsEntries(_ settings: AyuSettings, accountID: Int64) -> [A
     )
     settings = replace_once(
         settings,
-        "        .clearDeletedHistory,\n",
-        "        .clearDeletedHistory,\n        .privateInvitePreview,\n",
+        "        .saveEdited(settings.saveMessagesHistory),\n",
+        "        .saveEdited(settings.saveMessagesHistory),\n        .privateInvitePreview,\n",
         "private invite settings row"
     )
 
