@@ -165,7 +165,7 @@ private final class AyuGramMediaEditOriginalPreviewController: QLPreviewControll
 UI_ACTION_ANCHOR = "        var downloadableMediaResourceInfos: [String] = []\n"
 UI_ACTION = r'''        if !message.containsSecretMedia && !isCopyProtected,
            let originalURL = archivedOriginalMediaURL(for: message.id) {
-            actions.append(.action(ContextMenuActionItem(text: "View Original", icon: { theme in
+            actions.append(.action(ContextMenuActionItem(text: "قبل", icon: { theme in
                 return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Message"), color: theme.actionSheet.primaryTextColor)
             }, action: { _, f in
                 let preview = AyuGramMediaEditOriginalPreviewController(url: originalURL)
