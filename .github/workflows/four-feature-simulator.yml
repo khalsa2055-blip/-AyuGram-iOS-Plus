@@ -1,0 +1,629 @@
+name: AyuGram iOS Plus — Four Feature Simulator Validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/four-feature-integration
+    paths:
+      - '.github/workflows/four-feature-simulator.yml'
+      - '.github/history-menu-smoke.py'
+      - 'patches/**'
+      - 'AyuGram/**'
+      - 'submodules/**'
+      - 'Scripts/**'
+
+# History hardening v2
+# Force CI on source-level hardening fixes
+
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-simulator:
+    # Telegram-iOS baseline builds sim_arm64; use Apple Silicon runner so Simulator can install it directly.
+    runs-on: macos-26
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout workspace
+        uses: actions/checkout@v5
+
+      - name: Restore Bazel build cache
+        uses: actions/cache@v4
+        with:
+          path: ~/telegram-bazel-cache
+          key: ${{ runner.os }}-telegram-bazel-eb5ae67a32c6-${{ hashFiles('patches/**') }}
+          restore-keys: |
+            ${{ runner.os }}-telegram-bazel-eb5ae67a32c6-
+
+      - name: Select Xcode 26.2 when available
+        run: |
+          if [ -d "/Applications/Xcode_26.2.app" ]; then
+            sudo xcode-select -s "/Applications/Xcode_26.2.app/Contents/Developer"
+          fi
+          xcodebuild -version
+          xcode-select -p
+          if ! xcrun --find metal >/dev/null 2>&1; then
+            echo "Metal toolchain missing; downloading it..."
+            xcodebuild -downloadComponent MetalToolchain
+          fi
+          xcrun --find metal
+
+      - name: Install Bazelisk
+        run: |
+          brew list bazelisk >/dev/null 2>&1 || brew install bazelisk
+          command -v bazelisk
+          USE_BAZEL_VERSION=8.4.2 bazelisk --version
+
+      - name: Validate required Telegram API secrets
+        env:
+          TELEGRAM_API_ID: ${{ secrets.API_ID }}
+          TELEGRAM_API_HASH: ${{ secrets.API_HASH }}
+        run: |
+          test -n "$TELEGRAM_API_ID" || { echo "Missing repository secret TELEGRAM_API_ID"; exit 1; }
+          test -n "$TELEGRAM_API_HASH" || { echo "Missing repository secret TELEGRAM_API_HASH"; exit 1; }
+          case "$TELEGRAM_API_ID" in
+            *[!0-9]*) echo "TELEGRAM_API_ID must be numeric"; exit 1 ;;
+          esac
+          echo "Telegram API credentials are present."
+
+      - name: Clone Telegram-iOS baseline
+        run: |
+          # Clone the baseline first, then initialize submodules individually.
+          # The pinned Telegram-iOS tree references an rlottie commit that is no
+          # longer fetchable from TelegramMessenger/rlottie (upload-pack: not our ref).
+          git clone https://github.com/Swiftgram/Telegram-iOS.git telegram-ios
+          cd telegram-ios
+          git checkout --detach eb5ae67a32c6354da79040f388ae2b9132fb17b8
+          git submodule sync --recursive
+
+          while IFS= read -r module_entry; do
+            module_path="${module_entry#* }"
+            if [ "$module_path" = "submodules/rlottie/rlottie" ]; then
+              echo "Skipping unavailable pinned rlottie gitlink: $module_path"
+              continue
+            fi
+            echo "Initializing submodule: $module_path"
+            initialized=0
+            for attempt in 1 2 3; do
+              if git submodule update --init --recursive --jobs 4 -- "$module_path"; then
+                initialized=1
+                break
+              fi
+              if [ "$attempt" -lt 3 ]; then
+                echo "Submodule fetch failed for $module_path (attempt $attempt/3); retrying in 5 seconds..."
+                sleep 5
+              fi
+            done
+            if [ "$initialized" -ne 1 ]; then
+              echo "::error::Unable to initialize submodule $module_path after 3 attempts"
+              exit 1
+            fi
+          done < <(git config -f .gitmodules --get-regexp path)
+
+          # Use the latest commit that is actually present in the official rlottie
+          # repository, rather than the unreachable gitlink above.
+          rm -rf submodules/rlottie/rlottie
+          git clone https://github.com/TelegramMessenger/rlottie.git submodules/rlottie/rlottie
+          git -C submodules/rlottie/rlottie checkout --detach 67f103bc8b625f2a4a9e94f1d8c7bd84c5a08d1d
+          echo "rlottie revision: $(git -C submodules/rlottie/rlottie rev-parse HEAD)"
+
+      - name: Check Telegram baseline
+        working-directory: telegram-ios
+        run: |
+          python3 - <<'PY'
+          import json
+          with open("versions.json", encoding="utf-8") as f:
+              v = json.load(f)
+          assert v["app"] == "12.9.2", v
+          assert v["xcode"] == "26.2", v
+          print("Baseline:", v["app"], "Xcode:", v["xcode"], "macOS:", v["macos"])
+          PY
+
+      - name: Validate and apply AyuGram patch
+        run: |
+          cp patches/ayugram-1.3.0.patch telegram-ios/ayugram-1.3.0.patch
+          cd telegram-ios
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          patch = Path("ayugram-1.3.0.patch").read_text(encoding="utf-8")
+          sections = re.split(r"(?m)^diff --git ", patch)
+          applied = []
+
+          for raw in sections[1:]:
+              lines = raw.splitlines()
+              header = lines[0]
+              m = re.match(r"a/(.+?) b/(.+)$", header)
+              if not m:
+                  raise SystemExit(f"Bad diff header: {header!r}")
+              target = Path(m.group(2))
+              meta = lines[1:8]
+              is_new = any(x.startswith("new file mode ") for x in meta)
+              is_deleted = any(x.startswith("deleted file mode ") for x in meta)
+
+              hunks = []
+              i = 0
+              while i < len(lines):
+                  if lines[i].startswith("@@ "):
+                      hm = re.match(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", lines[i])
+                      if not hm:
+                          raise SystemExit(f"Bad hunk header in {target}: {lines[i]!r}")
+                      old_start = int(hm.group(1))
+                      body = []
+                      i += 1
+                      while i < len(lines) and not lines[i].startswith("@@ ") and not lines[i].startswith("diff --git "):
+                          if not lines[i].startswith("\\ No newline at end of file"):
+                              body.append(lines[i])
+                          i += 1
+                      hunks.append((old_start, body))
+                  else:
+                      i += 1
+
+              if is_deleted:
+                  if target.exists():
+                      target.unlink()
+                  applied.append(str(target))
+                  continue
+
+              if is_new:
+                  new_lines = []
+                  for line in hunks[0][1] if hunks else []:
+                      if line.startswith("+") or line.startswith(" "):
+                          new_lines.append(line[1:])
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  target.write_text("\n".join(new_lines) + ("\n" if new_lines else ""), encoding="utf-8")
+                  applied.append(str(target))
+                  continue
+
+              if not target.exists():
+                  raise SystemExit(f"Target file missing: {target}")
+              current = target.read_text(encoding="utf-8").splitlines()
+              cursor = 0
+
+              for old_line, body in hunks:
+                  old_lines = [x[1:] for x in body if x.startswith(" ") or x.startswith("-")]
+                  new_lines = [x[1:] for x in body if x.startswith(" ") or x.startswith("+")]
+
+                  if old_lines:
+                      hint = max(0, old_line - 1)
+                      positions = [hint] + list(range(cursor, max(cursor, len(current) - len(old_lines) + 1)))
+                      seen = set()
+                      found = None
+                      for pos in positions:
+                          if pos in seen:
+                              continue
+                          seen.add(pos)
+                          if pos + len(old_lines) <= len(current) and current[pos:pos + len(old_lines)] == old_lines:
+                              found = pos
+                              break
+                      if found is None:
+                          raise SystemExit(f"Context mismatch applying {target} near old line {old_line}")
+                      current[found:found + len(old_lines)] = new_lines
+                      cursor = found + len(new_lines)
+                  else:
+                      insert_at = max(0, min(len(current), old_line - 1))
+                      current[insert_at:insert_at] = new_lines
+                      cursor = insert_at + len(new_lines)
+
+              target.write_text("\n".join(current) + ("\n" if current else ""), encoding="utf-8")
+              applied.append(str(target))
+
+          print("Applied", len(applied), "diff sections")
+          for path in applied:
+              print("  ", path)
+          PY
+
+          # Comprehensive AyuGram runtime smoke-test hook (UI + feature verification).
+          python3 ../Scripts/inject_ayugram_history_test.py
+          python3 "$GITHUB_WORKSPACE/.github/history-menu-smoke.py"
+
+          git diff --check
+
+      - name: Verify AyuGram feature integrations
+        working-directory: telegram-ios
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          patch_files = list(Path("submodules").rglob("*.swift"))
+          text = "\\n".join(p.read_text(encoding="utf-8", errors="ignore") for p in patch_files)
+
+          required = {
+              "Ghost Mode packet gate": "AyuGramGhostGate.shouldSend",
+              "Deleted-message capture": "AyuGramCaptureService.captureDeleted",
+              "Edit-history capture": "AyuGramCaptureService.captureEdited",
+              "Regex filter gate": "AyuGramRuntime.shouldFilterMessage",
+              "Media archive": "AyuGramMediaArchive.archive",
+              "Postbox history": "AyuGramPostboxHistoryStore",
+              "Message Shot renderer": "AyuMessageShotRenderer.render",
+              "Zalgo/bidi sanitizer": "AyuTextSanitizer.filterZalgo",
+              "Translation service": "class AyuGramTranslationService",
+              "AyuGram Settings core": "struct AyuSettings",
+              "History screen": "ayuGramHistoryScreen(context: context, dialogID:",
+              "Manual AyuGram Save": "AyuGramCaptureService.saveNow(",
+              "Automatic History Postbox persistence": "AyuGramPostboxHistoryStore.appendDeleted",
+          }
+
+          missing = [name for name, marker in required.items() if marker not in text]
+          if missing:
+              raise SystemExit("Missing AyuGram integrations: " + ", ".join(missing))
+
+          print("Verified AyuGram integrations:", len(required))
+          PY
+
+      - name: Fix binary-output decoding in Telegram build helper
+        working-directory: telegram-ios
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("build-system/Make/BuildEnvironment.py")
+          s = p.read_text(encoding="utf-8")
+          old = "    output_string = output_data.decode('utf-8')"
+          new = "    output_string = output_data.decode('utf-8', errors='replace')"
+          if old in s:
+              p.write_text(s.replace(old, new, 1), encoding="utf-8")
+          elif new not in s:
+              raise SystemExit("Expected BuildEnvironment.py decode line was not found")
+          PY
+
+      - name: Harden AyuGram History persistence
+        working-directory: telegram-ios
+        run: python3 "$GITHUB_WORKSPACE/Scripts/harden_ayugram_history.py"
+      - name: Apply private preview and Before UI
+        run: python3 "$GITHUB_WORKSPACE/Scripts/apply_four_feature_ui.py"
+
+      - name: Verify four feature integrations
+        working-directory: telegram-ios
+        run: |
+          set -euo pipefail
+          grep -q 'text: "AyuGram Save"' submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
+          grep -q 'AyuGramCaptureService.captureDeleted' submodules/TelegramCore/Sources/TelegramEngine/Messages/DeleteMessages.swift
+          grep -q 'AyuGramOriginalMediaPreviewController' submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
+          grep -q 'Preview Private Group' submodules/TelegramUI/Components/AyuGramSettingsScreen/Sources/AyuGramSettingsScreen.swift
+          grep -q 'applicationBindings.openUrl(raw)' submodules/TelegramUI/Components/AyuGramSettingsScreen/Sources/AyuGramSettingsScreen.swift
+          echo "All four feature integrations are present."
+
+      - name: Verify group More menu History route
+        working-directory: telegram-ios
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          source = Path("submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreenPerformButtonAction.swift").read_text(encoding="utf-8")
+          required = [
+              'text: "AyuGram History"',
+              "ayuGramHistoryScreen(",
+              "dialogID: self.peerId.toInt64()"
+          ]
+          missing = [marker for marker in required if marker not in source]
+          if missing:
+              raise SystemExit("Group More menu History route is missing: " + ", ".join(missing))
+          if source.count('text: "AyuGram History"') != 1:
+              raise SystemExit("Expected exactly one AyuGram History entry in group More menu")
+          print("Verified production group More menu History entry and per-group routing.")
+          PY
+
+
+      - name: Create simulator build configuration
+        working-directory: telegram-ios
+        env:
+          TELEGRAM_API_ID: ${{ secrets.API_ID }}
+          TELEGRAM_API_HASH: ${{ secrets.API_HASH }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          src = json.loads(Path("build-system/template_minimal_development_configuration.json").read_text())
+          src["bundle_id"] = "org.ayugram.iosplus"
+          src["api_id"] = os.environ["TELEGRAM_API_ID"]
+          src["api_hash"] = os.environ["TELEGRAM_API_HASH"]
+          src["team_id"] = "0000000000"
+          src["is_internal_build"] = "true"
+          src["is_appstore_build"] = "false"
+          Path("build-system/ayugram-ci-configuration.json").write_text(
+              json.dumps(src, indent=2) + "\n",
+              encoding="utf-8"
+          )
+          PY
+
+      - name: Disable provisioning profiles for simulator build
+        working-directory: telegram-ios
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("build-system/Make/Make.py")
+          s = p.read_text(encoding="utf-8")
+          needle = "    bazel_command_line.set_custom_target(arguments.target)\n"
+          replacement = needle + "    if arguments.configuration in ('debug_sim_arm64', 'release_sim_arm64'):\n        bazel_command_line.set_disable_provisioning_profiles()\n"
+          if replacement not in s:
+              if needle not in s:
+                  raise SystemExit("Make.py build hook not found")
+              s = s.replace(needle, replacement, 1)
+              p.write_text(s, encoding="utf-8")
+          PY
+
+      - name: Build Telegram for iOS Simulator
+        working-directory: telegram-ios
+        run: |
+          set -euo pipefail
+          echo "Simulator build (single cached attempt)"
+          USE_BAZEL_VERSION=8.4.2 python3 build-system/Make/Make.py \
+            --bazel="$(command -v bazelisk)" \
+            --cacheDir="$HOME/telegram-bazel-cache" \
+            build \
+            --configurationPath=build-system/ayugram-ci-configuration.json \
+            --xcodeManagedCodesigning \
+            --buildNumber=200081 \
+            --configuration=debug_sim_arm64
+
+      - name: Smoke-test app in iPhone Simulator
+        working-directory: telegram-ios
+        run: |
+          set -euo pipefail
+
+          test -d /Applications/Xcode_26.2.app || true
+
+          if xcrun simctl list devices available | grep -q "Booted"; then
+            DEVICE_UDID=$(xcrun simctl list devices available | awk -F '[()]' '/Booted/{print $2; exit}')
+          else
+            DEVICE_UDID=$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/{print $2; exit}')
+            if [ -z "$DEVICE_UDID" ]; then
+              echo "No available iPhone Simulator device found." >&2
+              xcrun simctl list devices available
+              exit 1
+            fi
+            xcrun simctl boot "$DEVICE_UDID" || true
+            xcrun simctl bootstatus "$DEVICE_UDID" -b
+          fi
+
+          ipa="bazel-bin/Telegram/Telegram.ipa"
+          if [ ! -f "$ipa" ]; then
+            ipa=$(find bazel-bin -type f -name "*.ipa" -print -quit || true)
+          fi
+          test -n "$ipa" && test -f "$ipa"
+
+          rm -rf ci-artifacts/smoke
+          mkdir -p ci-artifacts/smoke
+          unzip -q -o "$ipa" -d ci-artifacts/smoke
+          app=$(find ci-artifacts/smoke/Payload -maxdepth 1 -type d -name "*.app" -print -quit)
+          test -n "$app" && test -d "$app"
+
+          bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist")
+          executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Info.plist")
+          test "$bundle_id" = "org.ayugram.iosplus"
+          export APP_PATH="$app"
+          python3 - <<'PY'
+          import plistlib
+          from pathlib import Path
+          info = plistlib.loads((Path(__import__("os").environ["APP_PATH"]) / "Info.plist").read_bytes())
+          assert info.get("UIFileSharingEnabled") is True, info.get("UIFileSharingEnabled")
+          assert info.get("LSSupportsOpeningDocumentsInPlace") is True, info.get("LSSupportsOpeningDocumentsInPlace")
+          print("Final app Documents/Files flags: enabled")
+          PY
+
+
+          main_binary="$app/$executable"
+          lipo "$main_binary" -verify_arch arm64
+          if lipo "$main_binary" -verify_arch x86_64 >/dev/null 2>&1; then
+            echo "Unexpected x86_64 simulator slice detected."
+            exit 1
+          fi
+
+          # Remove the app first so an old Documents container cannot make a stale
+          # marker/report look like a successful test on a new launch.
+          xcrun simctl uninstall "$DEVICE_UDID" "$bundle_id" >/dev/null 2>&1 || true
+          xcrun simctl install "$DEVICE_UDID" "$app"
+          APP_CONTAINER=$(xcrun simctl get_app_container "$DEVICE_UDID" "$bundle_id" data)
+          DOCUMENTS="$APP_CONTAINER/Documents"
+          mkdir -p "$DOCUMENTS"
+          rm -f "$DOCUMENTS/AyuGramHistoryMenuHarnessReady.txt" \
+                "$DOCUMENTS/AyuGramHistoryListHarnessReady.txt" \
+                "$DOCUMENTS/AyuGramHistoryListSmokeReport.json"
+          
+          # Run the actual in-app save implementation against a two-file album and
+          # a text-only message before the separate unauthenticated History UI fixture.
+          # This catches regressions in the multi-media path without using a fake UI.
+          rm -rf "$DOCUMENTS/AyuGram" "$DOCUMENTS/Telegram/AyuGram"
+          set +e
+          feature_smoke_launch=$(xcrun simctl launch --terminate-running-process "$DEVICE_UDID" "$bundle_id" -AyuGramFullSmokeTest 2>&1)
+          feature_smoke_rc=$?
+          set -e
+          echo "$feature_smoke_launch"
+          test "$feature_smoke_rc" -eq 0 || {
+            echo "AyuGram save regression-test launch failed." >&2
+            exit "$feature_smoke_rc"
+          }
+          feature_report="$DOCUMENTS/AyuGram/AyuGramSmokeReport.json"
+          for attempt in $(seq 1 45); do
+            if [ -s "$feature_report" ]; then
+              break
+            fi
+            sleep 1
+          done
+          if [ ! -s "$feature_report" ]; then
+            echo "AyuGram save regression report was not created." >&2
+            xcrun simctl spawn "$DEVICE_UDID" log show --last 2m --style compact --predicate 'process == "Telegram"' | tail -250 || true
+            exit 1
+          fi
+          python3 - "$feature_report" <<'PY'
+          import json, sys
+          from pathlib import Path
+
+          report = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          print("AyuGram save regression report:")
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          items = {item.get("name"): item for item in report.get("items", [])}
+          required = ("History → Saved media copy", "History → Saved text copy")
+          for name in required:
+              assert name in items, f"Missing runtime check: {name}"
+              assert items[name].get("passed") is True, items[name]
+          print("Multi-media Save and text-only Save runtime checks passed.")
+          PY
+          xcrun simctl terminate "$DEVICE_UDID" "$bundle_id" >/dev/null 2>&1 || true
+
+          set +e
+          launch_output=$(xcrun simctl launch "$DEVICE_UDID" "$bundle_id" -AyuGramHistoryListSmokeTest -AyuGramHistoryListOnlySmokeTest 2>&1)
+          launch_rc=$?
+          set -e
+          echo "$launch_output"
+          test "$launch_rc" -eq 0 || {
+            echo "simctl launch failed with exit code $launch_rc" >&2
+            xcrun simctl spawn "$DEVICE_UDID" log show --last 3m --style compact --predicate 'eventMessage CONTAINS[c] "Telegram" OR eventMessage CONTAINS[c] "ayugram" OR process == "SpringBoard"' | tail -300 || true
+            exit "$launch_rc"
+          }
+
+          # simctl launch returning a PID is the reliable launch contract here.
+          # ps inside the simulator does not consistently expose third-party process names.
+          echo "Simulator launch succeeded: $launch_output"
+
+          # The Simulator has no authenticated Telegram session, so this
+          # launch-only harness renders the group More menu and a synthetic deleted
+          # History row. The production menu action is separately verified above.
+          echo "Simulator app data container: $APP_CONTAINER"
+          echo "Cleared stale History smoke markers before launch."
+          mkdir -p ci-artifacts/smoke
+          history_marker=""
+          report=""
+          for attempt in $(seq 1 75); do
+            history_marker=$(find "$DOCUMENTS" -type f -name "AyuGramHistoryListHarnessReady.txt" -print -quit 2>/dev/null || true)
+            report=$(find "$DOCUMENTS" -type f -name "AyuGramHistoryListSmokeReport.json" -print -quit 2>/dev/null || true)
+            if [ -n "$history_marker" ] && [ -f "$history_marker" ] && [ -n "$report" ] && [ -f "$report" ]; then
+              break
+            fi
+            sleep 1
+          done
+
+          if [ -z "$history_marker" ] || [ ! -f "$history_marker" ] || [ -z "$report" ] || [ ! -f "$report" ]; then
+            xcrun simctl io "$DEVICE_UDID" screenshot ci-artifacts/smoke/AyuGram-History-Test-Failed.png
+            echo "History-only harness did not render its message-bubble list." >&2
+            xcrun simctl spawn "$DEVICE_UDID" log show --last 2m --style compact --predicate 'process == "Telegram"' | tail -200 || true
+            exit 1
+          fi
+
+          xcrun simctl io "$DEVICE_UDID" screenshot ci-artifacts/smoke/AyuGram-History-List.png
+          test -s ci-artifacts/smoke/AyuGram-History-List.png
+          cat > ci-artifacts/smoke/verify-history-screenshots.swift <<'SWIFT'
+          import Foundation
+          import Vision
+          import ImageIO
+          import Darwin
+
+          func recognizedText(_ path: String) throws -> String {
+              let url = URL(fileURLWithPath: path)
+              let request = VNRecognizeTextRequest()
+              request.recognitionLevel = .accurate
+              request.usesLanguageCorrection = false
+              let handler = VNImageRequestHandler(url: url)
+              try handler.perform([request])
+              return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
+          }
+
+          let historyText = try recognizedText("ci-artifacts/smoke/AyuGram-History-List.png")
+          print("History screenshot OCR:\n\\(historyText)")
+          let actualHistoryScreen = historyText.localizedCaseInsensitiveContains("Deleted message")
+              && historyText.localizedCaseInsensitiveContains("Synthetic deleted message")
+          let visualFallbackFixture = historyText.localizedCaseInsensitiveContains("AyuGram deleted-history smoke test")
+              && historyText.localizedCaseInsensitiveContains("Deleted: just now")
+          guard historyText.localizedCaseInsensitiveContains("Smoke Test Sender"),
+                (actualHistoryScreen || visualFallbackFixture),
+                !historyText.localizedCaseInsensitiveContains("Start Messaging") else {
+              fputs("History screenshot is neither the actual deleted-message list nor the intended fallback fixture.\n", stderr)
+              exit(1)
+          }
+          if actualHistoryScreen {
+              print("Production AyuGram History screen text detected.")
+          } else {
+              print("WARNING: This screenshot is the explicitly labeled unauthenticated visual fixture, not the production History screen.")
+          }
+          SWIFT
+          swift ci-artifacts/smoke/verify-history-screenshots.swift
+          if [ -z "$report" ] || [ ! -f "$report" ]; then
+            echo "History harness report was not created." >&2
+            exit 1
+          fi
+          cp "$report" ci-artifacts/smoke/AyuGramHistoryListSmokeReport.json
+          python3 - "$report" <<'PY'
+          import json, sys
+          from pathlib import Path
+
+          report = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          assert report.get("passed") is True, report
+          mode = str(report.get("mode", ""))
+          if "visual fixture" in mode.lower():
+              assert report.get("visual_fixture_rendered") is True, report
+              assert report.get("production_history_screen_tested") is False, report
+              print("Unauthenticated History layout fixture passed. Production History runtime behavior was NOT tested in this Simulator run.")
+          else:
+              assert report.get("senderName") == "Smoke Test Sender", report
+              assert report.get("dialogID") is not None, report
+              print("Production History hook reported a rendered per-dialog entry.")
+          PY
+
+          # Check only for recent Telegram-process crash/fatal messages; do not treat
+          # unrelated SpringBoard system messages as an app failure.
+          if xcrun simctl spawn "$DEVICE_UDID" log show --last 20s --style compact --predicate 'process == "Telegram"' | grep -Ei 'crash|fatal|abort|jetsam' >/dev/null 2>&1; then
+            echo "Potential Telegram process crash/fatal event detected." >&2
+            xcrun simctl spawn "$DEVICE_UDID" log show --last 1m --style compact --predicate 'process == "Telegram"' | tail -300 || true
+            exit 1
+          fi
+
+          echo "Simulator build and runtime save smoke checks passed for $bundle_id. See the History report above to distinguish the visual fixture from a production-screen test."
+          xcrun simctl terminate "$DEVICE_UDID" "$bundle_id" || true
+
+      - name: Collect simulator artifacts
+        working-directory: telegram-ios
+        run: |
+          set -e
+          mkdir -p ci-artifacts/extracted
+          
+          # Telegram's simulator target is emitted as an IPA by this Make.py path.
+          # Extract the .app from the IPA for direct simulator use.
+          ipa="bazel-bin/Telegram/Telegram.ipa"
+          if [ ! -f "$ipa" ]; then
+            ipa=$(find bazel-bin -type f -name "*.ipa" -print -quit || true)
+          fi
+          if [ -z "$ipa" ] || [ ! -f "$ipa" ]; then
+            echo "No simulator IPA artifact was produced." >&2
+            find bazel-bin -maxdepth 5 -type f | head -200 || true
+            exit 1
+          fi
+
+          echo "Using IPA: $ipa"
+          unzip -q -o "$ipa" -d ci-artifacts/extracted
+          app=$(find ci-artifacts/extracted/Payload -type d -name "*.app" -print -quit)
+          if [ -z "$app" ] || [ ! -d "$app" ]; then
+            echo "No .app bundle found inside simulator IPA." >&2
+            find ci-artifacts/extracted -maxdepth 4 -print | head -200 || true
+            exit 1
+          fi
+
+          name=$(basename "$app")
+          ditto "$app" "ci-artifacts/$name"
+          tar -czf ci-artifacts/AyuGram-iOS-Plus-four-feature-simulator-apps.tar.gz -C ci-artifacts "$name"
+          cp "$ipa" "ci-artifacts/AyuGram-iOS-simulator.ipa"
+          rm -rf ci-artifacts/extracted
+
+          ls -lh ci-artifacts
+
+      - name: Upload simulator screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AyuGram-iOS-Plus-four-feature-screenshots-${{ github.run_number }}
+          path: telegram-ios/ci-artifacts/smoke/AyuGram-History-*.png
+          if-no-files-found: warn
+
+      - name: Upload simulator artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: AyuGram-iOS-Plus-four-feature-simulator-${{ github.run_number }}
+          path: telegram-ios/ci-artifacts
+          if-no-files-found: error
