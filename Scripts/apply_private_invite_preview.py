@@ -105,14 +105,14 @@ private final class SGPrivateInvitePreviewController: ViewController {
         self.title = "Private Group Preview"
     }
 
-    required init?(coder: NSCoder) {
+    required init(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
     override func loadDisplayNode() {
         let entryView = SGPrivateInviteEntryView()
         entryView.onPreview = { [weak self] raw in
-            guard let self, let url = URL(string: raw) else { return }
+            guard let self else { return }
             // Use Telegram's normal resolver: .peek opens a read-only ChatPeekTimeout.
             // Invite metadata/denied states are never upgraded into message access here.
             self.context.sharedContext.applicationBindings.openUrl(raw)
