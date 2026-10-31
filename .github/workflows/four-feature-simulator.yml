@@ -387,9 +387,10 @@ jobs:
             xcrun simctl bootstatus "$DEVICE_UDID" -b
           fi
 
-          ipa="bazel-bin/Telegram/Telegram.ipa"
+          ipa="bazel-bin/Telegram/Swiftgram.ipa"
           if [ ! -f "$ipa" ]; then
-            ipa=$(find bazel-bin -type f -name "*.ipa" -print -quit || true)
+            # bazel-bin is a symlink; find must follow it on macOS runners.
+            ipa=$(find -L bazel-bin -type f -name "*.ipa" -print -quit || true)
           fi
           test -n "$ipa" && test -f "$ipa"
 
@@ -590,9 +591,10 @@ jobs:
           
           # Telegram's simulator target is emitted as an IPA by this Make.py path.
           # Extract the .app from the IPA for direct simulator use.
-          ipa="bazel-bin/Telegram/Telegram.ipa"
+          ipa="bazel-bin/Telegram/Swiftgram.ipa"
           if [ ! -f "$ipa" ]; then
-            ipa=$(find bazel-bin -type f -name "*.ipa" -print -quit || true)
+            # bazel-bin is a symlink; find must follow it on macOS runners.
+            ipa=$(find -L bazel-bin -type f -name "*.ipa" -print -quit || true)
           fi
           if [ -z "$ipa" ] || [ ! -f "$ipa" ]; then
             echo "No simulator IPA artifact was produced." >&2
