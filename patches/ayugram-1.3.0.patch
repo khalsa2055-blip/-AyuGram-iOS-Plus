@@ -2,7 +2,7 @@ diff --git a/submodules/TelegramUI/Components/Chat/ChatMessageDateAndStatusNode/
 --- a/submodules/TelegramUI/Components/Chat/ChatMessageDateAndStatusNode/BUILD
 +++ b/submodules/TelegramUI/Components/Chat/ChatMessageDateAndStatusNode/BUILD
 @@ -12,6 +12,7 @@
-     deps = [
+     deps = sgdeps + [
 +        "//submodules/AyuGramIOS:AyuGramIOS",
          "//submodules/AsyncDisplayKit",
 diff --git a/AYUGRAM_IOS_0.7.1.md b/AYUGRAM_IOS_0.7.1.md
