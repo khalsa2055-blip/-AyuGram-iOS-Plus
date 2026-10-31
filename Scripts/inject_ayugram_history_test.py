@@ -176,16 +176,37 @@ standalone_hook = """        if ProcessInfo.processInfo.arguments.contains("-Ayu
                 isDeleted: true
             )
             let savedMedia = AyuGramMediaArchive.saveToSaved(message: message)
-            let firstSaved = mediaRoot?.appendingPathComponent("message-\\(messageID)-media-1.jpg")
-            let secondSaved = mediaRoot?.appendingPathComponent("message-\\(messageID)-media-2.mp4")
-            let mediaMetadata = messagesRoot?.appendingPathComponent("message-\\(messageID).json")
-            let mediaText = messagesRoot?.appendingPathComponent("message-\\(messageID).txt")
+            let savedStem = "account-\\(accountID)-dialog-\\(dialogID)-message-\\(messageID)"
+            let firstSaved = mediaRoot?.appendingPathComponent("\\(savedStem)-media-1.jpg")
+            let secondSaved = mediaRoot?.appendingPathComponent("\\(savedStem)-media-2.mp4")
+            let mediaMetadata = messagesRoot?.appendingPathComponent("\\(savedStem).json")
+            let mediaText = messagesRoot?.appendingPathComponent("\\(savedStem).txt")
             let mediaOK = savedMedia
                 && (firstSaved.map { FileManager.default.fileExists(atPath: $0.path) } ?? false)
                 && (secondSaved.map { FileManager.default.fileExists(atPath: $0.path) } ?? false)
                 && (mediaMetadata.map { FileManager.default.fileExists(atPath: $0.path) } ?? false)
                 && (mediaText.map { FileManager.default.fileExists(atPath: $0.path) } ?? false)
             add("History → Saved media copy", mediaOK, "album media + text + metadata copied to Media/Messages")
+
+            let sameIDOtherDialog = AyuMessage(
+                fakeID: 0,
+                userID: accountID,
+                dialogID: dialogID + 2,
+                peerID: dialogID + 2,
+                fromID: accountID,
+                messageID: messageID,
+                date: Int32(Date().timeIntervalSince1970),
+                text: "same message ID in another dialog",
+                mediaPath: firstMedia.path,
+                mimeType: "image/jpeg",
+                isDeleted: true
+            )
+            let sameIDSaved = AyuGramMediaArchive.saveToSaved(message: sameIDOtherDialog)
+            let otherDialogStem = "account-\\(accountID)-dialog-\\(dialogID + 2)-message-\\(messageID)"
+            let otherDialogFile = mediaRoot?.appendingPathComponent("\\(otherDialogStem)-media.jpg")
+            let isolatedSaveOK = sameIDSaved && (otherDialogFile.map { FileManager.default.fileExists(atPath: $0.path) } ?? false)
+            add("Saved media isolation by dialog", isolatedSaveOK, "same message ID in another dialog receives a separate file")
+
             try? FileManager.default.removeItem(at: tempRoot)
 
             let textMessage = AyuMessage(
@@ -200,8 +221,9 @@ standalone_hook = """        if ProcessInfo.processInfo.arguments.contains("-Ayu
                 isDeleted: true
             )
             let savedText = AyuGramMediaArchive.saveToSaved(message: textMessage)
-            let textFile = messagesRoot?.appendingPathComponent("message-\\(messageID + 1).txt")
-            let textMetadata = messagesRoot?.appendingPathComponent("message-\\(messageID + 1).json")
+            let textSavedStem = "account-\\(accountID)-dialog-\\(dialogID + 1)-message-\\(messageID + 1)"
+            let textFile = messagesRoot?.appendingPathComponent("\\(textSavedStem).txt")
+            let textMetadata = messagesRoot?.appendingPathComponent("\\(textSavedStem).json")
             let textOK = savedText
                 && (textFile.map { FileManager.default.fileExists(atPath: $0.path) } ?? false)
                 && (textMetadata.map { FileManager.default.fileExists(atPath: $0.path) } ?? false)
