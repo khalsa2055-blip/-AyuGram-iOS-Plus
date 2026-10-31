@@ -78,7 +78,7 @@ jobs:
           # longer fetchable from TelegramMessenger/rlottie (upload-pack: not our ref).
           git clone https://github.com/Swiftgram/Telegram-iOS.git telegram-ios
           cd telegram-ios
-          git checkout --detach eb5ae67a32c6354da79040f388ae2b9132fb17b8
+          git checkout --detach eb5ae67a32c6e8b936ca0e875f19f99251112f17
           git submodule sync --recursive
 
           while IFS= read -r module_entry; do
