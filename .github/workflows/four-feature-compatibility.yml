@@ -31,7 +31,7 @@ jobs:
         run: |
           git clone --recursive https://github.com/Swiftgram/Telegram-iOS.git telegram-ios
           cd telegram-ios
-          git checkout --detach e3a392272b182dbf975d4ac5fc33b40a5954d749
+          git checkout --detach eb5ae67a32c6e8b936ca0e875f19f99251112f17
 
       - name: Verify Telegram toolchain
         working-directory: telegram-ios
@@ -40,8 +40,8 @@ jobs:
           import json
           with open("versions.json", encoding="utf-8") as f:
               v = json.load(f)
-          assert v["app"] == "13.1.1", v
-          assert v["xcode"] == "27.1", v
+          assert v["app"] == "12.9.2", v
+          assert v["xcode"] == "26.2", v
           print("Telegram-iOS baseline:", v["app"])
           print("Required Xcode:", v["xcode"])
           print("Required macOS runner:", v["macos"])
@@ -147,6 +147,19 @@ jobs:
       - name: Harden AyuGram History persistence
         working-directory: telegram-ios
         run: python3 "$GITHUB_WORKSPACE/scripts/harden_ayugram_history.py"
+
+      - name: Apply private preview and Before UI
+        run: python3 Scripts/apply_four_feature_ui.py
+
+      - name: Verify all four feature entry points
+        run: |
+          set -euo pipefail
+          grep -q 'text: "AyuGram Save"' telegram-ios/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
+          grep -q 'AyuGramCaptureService.captureDeleted' telegram-ios/submodules/TelegramCore/Sources/TelegramEngine/Messages/DeleteMessages.swift
+          grep -q 'AyuGramOriginalMediaPreviewController' telegram-ios/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
+          grep -q 'Preview Private Group' telegram-ios/submodules/TelegramUI/Components/AyuGramSettingsScreen/Sources/AyuGramSettingsScreen.swift
+          grep -q 'applicationBindings.openUrl(raw)' telegram-ios/submodules/TelegramUI/Components/AyuGramSettingsScreen/Sources/AyuGramSettingsScreen.swift
+          echo "All four feature integration markers found."
 
       - name: Apply private preview and Before UI
         run: python3 Scripts/apply_four_feature_ui.py
