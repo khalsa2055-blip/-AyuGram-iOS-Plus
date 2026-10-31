@@ -195,8 +195,8 @@ if "//submodules/AsyncDisplayKit" not in build:
 if "AyuGramOriginalMediaPreviewController" not in menu:
     menu = replace_once(
         menu,
-        "import UIKit\n",
-        "import UIKit\nimport QuickLook\n",
+        "import Foundation\nimport UIKit\nimport TelegramCore\n",
+        "import Foundation\nimport UIKit\nimport QuickLook\nimport TelegramCore\n",
         "original media QuickLook import"
     )
     menu = replace_once(
