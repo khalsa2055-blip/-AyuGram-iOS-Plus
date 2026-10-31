@@ -464,11 +464,11 @@ jobs:
           print("AyuGram save regression report:")
           print(json.dumps(report, ensure_ascii=False, indent=2))
           items = {item.get("name"): item for item in report.get("items", [])}
-          required = ("History → Saved media copy", "History → Saved text copy")
+          required = ("History → Saved media copy", "History → Saved text copy", "Saved media isolation by dialog")
           for name in required:
               assert name in items, f"Missing runtime check: {name}"
               assert items[name].get("passed") is True, items[name]
-          print("Multi-media Save and text-only Save runtime checks passed.")
+          print("Multi-media Save, text-only Save, and cross-dialog isolation runtime checks passed.")
           PY
           xcrun simctl terminate "$DEVICE_UDID" "$bundle_id" >/dev/null 2>&1 || true
 
