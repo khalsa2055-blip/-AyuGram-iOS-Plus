@@ -33,8 +33,10 @@ Implement this only after the full upstream source is present in the app build:
 - Do not retry a `CHANNEL_PRIVATE` result using another endpoint or another account.
 - Do not retain or log invite hashes, session credentials, or private invite URLs.
 
-## Current integration blocker
+## Current integration
 
-The target repository's root README identifies it as a shell and says no upstream source has been imported. The current CI workflow checks out only this repository and runs the isolated Swift package tests on Ubuntu. It does not build Swiftgram, compile an iOS target, or run an iOS Simulator.
+The simulator workflow checks out the licensed upstream source from `Swiftgram/Telegram-iOS` and runs `Scripts/apply_private_invite_preview.py` before building. The script adds a visible `Settings > Private Group Preview` entry and a native invite-link input screen to `Swiftgram/SGSettingsUI/Sources/SGSettingsController.swift`.
 
-Therefore the next valid engineering step is to import/pin the licensed upstream Swiftgram source (including its required submodules and build setup) into this project, or change the project to a reproducible fork of that source. Only then can the adapter and native screen be implemented against real generated types. A guessed adapter written against imagined Telegram types would create avoidable compile failures, so it is intentionally not added.
+When the user pastes a private invite and taps Preview, the screen forwards the URL to `context.sharedContext.applicationBindings.openUrl`. This deliberately reuses Telegram's existing URL resolver and `JoinLinkPreviewController`; it does not implement a second MTProto client, call `messages.getHistory`, or fabricate membership. Telegram's own `.peek` result opens the chat with `ChatPeekTimeout`; metadata-only, expired, or denied results remain restricted to Telegram's native behavior.
+
+The input component in this package remains a separately testable parser/UI prototype. The actual app screen is injected into the upstream Swiftgram checkout by the simulator patch script, so compilation and simulator launch are the integration proof still required.
