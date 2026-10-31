@@ -203,7 +203,7 @@ standalone_hook = """        if ProcessInfo.processInfo.arguments.contains("-Ayu
             )
             let sameIDSaved = AyuGramMediaArchive.saveToSaved(message: sameIDOtherDialog)
             let otherDialogStem = "account-\\(accountID)-dialog-\\(dialogID + 2)-message-\\(messageID)"
-            let otherDialogFile = mediaRoot?.appendingPathComponent("\\(otherDialogStem)-media.jpg")
+            let otherDialogFile = mediaRoot?.appendingPathComponent("\\(otherDialogStem)-media-1.jpg")
             let isolatedSaveOK = sameIDSaved && (otherDialogFile.map { FileManager.default.fileExists(atPath: $0.path) } ?? false)
             add("Saved media isolation by dialog", isolatedSaveOK, "same message ID in another dialog receives a separate file")
 
