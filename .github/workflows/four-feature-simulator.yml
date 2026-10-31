@@ -281,6 +281,56 @@ jobs:
       - name: Apply private preview and Before UI
         run: python3 "$GITHUB_WORKSPACE/Scripts/apply_four_feature_ui.py"
 
+      - name: Test read-only invite policy and Telegram native peek route
+        working-directory: telegram-ios
+        run: |
+          set -euo pipefail
+          swift test --package-path "$GITHUB_WORKSPACE/Experiments/PrivateInviteLinkInspector"
+          python3 - <<'PY'
+          from pathlib import Path
+
+          join_link = Path("submodules/TelegramCore/Sources/TelegramEngine/Peers/JoinLink.swift").read_text(encoding="utf-8")
+          preview_ui = Path("submodules/JoinLinkPreviewUI/Sources/JoinLinkPreviewController.swift").read_text(encoding="utf-8")
+          settings = Path("submodules/TelegramUI/Components/AyuGramSettingsScreen/Sources/AyuGramSettingsScreen.swift").read_text(encoding="utf-8")
+
+          required = {
+              "Telegram checkChatInvite request": "messages.checkChatInvite(hash: hash)",
+              "Telegram server peek constructor": "case let .chatInvitePeek(",
+              "server-granted peek result": "return .peek(EnginePeer(peer), expires)",
+              "native invite resolver": "context.engine.peers.joinLinkInformation(self.link)",
+              "peek deadline forwarded to chat": "ChatPeekTimeout(deadline: deadline, linkData:",
+              "custom preview entry": "Preview Private Group",
+              "native URL resolver handoff": "applicationBindings.openUrl(raw)",
+          }
+          sources = {
+              "Telegram checkChatInvite request": join_link,
+              "Telegram server peek constructor": join_link,
+              "server-granted peek result": join_link,
+              "native invite resolver": preview_ui,
+              "peek deadline forwarded to chat": preview_ui,
+              "custom preview entry": settings,
+              "native URL resolver handoff": settings,
+          }
+          missing = [name for name, marker in required.items() if marker not in sources[name]]
+          if missing:
+              raise SystemExit("Private preview native-path audit failed: " + ", ".join(missing))
+
+          start = settings.find("private final class AyuGramPrivateInviteEntryView")
+          end = settings.find("private func ayuSettingsEntries", start)
+          if start < 0 or end < 0:
+              raise SystemExit("Private invite entry controller could not be isolated for the no-join audit")
+          controller = settings[start:end]
+          forbidden = ("importChatInvite(", "joinChatInteractively(", "channels.joinChannel(", "messages.sendMessage(")
+          found = [marker for marker in forbidden if marker in controller]
+          if found:
+              raise SystemExit("Private preview UI contains a join/send call: " + ", ".join(found))
+
+          print("PASS: parser/access-policy unit tests passed.")
+          print("PASS: preview opens Telegram's native invite resolver and forwards its server peek deadline.")
+          print("PASS: custom preview controller contains no join, import-invite, or send-message call.")
+          print("NOTE: actual message visibility remains conditional on Telegram returning chatInvitePeek.")
+          PY
+
       - name: Verify four feature integrations
         working-directory: telegram-ios
         run: |
@@ -345,7 +395,7 @@ jobs:
           p = Path("build-system/Make/Make.py")
           s = p.read_text(encoding="utf-8")
           needle = "    bazel_command_line.set_custom_target(arguments.target)\n"
-          replacement = needle + "    if arguments.configuration in ('debug_sim_arm64', 'release_sim_arm64'):\n        bazel_command_line.set_disable_provisioning_profiles()\n"
+          replacement = needle + "    if arguments.configuration in ('debug_arm64', 'debug_sim_arm64', 'release_sim_arm64'):\n        bazel_command_line.set_disable_provisioning_profiles()\n"
           if replacement not in s:
               if needle not in s:
                   raise SystemExit("Make.py build hook not found")
@@ -618,6 +668,69 @@ jobs:
           rm -rf ci-artifacts/extracted
 
           ls -lh ci-artifacts
+
+      - name: Build and verify arm64 iPhone IPA
+        working-directory: telegram-ios
+        run: |
+          set -euo pipefail
+          echo "Building the device-only arm64 target using the warmed Bazel cache."
+          USE_BAZEL_VERSION=8.4.2 python3 build-system/Make/Make.py \
+            --bazel="$(command -v bazelisk)" \
+            --cacheDir="$HOME/telegram-bazel-cache" \
+            build \
+            --configurationPath=build-system/ayugram-ci-configuration.json \
+            --xcodeManagedCodesigning \
+            --buildNumber=200082 \
+            --configuration=debug_arm64
+
+          ipa="bazel-bin/Telegram/Swiftgram.ipa"
+          if [ ! -f "$ipa" ]; then
+            ipa=$(find -L bazel-bin -type f -name "*.ipa" -print -quit || true)
+          fi
+          test -n "$ipa" && test -f "$ipa"
+
+          rm -rf ci-artifacts/device-extracted
+          mkdir -p ci-artifacts/device-extracted
+          unzip -q -o "$ipa" -d ci-artifacts/device-extracted
+          app=$(find ci-artifacts/device-extracted/Payload -maxdepth 1 -type d -name "*.app" -print -quit)
+          test -n "$app" && test -d "$app"
+
+          bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist")
+          executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Info.plist")
+          test "$bundle_id" = "org.ayugram.iosplus"
+          main_binary="$app/$executable"
+          lipo "$main_binary" -verify_arch arm64
+          archs=$(lipo -archs "$main_binary")
+          echo "Device binary architectures: $archs"
+          vtool -show-build "$main_binary" | tee ci-artifacts/device-build-platform.txt
+          grep -Eq 'platform IOS([[:space:]]|$)' ci-artifacts/device-build-platform.txt
+          if grep -q 'platform IOSSIMULATOR' ci-artifacts/device-build-platform.txt; then
+            echo "Simulator binary was produced instead of an iPhone device binary." >&2
+            exit 1
+          fi
+
+          if [ -e "$app/embedded.mobileprovision" ]; then
+            echo "Unexpected embedded provisioning profile in the device IPA." >&2
+            exit 1
+          fi
+          if codesign -dv --verbose=4 "$app" > "$RUNNER_TEMP/ayugram-device-codesign.txt" 2>&1; then
+            cp "$RUNNER_TEMP/ayugram-device-codesign.txt" ci-artifacts/device-codesign.txt
+            echo "The app bundle carries a code signature; inspect device-codesign.txt."
+          else
+            echo "The app bundle is unsigned. It must be signed by iLoader or another signing tool before installation."
+            echo "unsigned; no embedded provisioning profile" > ci-artifacts/device-codesign.txt
+          fi
+
+          cp "$ipa" ci-artifacts/AyuGram-iOS-Plus-device-arm64.ipa
+          rm -rf ci-artifacts/device-extracted
+          ls -lh ci-artifacts/AyuGram-iOS-Plus-device-arm64.ipa
+
+      - name: Upload arm64 device IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: AyuGram-iOS-Plus-device-arm64-${{ github.run_number }}
+          path: telegram-ios/ci-artifacts/AyuGram-iOS-Plus-device-arm64.ipa
+          if-no-files-found: error
 
       - name: Upload simulator screenshot
         if: always()
