@@ -148,6 +148,9 @@ jobs:
         working-directory: telegram-ios
         run: python3 "$GITHUB_WORKSPACE/Scripts/harden_ayugram_history.py"
 
+      - name: Harden saved filenames against dialog collisions
+        run: python3 Scripts/harden_four_feature_storage.py
+
       - name: Apply private preview and Before UI
         run: python3 Scripts/apply_four_feature_ui.py
 
