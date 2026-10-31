@@ -184,6 +184,21 @@ public actor MediaEditArchive {
         try Data(contentsOf: directory.appendingPathComponent(record.originalFileName))
     }
 
+    /// Returns the newest edit record for a message, scoped by group to avoid
+    /// collisions when different chats contain the same message identifier.
+    public func latestEditRecord(messageID: Int64, groupID: Int64) -> MediaEditRecord? {
+        editRecords.last { $0.messageID == messageID && $0.groupID == groupID }
+    }
+
+    /// Data source for the in-chat "Before" action. Returns nil when no media
+    /// replacement has been archived for this message.
+    public func originalMedia(messageID: Int64, groupID: Int64) throws -> Data? {
+        guard let record = latestEditRecord(messageID: messageID, groupID: groupID) else {
+            return nil
+        }
+        return try originalMedia(for: record)
+    }
+
     /// Records are reloaded from disk when the archive is recreated.
     public func allEditRecords() -> [MediaEditRecord] {
         editRecords
