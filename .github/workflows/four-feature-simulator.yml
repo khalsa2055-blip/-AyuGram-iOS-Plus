@@ -395,11 +395,12 @@ jobs:
           p = Path("build-system/Make/Make.py")
           s = p.read_text(encoding="utf-8")
           needle = "    bazel_command_line.set_custom_target(arguments.target)\n"
-          replacement = needle + "    if arguments.configuration in ('debug_arm64', 'debug_sim_arm64', 'release_sim_arm64'):\n        bazel_command_line.set_disable_provisioning_profiles()\n"
-          if replacement not in s:
-              if needle not in s:
-                  raise SystemExit("Make.py build hook not found")
-              s = s.replace(needle, replacement, 1)
+          old_hook = needle + "    if arguments.configuration in ('debug_arm64', 'debug_sim_arm64', 'release_sim_arm64'):\n        bazel_command_line.set_disable_provisioning_profiles()\n"
+          new_hook = needle + "    if arguments.configuration in ('debug_arm64', 'debug_sim_arm64', 'release_sim_arm64'):\n        bazel_command_line.set_disable_provisioning_profiles()\n        if arguments.configuration == 'debug_arm64':\n            # The device IPA is an unsigned sideloading build; omit app extensions\n            # because rules_apple requires a profile for each device extension.\n            bazel_command_line.common_args.append('--//Telegram:disableExtensions')\n"
+          if new_hook not in s:
+              if old_hook not in s:
+                  raise SystemExit("Make.py provisioning hook not found in expected form")
+              s = s.replace(old_hook, new_hook, 1)
               p.write_text(s, encoding="utf-8")
           PY
 
