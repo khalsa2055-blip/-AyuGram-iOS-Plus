@@ -9,6 +9,8 @@ on:
       - "Sources/MediaEditArchive/**"
       - "Tests/MediaEditArchiveTests/**"
       - "Scripts/apply_media_edit_archive.py"
+      - "Scripts/apply_private_invite_preview.py"
+      - "Experiments/PrivateInviteLinkInspector/**"
   workflow_dispatch:
 
 permissions:
@@ -43,6 +45,10 @@ jobs:
           python3 Scripts/apply_media_edit_archive.py upstream
           grep -q "ayuGramArchiveOriginalMediaBeforeEdit(previousMessage: previousMessage, replacementMessage: message, mediaBox: mediaBox)" upstream/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift
           grep -q 'ContextMenuActionItem(text: "قبل"' upstream/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
+          swift test --package-path Experiments/PrivateInviteLinkInspector
+          python3 Scripts/apply_private_invite_preview.py --upstream upstream --package Experiments/PrivateInviteLinkInspector
+          grep -q "SGPrivateInvitePreviewController(context: context)" upstream/Swiftgram/SGSettingsUI/Sources/SGSettingsController.swift
+          grep -q "Private Group Preview" upstream/Swiftgram/SGSettingsUI/Sources/SGSettingsController.swift
 
       - name: Validate simulator build inputs
         shell: bash
