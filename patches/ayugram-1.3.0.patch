@@ -47,9 +47,7 @@ diff --git a/Telegram/BUILD b/Telegram/BUILD
          "Telegram-iOS/Application.swift",
 +        "Telegram-iOS/AyuGramAppIntegration.swift",
      ]),
-     data = [
-         ":Icons",
-@@ -391,6 +392,7 @@
+@@ -404,6 +405,7 @@
      ],
      deps = [
          "//submodules/TelegramUI:TelegramUI",
