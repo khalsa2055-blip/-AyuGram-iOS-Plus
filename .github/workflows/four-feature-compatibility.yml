@@ -7,6 +7,7 @@ on:
     paths:
       - "patches/**"
       - "Scripts/harden_ayugram_history.py"
+      - "Scripts/apply_four_feature_ui.py"
       - ".github/workflows/four-feature-compatibility.yml"
 
 permissions:
@@ -20,7 +21,7 @@ jobs:
   verify:
     runs-on: macos-26-intel
     steps:
-      - name: Checkout ezz
+      - name: Checkout project
         uses: actions/checkout@v5
 
       - name: Check Xcode
@@ -146,6 +147,19 @@ jobs:
       - name: Harden AyuGram History persistence
         working-directory: telegram-ios
         run: python3 "$GITHUB_WORKSPACE/scripts/harden_ayugram_history.py"
+
+      - name: Apply private preview and Before UI
+        run: python3 Scripts/apply_four_feature_ui.py
+
+      - name: Verify all four feature entry points
+        run: |
+          set -euo pipefail
+          grep -q 'text: "AyuGram Save"' telegram-ios/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
+          grep -q 'AyuGramCaptureService.captureDeleted' telegram-ios/submodules/TelegramCore/Sources/TelegramEngine/Messages/DeleteMessages.swift
+          grep -q 'AyuGramOriginalMediaPreviewController' telegram-ios/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
+          grep -q 'Preview Private Group' telegram-ios/submodules/TelegramUI/Components/AyuGramSettingsScreen/Sources/AyuGramSettingsScreen.swift
+          grep -q 'applicationBindings.openUrl(raw)' telegram-ios/submodules/TelegramUI/Components/AyuGramSettingsScreen/Sources/AyuGramSettingsScreen.swift
+          echo "All four feature integration markers found."
 
       - name: Show changed files
         working-directory: telegram-ios
