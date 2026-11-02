@@ -226,6 +226,27 @@ jobs:
 
           git diff --check
 
+      - name: Prepare portable entitlements for iLoader signing
+        working-directory: telegram-ios
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          build = Path("Telegram/BUILD")
+          source = build.read_text(encoding="utf-8")
+          old = '''        <key>application-identifier</key>
+        <string>{telegram_team_id}.{telegram_bundle_id}</string>
+          '''
+          if old not in source:
+              raise SystemExit("Expected generated application-identifier block was not found; refusing to alter entitlements blindly")
+          source = source.replace(old, "", 1)
+          build.write_text(source, encoding="utf-8")
+          assert "<key>application-identifier</key>" not in source
+          assert "<string>group.{telegram_bundle_id}</string>" in source
+          print("Removed hard-coded Team ID from app entitlements; retained AyuGram app-group entitlement.")
+          print("The final signer must inject application-identifier from its real provisioning profile.")
+          PY
+
       - name: Verify AyuGram feature integrations
         working-directory: telegram-ios
         run: |
