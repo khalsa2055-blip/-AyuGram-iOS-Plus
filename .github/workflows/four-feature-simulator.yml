@@ -231,20 +231,19 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           build = Path("Telegram/BUILD")
           source = build.read_text(encoding="utf-8")
-          old = '''        <key>application-identifier</key>
-        <string>{telegram_team_id}.{telegram_bundle_id}</string>
-          '''
-          if old not in source:
-              raise SystemExit("Expected generated application-identifier block was not found; refusing to alter entitlements blindly")
-          source = source.replace(old, "", 1)
+          pattern = r'(?m)^\s*<key>application-identifier</key>\n\s*<string>\{telegram_team_id\}\.\{telegram_bundle_id\}</string>\n'
+          source, count = re.subn(pattern, "", source, count=1)
+          if count != 1:
+              raise SystemExit(f"Expected exactly one generated placeholder application-identifier entitlement; found {count}")
           build.write_text(source, encoding="utf-8")
           assert "<key>application-identifier</key>" not in source
           assert "<string>group.{telegram_bundle_id}</string>" in source
-          print("Removed hard-coded Team ID from app entitlements; retained AyuGram app-group entitlement.")
-          print("The final signer must inject application-identifier from its real provisioning profile.")
+          print("Removed placeholder Team ID application-identifier; kept the AyuGram app-group entitlement.")
+          print("The signing tool must supply application-identifier from its real provisioning profile.")
           PY
 
       - name: Verify AyuGram feature integrations
