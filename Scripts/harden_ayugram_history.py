@@ -1581,11 +1581,13 @@ if "public let fromName: String?" not in message_text or "public let deletedAt: 
     raise SystemExit("History sender/deletion metadata model missing")
 if "senderNames: [Int32: String]" not in capture.read_text():
     raise SystemExit("Deleted capture sender-name contract missing")
-if context_menu_text.count("AyuGram Save") != 1:
-    raise SystemExit("Manual AyuGram Save action must exist exactly once")
-save_tail = context_menu_text.split("AyuGram Save", 1)[1].split("})))", 1)[0]
-if "isCopyProtected()" in save_tail or "containsSecretMedia" in save_tail:
-    raise SystemExit("Manual AyuGram Save must not reuse Telegram copy-protection gate")
+save_action_count = context_menu_text.count("AyuGram Save")
+if save_action_count != 2:
+    raise SystemExit(f"Expected two AyuGram Save entry points (message menu + media viewer); found {save_action_count}")
+for save_tail in context_menu_text.split("AyuGram Save")[1:]:
+    action_tail = save_tail.split("})))", 1)[0]
+    if "isCopyProtected()" in action_tail or "containsSecretMedia" in action_tail:
+        raise SystemExit("Manual AyuGram Save must not reuse Telegram copy-protection gate")
 if 'let bubbleWidth = min(max(params.width * 0.80' not in u:
     raise SystemExit("Telegram-style narrow message bubble layout missing")
 if 'self.senderLabel.textColor = UIColor { trait in' not in u or 'User \\(item.message.fromID)' not in u:
@@ -1620,10 +1622,10 @@ if "saveToSaved" in edited_capture:
     raise SystemExit("Automatic edited-message capture must not write to Saved")
 
 # Manual Save contract remains untouched and must still route through the existing API.
-if context_menu_text.count("AyuGram Save") != 1:
-    raise SystemExit("Manual AyuGram Save action disappeared")
-if context_menu_text.count("AyuGramCaptureService.saveNow(") != 1:
-    raise SystemExit("Manual AyuGram Save API wiring disappeared")
+if context_menu_text.count("AyuGram Save") != 2:
+    raise SystemExit("Message-menu and media-viewer AyuGram Save actions must both remain present")
+if context_menu_text.count("AyuGramCaptureService.saveNow(") != 2:
+    raise SystemExit("Both AyuGram Save entry points must route through saveNow")
 
 # History media is private app data, never the user-visible Documents tree.
 media_archive_text = archive.read_text()
