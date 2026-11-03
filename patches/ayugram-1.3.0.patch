@@ -3558,7 +3558,7 @@ diff --git a/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift 
  import Pasteboard
 +import QuickLook
 @@ -45,1 +45,24 @@
- private struct MessageContextMenuData {
+-private struct MessageContextMenuData {
 +private final class AyuGramOriginalPreviewItem: NSObject, QLPreviewItem {
 +    private let url: URL
 +    init(url: URL) { self.url = url }
@@ -3578,6 +3578,7 @@ diff --git a/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift 
 +    func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> QLPreviewItem { item }
 +}
 +
++private struct MessageContextMenuData {
 @@ -15020,1 +15043,20 @@
          var downloadableMediaResourceInfos: [String] = []
 +        if !message.containsSecretMedia && !isCopyProtected {
@@ -3610,3 +3611,30 @@ diff --git a/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift 
 +            })))
 +        }
 +
+
+diff --git a/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift b/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
+--- a/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
++++ b/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
+@@ -14998,1 +15020,23 @@
+             if let mediaReference = mediaReference {
++                let accountID = context.account.peerId.toInt64()
++                let resources: [AyuMediaResourceInfo] = message.effectiveMedia.flatMap { media in
++                    if let image = media as? TelegramMediaImage,
++                       let representation = largestImageRepresentation(image.representations) {
++                        return [AyuMediaResourceInfo(id: representation.resource.id.stringRepresentation, mimeType: "image/jpeg")]
++                    } else if let file = media as? TelegramMediaFile {
++                        return [AyuMediaResourceInfo(id: file.resource.id.stringRepresentation, mimeType: file.mimeType)]
++                    }
++                    return []
++                }
++                actions.append(.action(ContextMenuActionItem(text: "AyuGram Save", icon: { theme in
++                    return generateTintedImage(image: UIImage(systemName: "tray.and.arrow.down"), color: theme.actionSheet.primaryTextColor)
++                }, action: { c, f in
++                    c?.dismiss(completion: {
++                        let snapshot = AyuGramPostboxBridge.snapshot(message: message, accountID: accountID, isDeleted: false)
++                        let saved = AyuGramCaptureService.saveNow(mediaBox: context.account.postbox.mediaBox, snapshot: snapshot, resources: resources)
++                        controllerInteraction.displayUndo(.info(title: nil, text: saved ? "Saved to AyuGram" : "Could not save media", timeout: 2.0, customUndoText: nil))
++                    })
++                    f(.default)
++                })))
+                 actions.append(.action(ContextMenuActionItem(text: "Save As...", icon: { theme in
