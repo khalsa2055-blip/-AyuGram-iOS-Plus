@@ -27,7 +27,7 @@ if "AyuGramPrivateInvitePreviewController" not in settings:
     settings = replace_once(
         settings,
         "import UIKit\n",
-        "import UIKit\nimport AsyncDisplayKit\nimport TelegramCore\n",
+        "import UIKit\nimport AsyncDisplayKit\nimport SwiftSignalKit\nimport TelegramCore\n",
         "private invite UI import"
     )
     settings = replace_once(
