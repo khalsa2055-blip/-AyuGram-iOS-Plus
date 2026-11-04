@@ -175,7 +175,12 @@ private func ayuGramPrivateInviteHash(_ raw: String) -> String? {
 
     guard !hash.isEmpty,
           hash.unicodeScalars.allSatisfy({
-              CharacterSet.alphanumerics.contains($0) || $0 == "-" || $0 == "_"
+              let value = $0.value
+              return (48...57).contains(value)
+                  || (65...90).contains(value)
+                  || (97...122).contains(value)
+                  || value == 45
+                  || value == 95
           }) else {
         return nil
     }
