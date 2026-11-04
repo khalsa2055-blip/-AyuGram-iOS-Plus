@@ -49,6 +49,8 @@ jobs:
               "AyuGram settings row": ".privateInvitePreview,",
               "settings navigation controller": "AyuGramPrivateInvitePreviewController(context: arguments.context)",
               "URL input accessibility id": 'privateInviteURLField',
+              "preview Back button": "privateInvitePreviewBackButton",
+              "preview Back action": "entryView.onBack",
               "server-granted peek gate": "case let .peek(chat) = result",
               "expiry guard": "guard now < chat.expiresAt",
               "bounded history request": "(1...100).contains(limit)",
