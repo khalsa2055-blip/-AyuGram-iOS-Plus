@@ -59,10 +59,10 @@ jobs:
               raise SystemExit("Missing preview safeguards: " + ", ".join(missing))
 
           forbidden_calls = [
-              r"\\.importChatInvite\\s*\\(",
-              r"\\.joinChannel\\s*\\(",
-              r"\\.sendMessage\\s*\\(",
-              r"\\.sendMedia\\s*\\(",
+              r"\.importChatInvite\s*\(",
+              r"\.joinChannel\s*\(",
+              r"\.sendMessage\s*\(",
+              r"\.sendMedia\s*\(",
           ]
           for pattern in forbidden_calls:
               if re.search(pattern, swift):
