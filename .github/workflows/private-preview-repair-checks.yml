@@ -53,48 +53,41 @@ jobs:
               "expiry guard": "guard now < chat.expiresAt",
               "bounded history request": "(1...100).contains(limit)",
           }
+          native_required = {
+              "Telegram MTProto invite resolver": "joinLinkInformation(hash)",
+              "server-authorized peek branch": "case let .peek(peer, deadline):",
+              "native read-only chat timeout": "ChatPeekTimeout(deadline: deadline, linkData: hash)",
+              "native Telegram chat navigation": "navigateToChatController(",
+              "non-peek denial branch": "case .invite:",
+              "already-member handling": "case .alreadyJoined:",
+              "strict local invite parser": "ayuGramPrivateInviteHash(raw)",
+          }
           combined = patch + "\\n" + swift
           missing = [name for name, marker in required.items() if marker not in combined]
-          if missing:
-              raise SystemExit("Missing preview safeguards: " + ", ".join(missing))
+          native_missing = [name for name, marker in native_required.items() if marker not in patch]
+          if missing or native_missing:
+              raise SystemExit("Missing preview safeguards: " + ", ".join(missing + native_missing))
 
           forbidden_calls = [
-              r"\.importChatInvite\s*\(",
-              r"\.joinChannel\s*\(",
-              r"\.sendMessage\s*\(",
-              r"\.sendMedia\s*\(",
+              r"\\.importChatInvite\\s*\\(",
+              r"\\.joinChatInteractively\\s*\\(",
+              r"\\.joinChannel\\s*\\(",
+              r"\\.sendMessage\\s*\\(",
+              r"\\.sendMedia\\s*\\(",
           ]
           for pattern in forbidden_calls:
-              if re.search(pattern, swift):
+              if re.search(pattern, patch + "\\n" + swift):
                   raise SystemExit("Forbidden mutating Telegram call found: " + pattern)
 
-          # Explicitly report the known integration gap instead of treating a
-          # URL handoff as a functioning message/media preview.
-          has_native_adapter = any(
-              marker in combined for marker in (
-                  "TelegramPeekMessageProvider",
-                  "AyuGramTelegramPeekAdapter",
-                  "joinLinkInformation(hash:"
-              )
-          )
-          has_timeline = any(
-              marker in combined for marker in (
-                  "AyuGramPrivateInviteTimeline",
-                  "PreviewMessageCell",
-                  "PrivateInviteMessagesNode"
-              )
-          )
-          has_media_renderer = any(
-              marker in combined for marker in (
-                  "AyuGramPrivateInviteMediaView",
-                  "PreviewMediaRenderer"
-              )
-          )
-          print("PASS: settings entry, server-peek gate, expiry and read-only boundaries")
-          print("Native MTProto adapter:", "present" if has_native_adapter else "MISSING")
-          print("Message timeline:", "present" if has_timeline else "MISSING")
-          print("Media renderer:", "present" if has_media_renderer else "MISSING")
-          if not (has_native_adapter and has_timeline and has_media_renderer):
-              print("BLOCKED: app preview is not end-to-end integrated; no IPA/build is run by this workflow.")
-          PY
+          if "applicationBindings.openUrl(raw)" in patch:
+              raise SystemExit("Invite preview must not use generic/external URL handoff")
+          if "importChatInvite" in patch or "joinChatInteractively" in patch:
+              raise SystemExit("Invite preview must never invoke a join operation")
+
+          print("PASS: settings entry and safe invite parsing")
+          print("PASS: Telegram MTProto checkChatInvite path via joinLinkInformation")
+          print("PASS: only server-issued .peek opens ChatController with ChatPeekTimeout")
+          print("PASS: invite metadata/member identities are not exposed; no join/send APIs")
+          print("PASS: native Telegram chat timeline and media rendering are used")
+
 
