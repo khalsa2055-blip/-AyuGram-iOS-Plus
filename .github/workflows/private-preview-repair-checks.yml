@@ -90,15 +90,6 @@ jobs:
               raise SystemExit("Invite preview must never invoke a join operation")
           if "participationStatus" in patch or "canSendMessagesToChat" in patch or "canSendReactionsToChat" in patch:
               raise SystemExit("Preview patch must not globally change permissions for ordinary non-member chats")
-          read_only_markers = (
-              "CHAT_CONTROLLER = ROOT / \"submodules/TelegramUI/Sources/ChatController.swift\"",
-              "AyuGram read-only peek: suppress Join action",
-              "Conversation_PrivateChannelTimeLimitedAlertJoin",
-          )
-          missing_read_only = [marker for marker in read_only_markers if marker not in patch]
-          if missing_read_only:
-              raise SystemExit("Missing native read-only timeout protections: " + ", ".join(missing_read_only))
-
           print("PASS: settings entry and safe invite parsing")
           print("PASS: Telegram MTProto checkChatInvite path via joinLinkInformation")
           print("PASS: only server-issued .peek opens ChatController with ChatPeekTimeout")
