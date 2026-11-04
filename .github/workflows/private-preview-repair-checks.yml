@@ -58,6 +58,7 @@ jobs:
               "server-authorized peek branch": "case let .peek(peer, deadline):",
               "native read-only chat timeout": "ChatPeekTimeout(deadline: deadline, linkData: hash)",
               "native Telegram chat navigation": "navigateToChatController(",
+              "non-member chat send gate": "AyuGram read-only peek send gate",
               "non-peek denial branch": "case .invite:",
               "already-member handling": "case .alreadyJoined:",
               "strict local invite parser": "ayuGramPrivateInviteHash(raw)",
