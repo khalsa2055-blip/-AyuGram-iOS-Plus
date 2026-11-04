@@ -25,7 +25,12 @@ public enum InviteLinkParser {
         guard let components = URLComponents(string: rawValue.trimmingCharacters(in: .whitespacesAndNewlines)),
               let host = components.host?.lowercased(),
               acceptedHosts.contains(host),
-              components.scheme?.lowercased() == "https" || components.scheme?.lowercased() == "http"
+              components.scheme?.lowercased() == "https" || components.scheme?.lowercased() == "http",
+              components.user == nil,
+              components.password == nil,
+              components.port == nil,
+              components.query == nil,
+              components.fragment == nil
         else {
             return .failure(.unsupportedHost)
         }
