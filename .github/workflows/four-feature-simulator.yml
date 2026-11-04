@@ -544,14 +544,15 @@ jobs:
           normal_launch_rc=$?
           set -e
           echo "Ordinary launch result: $normal_launch"
+          echo "Capturing startup diagnostics for executable: $executable"
           if [ "$normal_launch_rc" -ne 0 ]; then
-            xcrun simctl spawn "$DEVICE_UDID" log show --last 2m --style compact --predicate 'process == "Telegram"' | tail -300 || true
+            xcrun simctl spawn "$DEVICE_UDID" log show --last 2m --style compact --predicate '(process == "Swiftgram" OR process == "Telegram")' | tail -300 || true
             exit "$normal_launch_rc"
           fi
           sleep 15
           xcrun simctl io "$DEVICE_UDID" screenshot ci-artifacts/smoke/AyuGram-Normal-Launch.png
           test -s ci-artifacts/smoke/AyuGram-Normal-Launch.png
-          xcrun simctl spawn "$DEVICE_UDID" log show --last 30s --style compact --predicate 'process == "Telegram"' | tee ci-artifacts/smoke/AyuGram-Normal-Launch.log | tail -180
+          xcrun simctl spawn "$DEVICE_UDID" log show --last 30s --style compact --predicate '(process == "Swiftgram" OR process == "Telegram")' | tee ci-artifacts/smoke/AyuGram-Normal-Launch.log | tail -180
           xcrun simctl terminate "$DEVICE_UDID" "$bundle_id" >/dev/null 2>&1 || true
           APP_CONTAINER=$(xcrun simctl get_app_container "$DEVICE_UDID" "$bundle_id" data)
           DOCUMENTS="$APP_CONTAINER/Documents"
@@ -582,7 +583,7 @@ jobs:
           done
           if [ ! -s "$feature_report" ]; then
             echo "AyuGram save regression report was not created." >&2
-            xcrun simctl spawn "$DEVICE_UDID" log show --last 2m --style compact --predicate 'process == "Telegram"' | tail -250 || true
+            xcrun simctl spawn "$DEVICE_UDID" log show --last 2m --style compact --predicate '(process == "Swiftgram" OR process == "Telegram")' | tail -250 || true
             exit 1
           fi
           python3 - "$feature_report" <<'PY'
@@ -636,7 +637,7 @@ jobs:
           if [ -z "$history_marker" ] || [ ! -f "$history_marker" ] || [ -z "$report" ] || [ ! -f "$report" ]; then
             xcrun simctl io "$DEVICE_UDID" screenshot ci-artifacts/smoke/AyuGram-History-Test-Failed.png
             echo "History-only harness did not render its message-bubble list." >&2
-            xcrun simctl spawn "$DEVICE_UDID" log show --last 2m --style compact --predicate 'process == "Telegram"' | tail -200 || true
+            xcrun simctl spawn "$DEVICE_UDID" log show --last 2m --style compact --predicate '(process == "Swiftgram" OR process == "Telegram")' | tail -200 || true
             exit 1
           fi
 
@@ -702,9 +703,9 @@ jobs:
 
           # Check only for recent Telegram-process crash/fatal messages; do not treat
           # unrelated SpringBoard system messages as an app failure.
-          if xcrun simctl spawn "$DEVICE_UDID" log show --last 20s --style compact --predicate 'process == "Telegram"' | grep -Ei 'crash|fatal|abort|jetsam' >/dev/null 2>&1; then
+          if xcrun simctl spawn "$DEVICE_UDID" log show --last 20s --style compact --predicate '(process == "Swiftgram" OR process == "Telegram")' | grep -Ei 'crash|fatal|abort|jetsam' >/dev/null 2>&1; then
             echo "Potential Telegram process crash/fatal event detected." >&2
-            xcrun simctl spawn "$DEVICE_UDID" log show --last 1m --style compact --predicate 'process == "Telegram"' | tail -300 || true
+            xcrun simctl spawn "$DEVICE_UDID" log show --last 1m --style compact --predicate '(process == "Swiftgram" OR process == "Telegram")' | tail -300 || true
             exit 1
           fi
 
