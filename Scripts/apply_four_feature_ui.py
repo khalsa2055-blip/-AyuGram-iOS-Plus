@@ -311,6 +311,26 @@ if "AyuGram read-only peek send gate" not in chat_presentation_state:
         "read-only channel send permission gate"
     )
 
+if "AyuGram read-only peek reactions gate" not in chat_presentation_state:
+    chat_presentation_state = replace_once(
+        chat_presentation_state,
+        """public func canSendReactionsToChat(_ state: ChatPresentationInterfaceState) -> Bool {
+    if let peer = state.renderedPeer?.peer {
+        let canBypassRestrictions = canBypassRestrictions(chatPresentationInterfaceState: state)
+""",
+        """public func canSendReactionsToChat(_ state: ChatPresentationInterfaceState) -> Bool {
+    if let peer = state.renderedPeer?.peer {
+        if let channel = peer as? TelegramChannel {
+            guard case .member = channel.participationStatus else {
+                // AyuGram read-only peek reactions gate: a non-member cannot interact with messages.
+                return false
+            }
+        }
+        let canBypassRestrictions = canBypassRestrictions(chatPresentationInterfaceState: state)
+""",
+        "read-only channel reaction permission gate"
+    )
+
 # Keep Telegram's native peek timer and timeout alert, but remove its Join action.
 # The preview screen remains a native ChatController; expiry only dismisses the peek.
 if "AyuGram read-only peek: suppress Join action" not in chat_controller:
@@ -418,6 +438,6 @@ CHAT_CONTROLLER.write_text(chat_controller, encoding="utf-8")
 CHAT_PRESENTATION_STATE.write_text(chat_presentation_state, encoding="utf-8")
 print("PASS: manual Save and deleted-message capture remain from the AyuGram patch.")
 print("PASS: added Telegram-resolved private invite preview entry.")
-print("PASS: non-member channel chat composer is read-only.")
+print("PASS: non-member channel chat composer and reactions are read-only.")
 print("PASS: native peek expiry no longer offers Join.")
 print("PASS: added Before action backed by the pre-edit archive.")
