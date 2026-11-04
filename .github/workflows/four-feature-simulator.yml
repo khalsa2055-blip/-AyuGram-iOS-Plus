@@ -323,7 +323,11 @@ jobs:
               "native invite resolver": "context.engine.peers.joinLinkInformation(self.link)",
               "peek deadline forwarded to chat": "ChatPeekTimeout(deadline: deadline, linkData:",
               "custom preview entry": "Preview Private Group",
-              "native URL resolver handoff": "applicationBindings.openUrl(raw)",
+              "native MTProto invite check": "joinLinkInformation(hash)",
+              "peek-only navigation": "case let .peek(peer, deadline):",
+              "native chat navigation": "navigateToChatController(",
+              "deadline forwarded to read-only chat": "ChatPeekTimeout(deadline: deadline, linkData: hash)",
+              "non-peek result rejected": "case .invite:",
           }
           sources = {
               "Telegram checkChatInvite request": join_link,
@@ -332,7 +336,11 @@ jobs:
               "native invite resolver": preview_ui,
               "peek deadline forwarded to chat": preview_ui,
               "custom preview entry": settings,
-              "native URL resolver handoff": settings,
+              "native MTProto invite check": settings,
+              "peek-only navigation": settings,
+              "native chat navigation": settings,
+              "deadline forwarded to read-only chat": settings,
+              "non-peek result rejected": settings,
           }
           missing = [name for name, marker in required.items() if marker not in sources[name]]
           if missing:
@@ -363,7 +371,11 @@ jobs:
           grep -q 'savedStem = "account-' submodules/AyuGramIOS/Sources/AyuGramMediaArchive.swift
           grep -q 'AyuGramOriginalMediaPreviewController' submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
           grep -q 'Preview Private Group' submodules/TelegramUI/Components/AyuGramSettingsScreen/Sources/AyuGramSettingsScreen.swift
-          grep -q 'applicationBindings.openUrl(raw)' submodules/TelegramUI/Components/AyuGramSettingsScreen/Sources/AyuGramSettingsScreen.swift
+          grep -q 'joinLinkInformation(hash)' submodules/TelegramUI/Components/AyuGramSettingsScreen/Sources/AyuGramSettingsScreen.swift
+          grep -q 'case let .peek(peer, deadline):' submodules/TelegramUI/Components/AyuGramSettingsScreen/Sources/AyuGramSettingsScreen.swift
+          grep -q 'ChatPeekTimeout(deadline: deadline, linkData: hash)' submodules/TelegramUI/Components/AyuGramSettingsScreen/Sources/AyuGramSettingsScreen.swift
+          grep -q 'navigateToChatController(' submodules/TelegramUI/Components/AyuGramSettingsScreen/Sources/AyuGramSettingsScreen.swift
+          ! grep -q 'applicationBindings.openUrl(raw)' submodules/TelegramUI/Components/AyuGramSettingsScreen/Sources/AyuGramSettingsScreen.swift
           echo "All four feature integrations are present."
 
       - name: Verify group More menu History route
