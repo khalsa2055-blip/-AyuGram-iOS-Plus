@@ -25,7 +25,7 @@ if "AyuGramPrivateInvitePreviewController" not in settings:
     settings = replace_once(
         settings,
         "import UIKit\n",
-        "import UIKit\nimport AsyncDisplayKit\n",
+        "import UIKit\nimport AsyncDisplayKit\nimport TelegramCore\n",
         "private invite UI import"
     )
     settings = replace_once(
@@ -113,6 +113,22 @@ if "AyuGramPrivateInvitePreviewController" not in settings:
         ])
     }
 
+    func setLoading(_ loading: Bool) {
+        button.isEnabled = !loading
+        field.isEnabled = !loading
+        button.setTitle(loading ? "Checking…" : "Preview", for: .normal)
+    }
+
+    func showMessage(_ message: String) {
+        errorLabel.text = message
+        errorLabel.isHidden = false
+    }
+
+    func clearMessage() {
+        errorLabel.text = nil
+        errorLabel.isHidden = true
+    }
+
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
@@ -125,28 +141,60 @@ if "AyuGramPrivateInvitePreviewController" not in settings:
               let host = components.host?.lowercased(),
               host == "t.me" || host == "www.t.me",
               components.query == nil, components.fragment == nil,
-              components.user == nil, components.password == nil
+              components.user == nil, components.password == nil, components.port == nil
         else {
-            errorLabel.text = "Enter a valid Telegram private invite link."
-            errorLabel.isHidden = false
+            showMessage("Enter a valid Telegram private invite link.")
             return
         }
         let parts = components.path.split(separator: "/", omittingEmptySubsequences: true)
         let valid = (parts.count == 1 && parts[0].hasPrefix("+") && parts[0].count > 1)
             || (parts.count == 2 && parts[0].lowercased() == "joinchat" && !parts[1].isEmpty)
         guard valid else {
-            errorLabel.text = "Use a t.me/+… or t.me/joinchat/… invite link."
-            errorLabel.isHidden = false
+            showMessage("Use a t.me/+… or t.me/joinchat/… invite link.")
             return
         }
-        errorLabel.isHidden = true
+        clearMessage()
         endEditing(true)
         onPreview?(raw)
     }
 }
 
+private func ayuGramPrivateInviteHash(_ raw: String) -> String? {
+    guard let components = URLComponents(string: raw),
+          let scheme = components.scheme?.lowercased(),
+          scheme == "https" || scheme == "http",
+          let host = components.host?.lowercased(),
+          host == "t.me" || host == "www.t.me",
+          components.query == nil,
+          components.fragment == nil,
+          components.user == nil,
+          components.password == nil,
+          components.port == nil else {
+        return nil
+    }
+
+    let parts = components.path.split(separator: "/", omittingEmptySubsequences: true)
+    let hash: String
+    if parts.count == 1, parts[0].hasPrefix("+") {
+        hash = String(parts[0].dropFirst())
+    } else if parts.count == 2, parts[0].lowercased() == "joinchat" {
+        hash = String(parts[1])
+    } else {
+        return nil
+    }
+
+    guard !hash.isEmpty,
+          hash.unicodeScalars.allSatisfy({
+              CharacterSet.alphanumerics.contains($0) || $0 == "-" || $0 == "_"
+          }) else {
+        return nil
+    }
+    return hash
+}
+
 private final class AyuGramPrivateInvitePreviewController: ViewController {
     private let context: AccountContext
+    private let previewDisposable = MetaDisposable()
 
     init(context: AccountContext) {
         self.context = context
@@ -154,17 +202,76 @@ private final class AyuGramPrivateInvitePreviewController: ViewController {
         self.title = "Private Group Preview"
     }
 
+    deinit {
+        self.previewDisposable.dispose()
+    }
+
     required init(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
+    private func showPreviewError(_ message: String, in entryView: AyuGramPrivateInviteEntryView) {
+        entryView.setLoading(false)
+        entryView.showMessage(message)
+    }
+
     override func loadDisplayNode() {
         let entryView = AyuGramPrivateInviteEntryView()
-        entryView.onPreview = { [weak self] raw in
-            guard let self else { return }
-            // Telegram's own resolver decides whether read-only peek is permitted.
-            // This does not join the group or bypass server authorization.
-            self.context.sharedContext.applicationBindings.openUrl(raw)
+        entryView.onPreview = { [weak self, weak entryView] raw in
+            guard let self, let entryView else { return }
+            guard let hash = ayuGramPrivateInviteHash(raw) else {
+                self.showPreviewError("This invite link is not valid.", in: entryView)
+                return
+            }
+
+            entryView.clearMessage()
+            entryView.setLoading(true)
+
+            // Ask Telegram's own MTProto invite resolver. Only a server-issued
+            // chatInvitePeek result can open the native chat in temporary read-only mode.
+            self.previewDisposable.set((
+                self.context.engine.peers.joinLinkInformation(hash)
+                |> deliverOnMainQueue
+            ).start(next: { [weak self, weak entryView] result in
+                guard let self, let entryView else { return }
+                entryView.setLoading(false)
+
+                switch result {
+                case let .peek(peer, deadline):
+                    guard let navigationController = self.context.sharedContext.mainWindow?.viewController as? NavigationController else {
+                        entryView.showMessage("Telegram granted preview, but the chat screen is not available right now.")
+                        return
+                    }
+
+                    self.context.sharedContext.navigateToChatController(
+                        NavigateToChatControllerParams(
+                            navigationController: navigationController,
+                            context: self.context,
+                            chatLocation: .peer(peer),
+                            subject: nil,
+                            peekData: ChatPeekTimeout(deadline: deadline, linkData: hash)
+                        )
+                    )
+                    self.dismiss()
+                case .invite:
+                    // Intentionally do not display invite metadata/member identities or a Join action.
+                    entryView.showMessage("Telegram did not grant read-only message preview for this link.")
+                case .alreadyJoined:
+                    entryView.showMessage("This account already has access. Preview-only mode is not available for this link.")
+                case .invalidHash:
+                    entryView.showMessage("The invite link is invalid or has expired.")
+                }
+            }, error: { [weak self, weak entryView] error in
+                guard let self, let entryView else { return }
+                let message: String
+                switch error {
+                case .flood:
+                    message = "Telegram is temporarily limiting invite checks. Try again later."
+                case .generic:
+                    message = "Telegram could not verify this invite link."
+                }
+                self.showPreviewError(message, in: entryView)
+            }))
         }
         self.displayNode = ASDisplayNode(viewBlock: { entryView })
         self.displayNodeDidLoad()
