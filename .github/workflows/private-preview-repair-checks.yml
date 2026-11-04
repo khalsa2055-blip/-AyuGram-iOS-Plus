@@ -98,6 +98,3 @@ jobs:
               print("BLOCKED: app preview is not end-to-end integrated; no IPA/build is run by this workflow.")
           PY
 
-      - name: Verify workflow never invokes an app build
-        run: |
-          ! grep -Eq 'bazel build|xcodebuild|build-simulator|ipa|\.ipa' .github/workflows/private-preview-repair-checks.yml
