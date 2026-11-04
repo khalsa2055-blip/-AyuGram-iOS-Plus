@@ -321,48 +321,9 @@ if "//submodules/AsyncDisplayKit" not in build:
         "private invite AsyncDisplayKit dependency"
     )
 
-# Telegram's generic channel permission utility can consider a non-member writable.
-# Keep the native chat UI read-only for every channel account that is not a member.
-if "AyuGram read-only peek send gate" not in chat_presentation_state:
-    chat_presentation_state = replace_once(
-        chat_presentation_state,
-        """public func canSendMessagesToChat(_ state: ChatPresentationInterfaceState) -> Bool {
-    if let peer = state.renderedPeer?.peer {
-        let canBypassRestrictions = canBypassRestrictions(chatPresentationInterfaceState: state)
-""",
-        """public func canSendMessagesToChat(_ state: ChatPresentationInterfaceState) -> Bool {
-    if let peer = state.renderedPeer?.peer {
-        if let channel = peer as? TelegramChannel {
-            guard case .member = channel.participationStatus else {
-                // AyuGram read-only peek send gate: a non-member cannot send from the native chat.
-                return false
-            }
-        }
-        let canBypassRestrictions = canBypassRestrictions(chatPresentationInterfaceState: state)
-""",
-        "read-only channel send permission gate"
-    )
-
-if "AyuGram read-only peek reactions gate" not in chat_presentation_state:
-    chat_presentation_state = replace_once(
-        chat_presentation_state,
-        """public func canSendReactionsToChat(_ state: ChatPresentationInterfaceState) -> Bool {
-    if let peer = state.renderedPeer?.peer {
-        let canBypassRestrictions = canBypassRestrictions(chatPresentationInterfaceState: state)
-""",
-        """public func canSendReactionsToChat(_ state: ChatPresentationInterfaceState) -> Bool {
-    if let peer = state.renderedPeer?.peer {
-        if let channel = peer as? TelegramChannel {
-            guard case .member = channel.participationStatus else {
-                // AyuGram read-only peek reactions gate: a non-member cannot interact with messages.
-                return false
-            }
-        }
-        let canBypassRestrictions = canBypassRestrictions(chatPresentationInterfaceState: state)
-""",
-        "read-only channel reaction permission gate"
-    )
-
+# Telegram's native ChatPeekTimeout owns the peek lifecycle and read-only behavior.
+# Do not globally alter channel send/reaction permissions: that would also affect
+# ordinary public channels and non-peek chats for every non-member account.
 # Keep Telegram's native peek timer and timeout alert, but remove its Join action.
 # The preview screen remains a native ChatController; expiry only dismisses the peek.
 if "AyuGram read-only peek: suppress Join action" not in chat_controller:
