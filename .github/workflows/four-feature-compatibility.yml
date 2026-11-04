@@ -173,7 +173,9 @@ jobs:
           set -euo pipefail
           config="build-input/configuration-repository"
           mkdir -p "$config/provisioning"
-          printf 'module(name = "build_configuration")\\n' > "$config/MODULE.bazel"
+          cat > "$config/MODULE.bazel" <<'EOF'
+          module(name = "build_configuration")
+          EOF
           : > "$config/WORKSPACE"
           : > "$config/BUILD"
           : > "$config/provisioning/BUILD"
