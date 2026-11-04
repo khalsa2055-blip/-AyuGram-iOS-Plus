@@ -359,6 +359,14 @@ jobs:
           print("PASS: parser/access-policy unit tests passed.")
           print("PASS: preview opens Telegram's native invite resolver and forwards its server peek deadline.")
           print("PASS: custom preview controller contains no join, import-invite, or send-message call.")
+          chat_controller = Path("submodules/TelegramUI/Sources/ChatController.swift").read_text(encoding="utf-8")
+          peek_start = chat_controller.index("if let peekData = self.peekData")
+          peek_end = chat_controller.index("self.checksTooltipDisposable", peek_start)
+          peek_timeout = chat_controller[peek_start:peek_end]
+          assert "AyuGram read-only peek: suppress Join action" in peek_timeout
+          assert "Conversation_PrivateChannelTimeLimitedAlertJoin" not in peek_timeout
+          assert "joinChatInteractively" not in peek_timeout
+          print("PASS: Telegram native peek timeout cannot join after expiry.")
           print("NOTE: actual message visibility remains conditional on Telegram returning chatInvitePeek.")
           PY
 
