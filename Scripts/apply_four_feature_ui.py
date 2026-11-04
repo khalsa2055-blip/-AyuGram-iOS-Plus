@@ -7,7 +7,6 @@ SETTINGS = ROOT / "submodules/TelegramUI/Components/AyuGramSettingsScreen/Source
 SETTINGS_BUILD = ROOT / "submodules/TelegramUI/Components/AyuGramSettingsScreen/BUILD"
 MENU = ROOT / "submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift"
 CHAT_CONTROLLER = ROOT / "submodules/TelegramUI/Sources/ChatController.swift"
-CHAT_PRESENTATION_STATE = ROOT / "submodules/ChatPresentationInterfaceState/Sources/ChatPresentationInterfaceState.swift"
 
 def replace_once(source: str, old: str, new: str, label: str) -> str:
     count = source.count(old)
@@ -15,7 +14,7 @@ def replace_once(source: str, old: str, new: str, label: str) -> str:
         raise SystemExit(f"{label}: expected exactly one anchor, found {count}")
     return source.replace(old, new, 1)
 
-for path in (SETTINGS, SETTINGS_BUILD, MENU, CHAT_CONTROLLER, CHAT_PRESENTATION_STATE):
+for path in (SETTINGS, SETTINGS_BUILD, MENU, CHAT_CONTROLLER):
     if not path.is_file():
         raise SystemExit(f"Missing required AyuGram integration file: {path}")
 
@@ -23,7 +22,6 @@ settings = SETTINGS.read_text(encoding="utf-8")
 build = SETTINGS_BUILD.read_text(encoding="utf-8")
 menu = MENU.read_text(encoding="utf-8")
 chat_controller = CHAT_CONTROLLER.read_text(encoding="utf-8")
-chat_presentation_state = CHAT_PRESENTATION_STATE.read_text(encoding="utf-8")
 
 if "AyuGramPrivateInvitePreviewController" not in settings:
     settings = replace_once(
@@ -428,7 +426,6 @@ SETTINGS.write_text(settings, encoding="utf-8")
 SETTINGS_BUILD.write_text(build, encoding="utf-8")
 MENU.write_text(menu, encoding="utf-8")
 CHAT_CONTROLLER.write_text(chat_controller, encoding="utf-8")
-CHAT_PRESENTATION_STATE.write_text(chat_presentation_state, encoding="utf-8")
 print("PASS: manual Save and deleted-message capture remain from the AyuGram patch.")
 print("PASS: added Telegram-resolved private invite preview entry.")
 print("PASS: non-member channel chat composer and reactions are read-only.")
