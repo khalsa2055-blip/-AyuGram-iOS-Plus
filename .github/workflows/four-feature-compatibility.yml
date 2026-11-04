@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   verify:
-    runs-on: macos-26-intel
+    runs-on: macos-26
     steps:
       - name: Checkout project
         uses: actions/checkout@v5
