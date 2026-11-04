@@ -367,6 +367,13 @@ jobs:
           assert "Conversation_PrivateChannelTimeLimitedAlertJoin" not in peek_timeout
           assert "joinChatInteractively" not in peek_timeout
           print("PASS: Telegram native peek timeout cannot join after expiry.")
+          chat_state = Path("submodules/ChatPresentationInterfaceState/Sources/ChatPresentationInterfaceState.swift").read_text(encoding="utf-8")
+          send_start = chat_state.index("public func canSendMessagesToChat")
+          send_end = chat_state.index("public func canSendReactionsToChat", send_start)
+          send_gate = chat_state[send_start:send_end]
+          assert "AyuGram read-only peek send gate" in send_gate
+          assert "case .member = channel.participationStatus" in send_gate
+          print("PASS: Telegram chat composer is blocked for non-member peek viewers.")
           print("NOTE: actual message visibility remains conditional on Telegram returning chatInvitePeek.")
           PY
 
