@@ -373,7 +373,12 @@ jobs:
           send_gate = chat_state[send_start:send_end]
           assert "AyuGram read-only peek send gate" in send_gate
           assert "case .member = channel.participationStatus" in send_gate
-          print("PASS: Telegram chat composer is blocked for non-member peek viewers.")
+          react_start = chat_state.index("public func canSendReactionsToChat")
+          react_end = chat_state.index("public func canJoinInaccessibleCommunityChat", react_start)
+          reaction_gate = chat_state[react_start:react_end]
+          assert "AyuGram read-only peek reactions gate" in reaction_gate
+          assert "case .member = channel.participationStatus" in reaction_gate
+          print("PASS: Telegram composer and reactions are blocked for non-member peek viewers.")
           print("NOTE: actual message visibility remains conditional on Telegram returning chatInvitePeek.")
           PY
 
