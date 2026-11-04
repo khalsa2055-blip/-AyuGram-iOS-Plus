@@ -25,8 +25,15 @@ jobs:
       - name: Checkout project
         uses: actions/checkout@v5
 
-      - name: Check Xcode
-        run: xcodebuild -version
+      - name: Select Telegram-required Xcode and verify iOS SDK
+        run: |
+          set -euo pipefail
+          test -d /Applications/Xcode_26.2.app
+          sudo xcode-select --switch /Applications/Xcode_26.2.app/Contents/Developer
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-path
+          test -f "$(xcrun --sdk iphoneos --show-sdk-path)/System/Library/Frameworks/UIKit.framework/Headers/UIKit.h"
+          xcrun --sdk iphonesimulator --show-sdk-path
 
       - name: Install Bazelisk
         run: |
