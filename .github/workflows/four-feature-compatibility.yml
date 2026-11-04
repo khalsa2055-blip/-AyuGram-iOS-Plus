@@ -210,7 +210,7 @@ jobs:
         working-directory: telegram-ios
         run: |
           set -euo pipefail
-          USE_BAZEL_VERSION=8.4.2 bazelisk build --jobs=4 --macos_cpus=arm64 //submodules/TelegramUI/Components/AyuGramSettingsScreen:AyuGramSettingsScreen //submodules/ChatPresentationInterfaceState:ChatPresentationInterfaceState
+          USE_BAZEL_VERSION=8.4.2 bazelisk build --jobs=4 --ios_multi_cpus=arm64 //submodules/TelegramUI/Components/AyuGramSettingsScreen:AyuGramSettingsScreen //submodules/ChatPresentationInterfaceState:ChatPresentationInterfaceState
           echo "AyuGram settings and native read-only permission modules compiled; no Telegram app or IPA was built."
 
       - name: Verify all four feature entry points
