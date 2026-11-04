@@ -30,6 +30,9 @@ jobs:
         with:
           swift-version: '6.0'
 
+      - name: Validate patch script syntax
+        run: python3 -m py_compile Scripts/apply_four_feature_ui.py
+
       - name: Run isolated invite policy tests
         run: swift test --package-path Experiments/PrivateInviteLinkInspector
 
@@ -60,8 +63,6 @@ jobs:
               "server-authorized peek branch": "case let .peek(peer, deadline):",
               "native read-only chat timeout": "ChatPeekTimeout(deadline: deadline, linkData: hash)",
               "native Telegram chat navigation": "navigateToChatController(",
-              "non-member chat send gate": "AyuGram read-only peek send gate",
-              "non-member reactions gate": "AyuGram read-only peek reactions gate",
               "non-peek denial branch": "case .invite:",
               "already-member handling": "case .alreadyJoined:",
               "strict local invite parser": "ayuGramPrivateInviteHash(raw)",
@@ -87,11 +88,10 @@ jobs:
               raise SystemExit("Invite preview must not use generic/external URL handoff")
           if "importChatInvite" in patch or "joinChatInteractively" in patch:
               raise SystemExit("Invite preview must never invoke a join operation")
+          if "participationStatus" in patch or "canSendMessagesToChat" in patch or "canSendReactionsToChat" in patch:
+              raise SystemExit("Preview patch must not globally change permissions for ordinary non-member chats")
           read_only_markers = (
               "CHAT_CONTROLLER = ROOT / \"submodules/TelegramUI/Sources/ChatController.swift\"",
-              "CHAT_PRESENTATION_STATE = ROOT / \"submodules/ChatPresentationInterfaceState/Sources/ChatPresentationInterfaceState.swift\"",
-              "AyuGram read-only peek send gate",
-              "AyuGram read-only peek reactions gate",
               "AyuGram read-only peek: suppress Join action",
               "Conversation_PrivateChannelTimeLimitedAlertJoin",
           )
@@ -103,5 +103,6 @@ jobs:
           print("PASS: Telegram MTProto checkChatInvite path via joinLinkInformation")
           print("PASS: only server-issued .peek opens ChatController with ChatPeekTimeout")
           print("PASS: invite metadata/member identities are not exposed; no join/send APIs")
+          print("PASS: no global permission changes to ordinary non-member chats")
           print("PASS: native Telegram chat timeline and media rendering are used")
           PY
