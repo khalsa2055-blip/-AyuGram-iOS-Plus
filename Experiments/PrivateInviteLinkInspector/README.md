@@ -18,6 +18,7 @@ This means a successful preview depends on Telegram returning `chatInvitePeek`. 
 ## Read-only and privacy boundaries
 
 - No `messages.importChatInvite`, `joinChatInteractively`, `channels.joinChannel`, send-message, or send-media operation is used by this feature.
+- Telegram's chat send-permission gate rejects non-member channels, so the native composer is disabled for an account viewing the group as a non-member.
 - A preview does not add the account to the group or create a join request.
 - Invite hashes are used only for the live server check and native peek context; they are not logged or saved.
 - The server deadline is passed unchanged to Telegram's native chat controller.
