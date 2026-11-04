@@ -78,6 +78,9 @@ if "AyuGramPrivateInvitePreviewController" not in settings:
         "private func ayuSettingsEntries(_ settings: AyuSettings, accountID: Int64) -> [AyuSettingsEntry] {",
         r'''private final class AyuGramPrivateInviteEntryView: UIView {
     var onPreview: ((String) -> Void)?
+    var onBack: (() -> Void)?
+    private let backButton = UIButton(type: .system)
+    private let titleLabel = UILabel()
     private let field = UITextField()
     private let button = UIButton(type: .system)
     private let errorLabel = UILabel()
@@ -85,6 +88,16 @@ if "AyuGramPrivateInvitePreviewController" not in settings:
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .systemBackground
+        backButton.setTitle("‹ Back", for: .normal)
+        backButton.contentHorizontalAlignment = .leading
+        backButton.titleLabel?.font = .preferredFont(forTextStyle: .body)
+        backButton.accessibilityIdentifier = "privateInvitePreviewBackButton"
+        backButton.addTarget(self, action: #selector(backPressed), for: .touchUpInside)
+
+        titleLabel.text = "Private Group Preview"
+        titleLabel.font = .preferredFont(forTextStyle: .title2)
+        titleLabel.textAlignment = .natural
+
         field.placeholder = "https://t.me/+…"
         field.borderStyle = .roundedRect
         field.keyboardType = .URL
@@ -103,7 +116,13 @@ if "AyuGramPrivateInvitePreviewController" not in settings:
         errorLabel.numberOfLines = 0
         errorLabel.isHidden = true
 
-        let stack = UIStackView(arrangedSubviews: [field, button, errorLabel])
+        let header = UIStackView(arrangedSubviews: [backButton, titleLabel])
+        header.axis = .horizontal
+        header.alignment = .center
+        header.spacing = 8
+        backButton.setContentHuggingPriority(.required, for: .horizontal)
+
+        let stack = UIStackView(arrangedSubviews: [header, field, button, errorLabel])
         stack.axis = .vertical
         stack.spacing = 16
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -115,6 +134,10 @@ if "AyuGramPrivateInvitePreviewController" not in settings:
             field.heightAnchor.constraint(equalToConstant: 48),
             button.heightAnchor.constraint(equalToConstant: 48)
         ])
+    }
+
+    @objc private func backPressed() {
+        onBack?()
     }
 
     func setLoading(_ loading: Bool) {
@@ -213,6 +236,9 @@ private final class AyuGramPrivateInvitePreviewController: ViewController {
 
     override func loadDisplayNode() {
         let entryView = AyuGramPrivateInviteEntryView()
+        entryView.onBack = { [weak self] in
+            self?.dismiss()
+        }
         entryView.onPreview = { [weak self, weak entryView] raw in
             guard let self, let entryView else { return }
             guard let hash = ayuGramPrivateInviteHash(raw) else {
