@@ -34,7 +34,9 @@ The Preview action:
 
 The resulting chat is Telegram's native ChatController, not a custom timeline.
 Telegram's own chat/history/media implementation remains responsible for
-rendering messages and media and enforcing the peek timeout.
+rendering messages and media and enforcing the peek timeout. The AyuGram patch
+removes only the Join action from the native peek-expiry alert, leaving a
+dismiss-only expiry path so the temporary preview cannot become a join flow.
 
 ## Safety constraints
 
