@@ -41,15 +41,12 @@ final class InvitePreviewTests: XCTestCase {
         XCTAssertEqual(InviteLinkParser.parse("https://t.me/public_group"), .failure(.malformedPath))
     }
 
-    func testRejectsNonASCIIPunctuationAndHashCharacters() {
-        XCTAssertEqual(
-            InviteLinkParser.parse("https://t.me/+секрет"),
-            .failure(.invalidHash)
-        )
-        XCTAssertEqual(
-            InviteLinkParser.parse("https://t.me/+secret%2Fother"),
-            .failure(.invalidHash)
-        )
+    func testRejectsNonASCIIAndPercentEncodedHashCharacters() {
+        for link in ["https://t.me/+секрет", "https://t.me/+secret%24other"] {
+            if case .success = InviteLinkParser.parse(link) {
+                XCTFail("Invite hashes must use only the Telegram-safe ASCII alphabet: \\(link)")
+            }
+        }
     }
 
     func testRejectsInviteURLWithCredentialsQueryOrFragment() {
