@@ -183,7 +183,28 @@ jobs:
           : > "$config/WORKSPACE"
           : > "$config/BUILD"
           : > "$config/provisioning/BUILD"
+          cat > "$config/variables.bzl" <<'EOF'
+          # Non-signing placeholders used only for library/module compilation.
+          telegram_bazel_path = ""
+          telegram_use_xcode_managed_codesigning = True
+          sg_config = ""
+          telegram_bundle_id = "org.telegram.previewchecks"
+          telegram_api_id = "0"
+          telegram_api_hash = ""
+          telegram_team_id = ""
+          telegram_app_center_id = ""
+          telegram_is_internal_build = "False"
+          telegram_is_appstore_build = "False"
+          telegram_appstore_id = ""
+          telegram_app_specific_url_scheme = "tg"
+          telegram_premium_iap_product_id = ""
+          telegram_aps_environment = ""
+          telegram_enable_siri = False
+          telegram_enable_icloud = False
+          telegram_enable_watch = True
+          EOF
           test -f "$config/MODULE.bazel"
+          test -f "$config/variables.bzl"
 
       - name: Compile only the AyuGram settings Swift module
         working-directory: telegram-ios
