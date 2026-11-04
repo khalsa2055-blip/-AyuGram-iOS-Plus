@@ -6,6 +6,7 @@ ROOT = Path("telegram-ios")
 SETTINGS = ROOT / "submodules/TelegramUI/Components/AyuGramSettingsScreen/Sources/AyuGramSettingsScreen.swift"
 SETTINGS_BUILD = ROOT / "submodules/TelegramUI/Components/AyuGramSettingsScreen/BUILD"
 MENU = ROOT / "submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift"
+CHAT_CONTROLLER = ROOT / "submodules/TelegramUI/Sources/ChatController.swift"
 
 def replace_once(source: str, old: str, new: str, label: str) -> str:
     count = source.count(old)
@@ -13,13 +14,14 @@ def replace_once(source: str, old: str, new: str, label: str) -> str:
         raise SystemExit(f"{label}: expected exactly one anchor, found {count}")
     return source.replace(old, new, 1)
 
-for path in (SETTINGS, SETTINGS_BUILD, MENU):
+for path in (SETTINGS, SETTINGS_BUILD, MENU, CHAT_CONTROLLER):
     if not path.is_file():
         raise SystemExit(f"Missing required AyuGram integration file: {path}")
 
 settings = SETTINGS.read_text(encoding="utf-8")
 build = SETTINGS_BUILD.read_text(encoding="utf-8")
 menu = MENU.read_text(encoding="utf-8")
+chat_controller = CHAT_CONTROLLER.read_text(encoding="utf-8")
 
 if "AyuGramPrivateInvitePreviewController" not in settings:
     settings = replace_once(
@@ -285,6 +287,21 @@ if "//submodules/AsyncDisplayKit" not in build:
         "private invite AsyncDisplayKit dependency"
     )
 
+# Keep Telegram's native peek timer and timeout alert, but remove its Join action.
+# The preview screen remains a native ChatController; expiry only dismisses the peek.
+if "AyuGram read-only peek: suppress Join action" not in chat_controller:
+    join_action = "                        TextAlertAction(type: .genericAction, title: strongSelf.presentationData.strings.Conversation_PrivateChannelTimeLimitedAlertJoin, action: {"
+    cancel_action = "                        TextAlertAction(type: .defaultAction, title: strongSelf.presentationData.strings.Common_Cancel"
+    if chat_controller.count(join_action) != 1 or chat_controller.count(cancel_action) < 1:
+        raise SystemExit("Could not uniquely locate Telegram native peek timeout Join action")
+    start = chat_controller.index(join_action)
+    end = chat_controller.index(cancel_action, start)
+    chat_controller = (
+        chat_controller[:start]
+        + "                        // AyuGram read-only peek: suppress Join action.\\n"
+        + chat_controller[end:]
+    )
+
 if "AyuGramOriginalMediaPreviewController" not in menu:
     menu = replace_once(
         menu,
@@ -373,6 +390,8 @@ private extension DateFormatter {
 SETTINGS.write_text(settings, encoding="utf-8")
 SETTINGS_BUILD.write_text(build, encoding="utf-8")
 MENU.write_text(menu, encoding="utf-8")
+CHAT_CONTROLLER.write_text(chat_controller, encoding="utf-8")
 print("PASS: manual Save and deleted-message capture remain from the AyuGram patch.")
 print("PASS: added Telegram-resolved private invite preview entry.")
+print("PASS: native peek expiry no longer offers Join.")
 print("PASS: added Before action backed by the pre-edit archive.")
