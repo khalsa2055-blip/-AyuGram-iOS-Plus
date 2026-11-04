@@ -154,6 +154,13 @@ jobs:
       - name: Apply private preview and Before UI
         run: python3 Scripts/apply_four_feature_ui.py
 
+      - name: Parse modified Swift sources without building the app
+        run: |
+          set -euo pipefail
+          xcrun swiftc -frontend -parse telegram-ios/submodules/TelegramUI/Components/AyuGramSettingsScreen/Sources/AyuGramSettingsScreen.swift
+          xcrun swiftc -frontend -parse telegram-ios/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
+          echo "Modified Swift sources parsed successfully; no app or IPA build was run."
+
       - name: Verify all four feature entry points
         run: |
           set -euo pipefail
