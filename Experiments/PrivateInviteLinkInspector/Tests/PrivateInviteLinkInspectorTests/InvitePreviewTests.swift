@@ -41,6 +41,13 @@ final class InvitePreviewTests: XCTestCase {
         XCTAssertEqual(InviteLinkParser.parse("https://t.me/public_group"), .failure(.malformedPath))
     }
 
+    func testRejectsInviteURLWithCredentialsQueryOrFragment() {
+        XCTAssertEqual(InviteLinkParser.parse("https://user@t.me/+secret"), .failure(.unsupportedHost))
+        XCTAssertEqual(InviteLinkParser.parse("https://t.me/+secret?start=1"), .failure(.unsupportedHost))
+        XCTAssertEqual(InviteLinkParser.parse("https://t.me/+secret#fragment"), .failure(.unsupportedHost))
+        XCTAssertEqual(InviteLinkParser.parse("https://t.me:443/+secret"), .failure(.unsupportedHost))
+    }
+
     func testPeekSessionOnlyStartsWhenServerGrantsPeek() throws {
         let expiry = Date(timeIntervalSince1970: 2_000_000_000)
         let chat = PeekChat(id: 42, title: "Test", expiresAt: expiry)
