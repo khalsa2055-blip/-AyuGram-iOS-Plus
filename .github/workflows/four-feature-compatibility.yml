@@ -8,6 +8,7 @@ on:
       - "patches/**"
       - "Scripts/harden_ayugram_history.py"
       - "Scripts/apply_four_feature_ui.py"
+      - "Experiments/PrivateInviteLinkInspector/**"
       - ".github/workflows/four-feature-compatibility.yml"
 
 permissions:
