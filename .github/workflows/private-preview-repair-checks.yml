@@ -59,6 +59,7 @@ jobs:
               "native read-only chat timeout": "ChatPeekTimeout(deadline: deadline, linkData: hash)",
               "native Telegram chat navigation": "navigateToChatController(",
               "non-member chat send gate": "AyuGram read-only peek send gate",
+              "non-member reactions gate": "AyuGram read-only peek reactions gate",
               "non-peek denial branch": "case .invite:",
               "already-member handling": "case .alreadyJoined:",
               "strict local invite parser": "ayuGramPrivateInviteHash(raw)",
@@ -86,6 +87,9 @@ jobs:
               raise SystemExit("Invite preview must never invoke a join operation")
           read_only_markers = (
               "CHAT_CONTROLLER = ROOT / \"submodules/TelegramUI/Sources/ChatController.swift\"",
+              "CHAT_PRESENTATION_STATE = ROOT / \"submodules/ChatPresentationInterfaceState/Sources/ChatPresentationInterfaceState.swift\"",
+              "AyuGram read-only peek send gate",
+              "AyuGram read-only peek reactions gate",
               "AyuGram read-only peek: suppress Join action",
               "Conversation_PrivateChannelTimeLimitedAlertJoin",
           )
