@@ -196,7 +196,7 @@ private func ayuGramPrivateInviteHash(_ raw: String) -> String? {
         return nil
     }
 
-    # Keep runtime validation identical to InviteLinkParser's ASCII allowlist.
+    // Keep runtime validation identical to InviteLinkParser's ASCII allowlist.
     guard !hash.isEmpty,
           hash.unicodeScalars.allSatisfy({
               let value = $0.value
