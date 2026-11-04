@@ -188,15 +188,7 @@ jobs:
           module(name = "build_configuration")
           EOF
           : > "$config/WORKSPACE"
-          cat > "$config/BUILD" <<'EOF'
-          platform(
-              name = "ios_arm64",
-              constraint_values = [
-                  "@platforms//os:ios",
-                  "@platforms//cpu:arm64",
-              ],
-          )
-          EOF
+          : > "$config/BUILD"
           : > "$config/provisioning/BUILD"
           cat > "$config/variables.bzl" <<'EOF'
           # Non-signing placeholders used only for library/module compilation.
@@ -225,6 +217,15 @@ jobs:
         working-directory: telegram-ios
         run: |
           set -euo pipefail
+          cat >> BUILD.bazel <<'EOF'
+          platform(
+              name = "ios_arm64",
+              constraint_values = [
+                  "@platforms//os:ios",
+                  "@platforms//cpu:arm64",
+              ],
+          )
+          EOF
           USE_BAZEL_VERSION=8.4.2 bazelisk build --jobs=4 --config=macos --apple_platform_type=ios --ios_multi_cpus=arm64 --platforms=//:ios_arm64 --verbose_failures //submodules/TelegramUI/Components/AyuGramSettingsScreen:AyuGramSettingsScreen //submodules/ChatPresentationInterfaceState:ChatPresentationInterfaceState
           echo "AyuGram settings and native read-only permission modules compiled; no Telegram app or IPA was built."
 
