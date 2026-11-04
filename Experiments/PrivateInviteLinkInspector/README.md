@@ -1,55 +1,37 @@
-# Private Invite Link Inspector — isolated prototype
+# Private Invite Link Inspector
 
-## Goal
+## Runtime integration
 
-A read-only Telegram invite viewer. It must never send messages, import an invite, join a chat, or create a join request automatically.
+The app-facing implementation is injected by `Scripts/apply_four_feature_ui.py` into the Telegram iOS source checkout used by the four-feature workflow. The entry is exposed in **AyuGram → Message History → Preview Private Group**.
 
-## Important protocol detail: Telegram supports conditional peeking
+The feature does not implement a parallel chat renderer or issue ad-hoc history/media requests. It delegates both message timeline and media display to Telegram's own `ChatController`:
 
-Telegram's official invite documentation describes a `chatInvitePeek` result from `messages.checkChatInvite`. For eligible supergroups and channels, this result includes a chat and an expiry timestamp; Telegram's documentation says the client may then fetch messages with the normal history/message methods until that timestamp.
+1. The pasted invite URL is validated locally and reduced to its invite hash. The hash is not logged or persisted.
+2. The app calls `context.engine.peers.joinLinkInformation(hash)`, Telegram's existing wrapper around `messages.checkChatInvite`.
+3. Only `.peek(peer, deadline)` opens a chat. The route uses `navigateToChatController` and the exact server deadline in `ChatPeekTimeout(deadline:linkData:)`.
+4. Telegram's native chat/history/media UI handles the read-only peek session and its expiry.
+5. Ordinary `.invite` metadata, already-member results, invalid links, and errors do not open a chat. The feature does not show invite participant lists or offer a Join button.
 
-This is conditional server-granted access, not a fabricated membership state. The server may instead return ordinary `chatInvite` metadata, `chatInviteAlready`, or an error such as `CHANNEL_PRIVATE`, expired, or invalid. The app must respect the exact result and must not pretend every invite supports peeking.
+This means a successful preview depends on Telegram returning `chatInvitePeek`. An ordinary `chatInvite` result is not read permission and is deliberately rejected by this feature.
 
-Reference: https://core.telegram.org/api/invites and https://core.telegram.org/method/messages.checkChatInvite
+## Read-only and privacy boundaries
 
-## Read-only flow
+- No `messages.importChatInvite`, `joinChatInteractively`, `channels.joinChannel`, send-message, or send-media operation is used by this feature.
+- A preview does not add the account to the group or create a join request.
+- Invite hashes are used only for the live server check and native peek context; they are not logged or saved.
+- The server deadline is passed unchanged to Telegram's native chat controller.
+- No invite metadata or participant identities are rendered by the feature's fallback path.
 
-1. Parse the invite URL locally; never print or persist the invite hash.
-2. Call `messages.checkChatInvite` using the signed-in user's existing Telegram session.
-3. If Telegram returns `chatInvitePeek`, create a time-limited `PeekSession` and read messages only until the server-provided expiry.
-4. Display the returned messages in a Telegram-like read-only timeline, including sender, timestamp, text, and supported media.
-5. If Telegram returns ordinary metadata or denies access, show only that metadata and explain that message preview was not granted.
-6. If the account is already a member, open the existing chat through the normal app route.
-7. Never call `messages.importChatInvite`, `channels.joinChannel`, or any send method from this feature.
+## Test layers
 
-## Implemented isolated core
+The `PrivateInviteLinkInspector` Swift package tests URL parsing, server-result gating, expiry handling, bounded read requests, and mock-provider behavior. The `private-preview-repair-checks.yml` workflow additionally audits that the app patch uses the native MTProto invite resolver, only opens the native chat for `.peek`, passes `ChatPeekTimeout`, and contains no join/send operation.
 
-- `InviteLinkParser`: parses supported `t.me/+` and `joinchat` invite forms locally.
-- `InviteCheckResult`: normalized outcomes for peek, basic metadata, already-member, approval-required, expired, invalid, and denied.
-- `PeekSession`: only starts from a server-granted `.peek` result, validates bounded fetch limits, and checks expiry immediately before every message-provider request.
-- `PeekMessageProvider`: read-only integration boundary for the future MTProto adapter.
-- `PreviewMessage` / `MediaKind`: normalized message and media model for the viewer.
-- Swift Package tests cover parsing, non-peek rejection, expiry enforcement, successful read-only retrieval, blocked expired retrieval, and invalid fetch limits.
+These checks validate the source-level integration contract. They do not substitute for an iOS device run against a real invite link. A real-world positive preview test requires a Telegram invite for which Telegram actually returns `chatInvitePeek`; a denied result is expected for links where the server grants metadata only.
 
-## Still required before app integration
+## Protocol references
 
-See [UPSTREAM_INTEGRATION.md](./UPSTREAM_INTEGRATION.md) for the verified Swiftgram TL schema declarations, the adapter sequence, and the repository integration blocker.
-
-This repository is currently a project shell; the Swiftgram application source is checked out by CI rather than present in this branch. The isolated package is not yet wired to Swiftgram's generated MTProto types or UI. Next work is to import/use the exact upstream Telegram API types, map the `chatInvitePeek` constructor, implement the read-only message provider, and then add the native viewer screen.
-
-## Privacy and secret handling
-
-Invite links are bearer-style secrets. Never commit real invite links, hashes, account credentials, API hashes, or session data. Use synthetic fixtures only. Do not log invite hashes.
-
-## Acceptance criteria
-
-- No changes to `main`.
-- No automatic joining, join requests, message sending, or membership spoofing.
-- Peeking works only when Telegram explicitly returns `chatInvitePeek`.
-- Reads stop at the server-provided expiry.
-- Messages and media are shown only when returned by Telegram for that peek session.
-- Unit tests and an iOS simulator build pass before claiming app integration is complete.
-
-## Current status
-
-The isolated Swift core now includes a guarded read-only fetch entry point and nine unit tests. Every retrieval through `PeekSession.fetchMessages` checks the server expiry immediately before calling the provider and rejects limits outside 1...100. The provider is a test seam only: it is not yet connected to Telegram MTProto. No real `messages.checkChatInvite` adapter, real history/media provider, Swiftgram UI integration, or iOS simulator test has been completed. The feature is therefore **not yet usable in the app**. Do not treat passing core tests as proof that Telegram preview works.
+- https://core.telegram.org/api/invites
+- https://core.telegram.org/method/messages.checkChatInvite
+- https://github.com/TelegramMessenger/Telegram-iOS/blob/279f89e4d4f63f17227bf877dc3d8990f22ecd58/submodules/TelegramCore/Sources/TelegramEngine/Peers/JoinLink.swift
+- https://github.com/TelegramMessenger/Telegram-iOS/blob/279f89e4d4f63f17227bf877dc3d8990f22ecd58/submodules/TelegramUI/Sources/OpenResolvedUrl.swift
+- https://github.com/TelegramMessenger/Telegram-iOS/blob/279f89e4d4f63f17227bf877dc3d8990f22ecd58/submodules/JoinLinkPreviewUI/Sources/JoinLinkPreviewController.swift
