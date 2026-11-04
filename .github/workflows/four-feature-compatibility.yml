@@ -37,6 +37,8 @@ jobs:
           git clone --recursive https://github.com/Swiftgram/Telegram-iOS.git telegram-ios
           cd telegram-ios
           git checkout --detach eb5ae67a32c6e8b936ca0e875f19f99251112f17
+          git submodule sync --recursive
+          git submodule update --init --recursive --jobs 4 -- build-system/bazel-rules/sourcekit-bazel-bsp
 
       - name: Verify Telegram toolchain
         working-directory: telegram-ios
