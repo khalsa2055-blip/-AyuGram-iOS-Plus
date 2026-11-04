@@ -11,6 +11,7 @@ The feature does not implement a parallel chat renderer or issue ad-hoc history/
 3. Only `.peek(peer, deadline)` opens a chat. The route uses `navigateToChatController` and the exact server deadline in `ChatPeekTimeout(deadline:linkData:)`.
 4. Telegram's native chat/history/media UI handles the read-only peek session and its expiry.
 5. Ordinary `.invite` metadata, already-member results, invalid links, and errors do not open a chat. The feature does not show invite participant lists or offer a Join button.
+6. The native ChatController's peek-expiry alert is retained, but its Join action is removed; expiry can only dismiss the temporary preview.
 
 This means a successful preview depends on Telegram returning `chatInvitePeek`. An ordinary `chatInvite` result is not read permission and is deliberately rejected by this feature.
 
@@ -20,6 +21,7 @@ This means a successful preview depends on Telegram returning `chatInvitePeek`. 
 - A preview does not add the account to the group or create a join request.
 - Invite hashes are used only for the live server check and native peek context; they are not logged or saved.
 - The server deadline is passed unchanged to Telegram's native chat controller.
+- Telegram's native peek-expiry dialog cannot convert the preview into a join; its Join action is suppressed.
 - No invite metadata or participant identities are rendered by the feature's fallback path.
 
 ## Test layers
