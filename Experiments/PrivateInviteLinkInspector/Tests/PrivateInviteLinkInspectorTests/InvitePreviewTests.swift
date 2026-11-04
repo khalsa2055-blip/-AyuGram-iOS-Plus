@@ -41,6 +41,17 @@ final class InvitePreviewTests: XCTestCase {
         XCTAssertEqual(InviteLinkParser.parse("https://t.me/public_group"), .failure(.malformedPath))
     }
 
+    func testRejectsNonASCIIPunctuationAndHashCharacters() {
+        XCTAssertEqual(
+            InviteLinkParser.parse("https://t.me/+секрет"),
+            .failure(.invalidHash)
+        )
+        XCTAssertEqual(
+            InviteLinkParser.parse("https://t.me/+secret%2Fother"),
+            .failure(.invalidHash)
+        )
+    }
+
     func testRejectsInviteURLWithCredentialsQueryOrFragment() {
         XCTAssertEqual(InviteLinkParser.parse("https://user@t.me/+secret"), .failure(.unsupportedHost))
         XCTAssertEqual(InviteLinkParser.parse("https://t.me/+secret?start=1"), .failure(.unsupportedHost))
