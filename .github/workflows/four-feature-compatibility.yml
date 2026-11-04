@@ -27,6 +27,11 @@ jobs:
       - name: Check Xcode
         run: xcodebuild -version
 
+      - name: Install Bazelisk
+        run: |
+          brew list bazelisk >/dev/null 2>&1 || brew install bazelisk
+          USE_BAZEL_VERSION=8.4.2 bazelisk --version
+
       - name: Clone Telegram-iOS baseline
         run: |
           git clone --recursive https://github.com/Swiftgram/Telegram-iOS.git telegram-ios
@@ -160,6 +165,13 @@ jobs:
           xcrun swiftc -frontend -parse telegram-ios/submodules/TelegramUI/Components/AyuGramSettingsScreen/Sources/AyuGramSettingsScreen.swift
           xcrun swiftc -frontend -parse telegram-ios/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
           echo "Modified Swift sources parsed successfully; no app or IPA build was run."
+
+      - name: Compile only the AyuGram settings Swift module
+        working-directory: telegram-ios
+        run: |
+          set -euo pipefail
+          USE_BAZEL_VERSION=8.4.2 bazelisk build --jobs=4 //submodules/TelegramUI/Components/AyuGramSettingsScreen:AyuGramSettingsScreen
+          echo "AyuGram settings module compiled; no Telegram app or IPA was built."
 
       - name: Verify all four feature entry points
         run: |
