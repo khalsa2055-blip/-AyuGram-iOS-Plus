@@ -135,22 +135,8 @@ if "AyuGramPrivateInvitePreviewController" not in settings:
 
     @objc private func previewPressed() {
         let raw = (field.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let components = URLComponents(string: raw),
-              let scheme = components.scheme?.lowercased(),
-              scheme == "https" || scheme == "http",
-              let host = components.host?.lowercased(),
-              host == "t.me" || host == "www.t.me",
-              components.query == nil, components.fragment == nil,
-              components.user == nil, components.password == nil, components.port == nil
-        else {
-            showMessage("Enter a valid Telegram private invite link.")
-            return
-        }
-        let parts = components.path.split(separator: "/", omittingEmptySubsequences: true)
-        let valid = (parts.count == 1 && parts[0].hasPrefix("+") && parts[0].count > 1)
-            || (parts.count == 2 && parts[0].lowercased() == "joinchat" && !parts[1].isEmpty)
-        guard valid else {
-            showMessage("Use a t.me/+… or t.me/joinchat/… invite link.")
+        guard ayuGramPrivateInviteHash(raw) != nil else {
+            showMessage("Enter a valid Telegram private invite link (t.me/+… or joinchat).")
             return
         }
         clearMessage()
@@ -164,7 +150,7 @@ private func ayuGramPrivateInviteHash(_ raw: String) -> String? {
           let scheme = components.scheme?.lowercased(),
           scheme == "https" || scheme == "http",
           let host = components.host?.lowercased(),
-          host == "t.me" || host == "www.t.me",
+          ["t.me", "www.t.me", "telegram.me", "www.telegram.me", "t.dog", "telegram.dog"].contains(host),
           components.query == nil,
           components.fragment == nil,
           components.user == nil,
