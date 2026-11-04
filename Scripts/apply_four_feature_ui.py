@@ -298,7 +298,7 @@ if "AyuGram read-only peek: suppress Join action" not in chat_controller:
     end = chat_controller.index(cancel_action, start)
     chat_controller = (
         chat_controller[:start]
-        + "                        // AyuGram read-only peek: suppress Join action.\\n"
+        + "                        // AyuGram read-only peek: suppress Join action.\n"
         + chat_controller[end:]
     )
 
