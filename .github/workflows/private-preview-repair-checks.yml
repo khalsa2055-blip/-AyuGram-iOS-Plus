@@ -46,7 +46,7 @@ jobs:
           swift = "\\n".join(p.read_text(encoding="utf-8") for p in core.glob("*.swift"))
 
           required = {
-              "AyuGram settings row": '".privateInvitePreview,',
+              "AyuGram settings row": ".privateInvitePreview,",
               "settings navigation controller": "AyuGramPrivateInvitePreviewController(context: arguments.context)",
               "URL input accessibility id": 'privateInviteURLField',
               "server-granted peek gate": "case let .peek(chat) = result",
