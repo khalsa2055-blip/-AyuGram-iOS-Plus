@@ -315,7 +315,7 @@ if "//submodules/AsyncDisplayKit" not in build:
     build = replace_once(
         build,
         '        "//submodules/AccountContext",\n',
-        '        "//submodules/AccountContext",\n        "//submodules/AsyncDisplayKit",\n        "//submodules/SwiftSignalKit",\n',
+        '        "//submodules/AccountContext",\n        "//submodules/AsyncDisplayKit",\n        "//submodules/SSignalKit/SwiftSignalKit",\n',
         "private invite AsyncDisplayKit dependency"
     )
 
