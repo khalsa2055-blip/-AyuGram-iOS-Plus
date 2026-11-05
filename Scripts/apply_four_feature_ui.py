@@ -337,6 +337,26 @@ if "AyuGram read-only peek: suppress Join action" not in chat_controller:
         + chat_controller[end:]
     )
 
+# At Telegram's peek deadline, close the preview directly instead of leaving
+# the temporary ChatController open behind a Cancel-only expiration alert.
+if "AyuGram read-only peek: dismiss at deadline" not in chat_controller:
+    peek_start = chat_controller.index("if let peekData = self.peekData")
+    peek_end = chat_controller.index("self.checksTooltipDisposable", peek_start)
+    timeout_block = chat_controller[peek_start:peek_end]
+    alert_start = timeout_block.find("                strongSelf.present(textAlertController(")
+    alert_end_marker = "                ), in: .window(.root))"
+    alert_end = timeout_block.find(alert_end_marker, alert_start)
+    if alert_start < 0 or alert_end < 0 or timeout_block.count(alert_end_marker) != 1:
+        raise SystemExit("Could not uniquely locate native peek expiration alert")
+    alert_end += len(alert_end_marker)
+    timeout_block = (
+        timeout_block[:alert_start]
+        + "                // AyuGram read-only peek: dismiss at deadline without Join.\n"
+        + "                strongSelf.dismiss()"
+        + timeout_block[alert_end:]
+    )
+    chat_controller = chat_controller[:peek_start] + timeout_block + chat_controller[peek_end:]
+
 # Telegram's native send permission function checks channel bans, but not membership.
 # Scope a hard read-only gate to ChatController instances created with ChatPeekTimeout.
 # Normal chats continue to use Telegram's permission implementation unchanged.
