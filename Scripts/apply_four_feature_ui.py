@@ -354,14 +354,14 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
 
     send_method = "    func sendMessages(_ messages: [EnqueueMessage], media: Bool = false, postpone: Bool = false, commit: Bool = false) {"
     helpers = """    private func ayuGramCanSendMessagesInCurrentChat() -> Bool {
-        guard self.peekData == nil else {
+        guard case nil = self.peekData else {
             return false
         }
         return canSendMessagesToChat(self.presentationInterfaceState)
     }
 
     private func ayuGramCanSendReactionsInCurrentChat() -> Bool {
-        guard self.peekData == nil else {
+        guard case nil = self.peekData else {
             return false
         }
         return canSendReactionsToChat(self.presentationInterfaceState)
@@ -373,11 +373,11 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
     chat_controller = chat_controller.replace(send_method, helpers + send_method, 1)
     chat_controller = chat_controller.replace(
         send_method + "\n",
-        send_method + "\n        guard self.peekData == nil else { return }\n",
+        send_method + "\n        guard case nil = self.peekData else { return }\n",
         1,
     )
 
-    if "guard self.peekData == nil else { return }" not in chat_controller:
+    if "guard case nil = self.peekData else { return }" not in chat_controller:
         raise SystemExit("Direct sendMessages read-only guard did not install")
 
 if chat_controller.count("canSendMessagesToChat(self.presentationInterfaceState)") != 1:
