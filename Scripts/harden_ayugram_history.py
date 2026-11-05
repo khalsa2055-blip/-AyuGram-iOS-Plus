@@ -52,24 +52,9 @@ for p in (archive, message, store, capture):
     if not p.exists():
         raise SystemExit(f"Missing AyuGram history source: {p}")
 
-# Preserve sender/deletion metadata when Postbox assigns its durable History ID.
-# Without these two assignments the UI silently loses the values captured by the bridge.
-store_text = store.read_text(encoding="utf-8")
-if "fromName: snapshot.fromName" not in store_text:
-    old = "                fromID: snapshot.fromID,\\n"
-    if store_text.count(old) != 1:
-        raise SystemExit("Postbox history sender metadata anchor not unique")
-    store_text = store_text.replace(old, old + "                fromName: snapshot.fromName,\\n", 1)
-if "deletedAt: snapshot.deletedAt" not in store_text:
-    old = "                isDeleted: deleted\\n"
-    if store_text.count(old) != 1:
-        raise SystemExit("Postbox history deletion timestamp anchor not unique")
-    store_text = store_text.replace(
-        old,
-        "                isDeleted: deleted,\\n                deletedAt: snapshot.deletedAt\\n",
-        1,
-    )
-store.write_text(store_text, encoding="utf-8")
+# The later AyuGram History v4 pass below extends the Codable model and Postbox
+# snapshots with sender/deletion metadata. Do not mutate the Postbox constructor
+# before those model fields exist; that earlier ordering made the anchor ambiguous.
 
 # Give every captured revision its own immutable media directory. The old path
 # reused <account>/<dialog>/<message>/0.ext, so a second edit could point at the
@@ -113,8 +98,8 @@ new_root = """        guard let messageRoot = FileManager.default.urls(for: .app
             try FileManager.default.createDirectory(at: supportURL, withIntermediateDirectories: true)
 """
 if new_root not in archive_text:
-    if old_root not in archive_text:
-        raise SystemExit("Media archive root path anchor not found")
+    if archive_text.count(old_root) != 1:
+        raise SystemExit("Media archive root path anchor not unique")
     archive_text = archive_text.replace(old_root, new_root, 1)
 archive.write_text(archive_text, encoding="utf-8")
 
@@ -122,26 +107,36 @@ archive.write_text(archive_text, encoding="utf-8")
 capture_text = capture.read_text(encoding="utf-8")
 call_specs = [
     (
-        "messageID: message.id.id,\\n                    resources: resources",
-        "messageID: message.id.id,\\n                    revisionKey: \"deleted\",\\n                    resources: resources",
+        """messageID: message.id.id,
+                    resources: resources""",
+        """messageID: message.id.id,
+                    revisionKey: "deleted",
+                    resources: resources""",
         "deleted media archive",
     ),
     (
-        "messageID: snapshot.messageID,\\n                resources: uniqueResources",
-        "messageID: snapshot.messageID,\\n                revisionKey: \"manual-\\(UUID().uuidString)\",\\n                resources: uniqueResources",
+        """messageID: snapshot.messageID,
+                resources: uniqueResources""",
+        """messageID: snapshot.messageID,
+                revisionKey: "manual-\\(UUID().uuidString)",
+                resources: uniqueResources""",
         "manual Save media archive",
     ),
     (
-        "messageID: message.id.id,\\n                resources: mediaCapture.resources",
-        "messageID: message.id.id,\\n                revisionKey: \"edit-\\(editDate)-\\(UUID().uuidString)\",\\n                resources: mediaCapture.resources",
+        """messageID: message.id.id,
+                resources: mediaCapture.resources""",
+        """messageID: message.id.id,
+                revisionKey: "edit-\\(editDate)-\\(UUID().uuidString)",
+                resources: mediaCapture.resources""",
         "edited media archive",
     ),
 ]
 for old, new, label in call_specs:
     if new in capture_text:
         continue
-    if capture_text.count(old) != 1:
-        raise SystemExit(f"{label} revision-key anchor not unique")
+    count = capture_text.count(old)
+    if count != 1:
+        raise SystemExit(f"{label} revision-key anchor not unique (found {count})")
     capture_text = capture_text.replace(old, new, 1)
 capture.write_text(capture_text, encoding="utf-8")
 
