@@ -375,112 +375,112 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
     # Block non-message interactions that write to Telegram or reveal member lists.
     guarded_anchors = [
         (
-            '}, requestMessageActionCallback: { [weak self] message, data, isGame, requiresPassword, progress in\\n'
-            '            guard let strongSelf = self else {\\n'
-            '                return\\n'
+            '}, requestMessageActionCallback: { [weak self] message, data, isGame, requiresPassword, progress in\n'
+            '            guard let strongSelf = self else {\n'
+            '                return\n'
             '            }',
-            '}, requestMessageActionCallback: { [weak self] message, data, isGame, requiresPassword, progress in\\n'
-            '            guard let strongSelf = self else {\\n'
-            '                return\\n'
-            '            }\\n'
+            '}, requestMessageActionCallback: { [weak self] message, data, isGame, requiresPassword, progress in\n'
+            '            guard let strongSelf = self else {\n'
+            '                return\n'
+            '            }\n'
             '            guard case nil = strongSelf.peekData else { return }'
         ),
         (
-            '}, requestSelectMessagePollOptions: { [weak self] id, opaqueIdentifiers in\\n'
-            '            guard let strongSelf = self, let controllerInteraction = strongSelf.controllerInteraction else {\\n'
-            '                return\\n'
+            '}, requestSelectMessagePollOptions: { [weak self] id, opaqueIdentifiers in\n'
+            '            guard let strongSelf = self, let controllerInteraction = strongSelf.controllerInteraction else {\n'
+            '                return\n'
             '            }',
-            '}, requestSelectMessagePollOptions: { [weak self] id, opaqueIdentifiers in\\n'
-            '            guard let strongSelf = self, let controllerInteraction = strongSelf.controllerInteraction else {\\n'
-            '                return\\n'
-            '            }\\n'
+            '}, requestSelectMessagePollOptions: { [weak self] id, opaqueIdentifiers in\n'
+            '            guard let strongSelf = self, let controllerInteraction = strongSelf.controllerInteraction else {\n'
+            '                return\n'
+            '            }\n'
             '            guard case nil = strongSelf.peekData else { return }'
         ),
         (
-            '}, requestAddMessagePollOption: { [weak self] id, text, entities, opaqueIdentifier, mediaReference in\\n'
-            '            guard let strongSelf = self, let controllerInteraction = strongSelf.controllerInteraction else {\\n'
-            '                return\\n'
+            '}, requestAddMessagePollOption: { [weak self] id, text, entities, opaqueIdentifier, mediaReference in\n'
+            '            guard let strongSelf = self, let controllerInteraction = strongSelf.controllerInteraction else {\n'
+            '                return\n'
             '            }',
-            '}, requestAddMessagePollOption: { [weak self] id, text, entities, opaqueIdentifier, mediaReference in\\n'
-            '            guard let strongSelf = self, let controllerInteraction = strongSelf.controllerInteraction else {\\n'
-            '                return\\n'
-            '            }\\n'
+            '}, requestAddMessagePollOption: { [weak self] id, text, entities, opaqueIdentifier, mediaReference in\n'
+            '            guard let strongSelf = self, let controllerInteraction = strongSelf.controllerInteraction else {\n'
+            '                return\n'
+            '            }\n'
             '            guard case nil = strongSelf.peekData else { return }'
         ),
         (
-            '}, requestOpenMessagePollResults: { [weak self] messageId, pollId in\\n'
-            '            guard let strongSelf = self, pollId.namespace == Namespaces.Media.CloudPoll else {\\n'
-            '                return\\n'
+            '}, requestOpenMessagePollResults: { [weak self] messageId, pollId in\n'
+            '            guard let strongSelf = self, pollId.namespace == Namespaces.Media.CloudPoll else {\n'
+            '                return\n'
             '            }',
-            '}, requestOpenMessagePollResults: { [weak self] messageId, pollId in\\n'
-            '            guard let strongSelf = self, pollId.namespace == Namespaces.Media.CloudPoll else {\\n'
-            '                return\\n'
-            '            }\\n'
+            '}, requestOpenMessagePollResults: { [weak self] messageId, pollId in\n'
+            '            guard let strongSelf = self, pollId.namespace == Namespaces.Media.CloudPoll else {\n'
+            '                return\n'
+            '            }\n'
             '            guard case nil = strongSelf.peekData else { return }'
         ),
         (
-            '}, requestMessageActionUrlAuth: { [weak self] defaultUrl, subject in\\n'
+            '}, requestMessageActionUrlAuth: { [weak self] defaultUrl, subject in\n'
             '            if let strongSelf = self {',
-            '}, requestMessageActionUrlAuth: { [weak self] defaultUrl, subject in\\n'
-            '            if let strongSelf = self {\\n'
+            '}, requestMessageActionUrlAuth: { [weak self] defaultUrl, subject in\n'
+            '            if let strongSelf = self {\n'
             '                guard case nil = strongSelf.peekData else { return }'
         ),
         (
-            '}, pollOptionLongTap: { [weak self] optionId, params in\\n'
+            '}, pollOptionLongTap: { [weak self] optionId, params in\n'
             '            self.openPollOptionContextMenu(optionId: optionId, params: params)',
-            '}, pollOptionLongTap: { [weak self] optionId, params in\\n'
-            '            guard let self, case nil = self.peekData else { return }\\n'
+            '}, pollOptionLongTap: { [weak self] optionId, params in\n'
+            '            guard let self, case nil = self.peekData else { return }\n'
             '            self.openPollOptionContextMenu(optionId: optionId, params: params)'
         ),
         (
-            '}, openMessagePollResults: { [weak self] messageId, optionOpaqueIdentifier in\\n'
-            '            guard let strongSelf = self else {\\n'
-            '                return\\n'
+            '}, openMessagePollResults: { [weak self] messageId, optionOpaqueIdentifier in\n'
+            '            guard let strongSelf = self else {\n'
+            '                return\n'
             '            }',
-            '}, openMessagePollResults: { [weak self] messageId, optionOpaqueIdentifier in\\n'
-            '            guard let strongSelf = self else {\\n'
-            '                return\\n'
-            '            }\\n'
+            '}, openMessagePollResults: { [weak self] messageId, optionOpaqueIdentifier in\n'
+            '            guard let strongSelf = self else {\n'
+            '                return\n'
+            '            }\n'
             '            guard case nil = strongSelf.peekData else { return }'
         ),
         (
-            '}, joinVoiceChat: { [weak self] peerId, invite, call in\\n'
+            '}, joinVoiceChat: { [weak self] peerId, invite, call in\n'
             '            self?.joinGroupCall(peerId: peerId, invite: invite, activeCall: EngineGroupCallDescription(call))',
-            '}, joinVoiceChat: { [weak self] peerId, invite, call in\\n'
-            '            guard let self, case nil = self.peekData else { return }\\n'
+            '}, joinVoiceChat: { [weak self] peerId, invite, call in\n'
+            '            guard let self, case nil = self.peekData else { return }\n'
             '            self.joinGroupCall(peerId: peerId, invite: invite, activeCall: EngineGroupCallDescription(call))'
         ),
         (
-            '        requestMessageActionUrlAuth: { [weak self] subject in\\n'
-            '            if case let .url(url, _) = subject {\\n'
+            '        requestMessageActionUrlAuth: { [weak self] subject in\n'
+            '            if case let .url(url, _) = subject {\n'
             '                self?.controllerInteraction?.requestMessageActionUrlAuth(url, subject)',
-            '        requestMessageActionUrlAuth: { [weak self] subject in\\n'
-            '            guard let self, case nil = self.peekData else { return }\\n'
-            '            if case let .url(url, _) = subject {\\n'
+            '        requestMessageActionUrlAuth: { [weak self] subject in\n'
+            '            guard let self, case nil = self.peekData else { return }\n'
+            '            if case let .url(url, _) = subject {\n'
             '                self.controllerInteraction?.requestMessageActionUrlAuth(url, subject)'
         ),
         (
-            '        }, openJoinLink: { [weak self] joinHash in\\n'
-            '            guard let strongSelf = self else {\\n'
-            '                return\\n'
+            '        }, openJoinLink: { [weak self] joinHash in\n'
+            '            guard let strongSelf = self else {\n'
+            '                return\n'
             '            }',
-            '        }, openJoinLink: { [weak self] joinHash in\\n'
+            '        }, openJoinLink: { [weak self] joinHash in\n'
             '            guard let strongSelf = self, case nil = strongSelf.peekData else { return }'
         ),
         (
-            '        }, openWebView: { [weak self] buttonText, url, simple, source in\\n'
-            '            guard let self else {\\n'
-            '                return\\n'
+            '        }, openWebView: { [weak self] buttonText, url, simple, source in\n'
+            '            guard let self else {\n'
+            '                return\n'
             '            }',
-            '        }, openWebView: { [weak self] buttonText, url, simple, source in\\n'
+            '        }, openWebView: { [weak self] buttonText, url, simple, source in\n'
             '            guard let self, case nil = self.peekData else { return }'
         ),
         (
-            '        }, activateAdAction: { [weak self] messageId, progress, media, fullscreen in\\n'
-            '            guard let self else {\\n'
-            '                return\\n'
+            '        }, activateAdAction: { [weak self] messageId, progress, media, fullscreen in\n'
+            '            guard let self else {\n'
+            '                return\n'
             '            }',
-            '        }, activateAdAction: { [weak self] messageId, progress, media, fullscreen in\\n'
+            '        }, activateAdAction: { [weak self] messageId, progress, media, fullscreen in\n'
             '            guard let self, case nil = self.peekData else { return }'
         ),
     ]
