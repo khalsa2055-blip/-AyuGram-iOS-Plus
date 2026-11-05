@@ -1,157 +1,72 @@
 #!/usr/bin/env python3
-"""Apply the media-edit archive integration to a freshly checked-out Swiftgram tree.
+"""Connect Before to the existing AyuGram deleted/edited media archive.
 
-The upstream repository is deliberately kept as a separate checkout. This script
-is idempotent and fails closed if upstream changes the integration anchors.
+This patch deliberately does not add another archive, alter captureDeleted,
+captureEdited, the deleted-message retention UI, or manual Save.
 """
 from pathlib import Path
 import sys
 
 ROOT = Path(sys.argv[1] if len(sys.argv) > 1 else "upstream")
-CORE = ROOT / "submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift"
+ARCHIVE = ROOT / "submodules/AyuGramIOS/Sources/AyuGramMediaArchive.swift"
 UI = ROOT / "submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift"
 
-CORE_HELPER = r'''
-private struct AyuGramEditableMediaCandidate {
-    let kind: String
-    let resources: [MediaResource]
-    let fileExtension: String
-}
-
-private func ayuGramEditableMediaCandidate(_ media: [Media]) -> AyuGramEditableMediaCandidate? {
-    for item in media {
-        if let image = item as? TelegramMediaImage {
-            let representations = image.representations.sorted {
-                Int64($0.dimensions.width) * Int64($0.dimensions.height) >
-                Int64($1.dimensions.width) * Int64($1.dimensions.height)
-            }
-            if !representations.isEmpty {
-                return AyuGramEditableMediaCandidate(
-                    kind: "photo",
-                    resources: representations.map { $0.resource },
-                    fileExtension: "jpg"
-                )
-            }
-        } else if let file = item as? TelegramMediaFile, file.isVideo {
-            let allowedExtensions = Set(["mp4", "mov", "m4v", "webm", "mkv"])
-            let candidateExtension = file.fileName.map { ($0 as NSString).pathExtension.lowercased() } ?? ""
-            return AyuGramEditableMediaCandidate(
-                kind: "video",
-                resources: [file.resource],
-                fileExtension: allowedExtensions.contains(candidateExtension) ? candidateExtension : "mp4"
-            )
+ARCHIVE_LOOKUP = r'''
+    /// Resolve the already-captured media for Before. Edited revisions are
+    /// preferred (the first edit folder contains the pre-edit original); if
+    /// there is no edit snapshot, fall back to the existing deleted-message
+    /// archive. No media is copied or recaptured by this lookup.
+    public static func archivedOriginalMediaURL(
+        accountID: Int64,
+        dialogID: Int64,
+        messageID: Int32
+    ) -> URL? {
+        guard let messageRoot = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("AyuGram", isDirectory: true)
+            .appendingPathComponent("History", isDirectory: true)
+            .appendingPathComponent(String(accountID), isDirectory: true)
+            .appendingPathComponent(String(dialogID), isDirectory: true)
+            .appendingPathComponent(String(messageID), isDirectory: true) else {
+            return nil
         }
-    }
-    return nil
-}
 
-private func ayuGramMediaEditArchiveDirectory() -> URL? {
-    return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
-        .appendingPathComponent("AyuGramMediaEditArchive", isDirectory: true)
-}
+        let directories = ((try? FileManager.default.contentsOfDirectory(
+            at: messageRoot,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        )) ?? []).filter {
+            $0.lastPathComponent.hasPrefix("edit-") &&
+            ((try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true)
+        }.sorted {
+            $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending
+        }
 
-private func ayuGramMediaEditArchiveStem(_ messageId: MessageId) -> String {
-    let peerValue = messageId.peerId.id._internalGetInt64Value()
-    return "peer-\(messageId.peerId.namespace)-\(peerValue)-message-\(messageId.id)"
-}
+        // Preserve the first pre-edit version across multiple edits.
+        var candidates = directories
+        let deletedDirectory = messageRoot.appendingPathComponent("deleted", isDirectory: true)
+        if FileManager.default.fileExists(atPath: deletedDirectory.path) {
+            candidates.append(deletedDirectory)
+        }
 
-/// Returns the locally archived pre-edit media file for a message, if one exists.
-public func archivedOriginalMediaURL(for messageId: MessageId) -> URL? {
-    guard let directory = ayuGramMediaEditArchiveDirectory() else {
+        for directory in candidates {
+            let files = ((try? FileManager.default.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles]
+            )) ?? []).filter {
+                $0.pathExtension.lowercased() != "json" &&
+                ((try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true)
+            }.sorted {
+                $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending
+            }
+            if let firstFile = files.first {
+                return firstFile
+            }
+        }
         return nil
     }
-    let prefix = ayuGramMediaEditArchiveStem(messageId) + "."
-    guard let files = try? FileManager.default.contentsOfDirectory(
-        at: directory,
-        includingPropertiesForKeys: nil,
-        options: [.skipsHiddenFiles]
-    ) else {
-        return nil
-    }
-    return files.first(where: { $0.lastPathComponent.hasPrefix(prefix) })
-}
-
-private func ayuGramArchiveOriginalMediaBeforeEdit(
-    previousMessage: Message,
-    replacementMessage: StoreMessage,
-    mediaBox: MediaBox
-) {
-    guard
-        let original = ayuGramEditableMediaCandidate(previousMessage.media),
-        let replacement = ayuGramEditableMediaCandidate(replacementMessage.media),
-        original.kind != replacement.kind || original.resources.first?.id != replacement.resources.first?.id,
-        let sourcePath = original.resources.compactMap({ mediaBox.completedResourcePath($0) }).first,
-        let directory = ayuGramMediaEditArchiveDirectory()
-    else {
-        return
-    }
-
-    let destination = directory
-        .appendingPathComponent(ayuGramMediaEditArchiveStem(previousMessage.id))
-        .appendingPathExtension(original.fileExtension)
-
-    // Keep the first original forever; further edits must not replace it.
-    guard !FileManager.default.fileExists(atPath: destination.path) else {
-        return
-    }
-
-    do {
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let temporary = directory.appendingPathComponent(".\(UUID().uuidString).media-tmp")
-        try FileManager.default.copyItem(at: URL(fileURLWithPath: sourcePath), to: temporary)
-        try FileManager.default.moveItem(at: temporary, to: destination)
-    } catch {
-        // An unavailable or incomplete cache entry is not treated as an original.
-        return
-    }
-}
-
-/// Preserve currently available media before Telegram processes a deletion.
-/// The same message-keyed archive is used by the Before preview action.
-private func ayuGramArchiveDeletedMessageMediaForBefore(
-    message: Message,
-    mediaBox: MediaBox
-) {
-    guard
-        let candidate = ayuGramEditableMediaCandidate(message.media),
-        let sourcePath = candidate.resources.compactMap({ mediaBox.completedResourcePath($0) }).first,
-        let directory = ayuGramMediaEditArchiveDirectory()
-    else {
-        return
-    }
-
-    let destination = directory
-        .appendingPathComponent(ayuGramMediaEditArchiveStem(message.id))
-        .appendingPathExtension(candidate.fileExtension)
-    guard !FileManager.default.fileExists(atPath: destination.path) else {
-        return
-    }
-    do {
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let temporary = directory.appendingPathComponent(".\(UUID().uuidString).deleted-media-tmp")
-        try FileManager.default.copyItem(at: URL(fileURLWithPath: sourcePath), to: temporary)
-        try FileManager.default.moveItem(at: temporary, to: destination)
-    } catch {
-        return
-    }
-}
 '''
 
-CORE_ANCHOR = "func replayFinalState(\n"
-CORE_HOOK_OLD = """            case let .EditMessage(id, message):
-                var generatedEvent: (reactionAuthor: Peer, reaction: MessageReaction.Reaction, message: Message, timestamp: Int32)?
-                transaction.updateMessage(id, update: { previousMessage in
-                    let peers: [PeerId:Peer] = previousMessage.peers.reduce([:], { current, value in
-"""
-CORE_HOOK_NEW = """            case let .EditMessage(id, message):
-                var generatedEvent: (reactionAuthor: Peer, reaction: MessageReaction.Reaction, message: Message, timestamp: Int32)?
-                transaction.updateMessage(id, update: { previousMessage in
-                    ayuGramArchiveOriginalMediaBeforeEdit(previousMessage: previousMessage, replacementMessage: message, mediaBox: mediaBox)
-                    let peers: [PeerId:Peer] = previousMessage.peers.reduce([:], { current, value in
-"""
-
-UI_IMPORT_ANCHOR = "import TelegramCore\n"
-UI_CLASS_ANCHOR = "private struct MessageContextMenuData {\n"
 UI_CLASS = r'''
 private final class AyuGramMediaEditOriginalPreviewItem: NSObject, QLPreviewItem {
     private let url: URL
@@ -192,9 +107,13 @@ private final class AyuGramMediaEditOriginalPreviewController: QLPreviewControll
 }
 
 '''
-UI_ACTION_ANCHOR = "        var downloadableMediaResourceInfos: [String] = []\n"
+
 UI_ACTION = r'''        if !message.containsSecretMedia && !isCopyProtected,
-           let originalURL = archivedOriginalMediaURL(for: message.id) {
+           let originalURL = AyuGramMediaArchive.archivedOriginalMediaURL(
+               accountID: context.account.peerId.toInt64(),
+               dialogID: message.id.peerId.toInt64(),
+               messageID: message.id.id
+           ) {
             actions.append(.action(ContextMenuActionItem(text: "Before", icon: { theme in
                 return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Message"), color: theme.actionSheet.primaryTextColor)
             }, action: { _, f in
@@ -213,45 +132,42 @@ def replace_once(source: str, old: str, new: str, label: str) -> str:
     return source.replace(old, new, 1)
 
 def main() -> None:
-    if not CORE.is_file() or not UI.is_file():
-        raise SystemExit("Swiftgram source tree is missing required TelegramCore/TelegramUI files")
+    if not ARCHIVE.is_file() or not UI.is_file():
+        raise SystemExit("Missing existing AyuGram media archive or TelegramUI context-menu source")
 
-    core = CORE.read_text()
-    ui = UI.read_text()
+    archive = ARCHIVE.read_text(encoding="utf-8")
+    ui = UI.read_text(encoding="utf-8")
 
-    if "ayuGramArchiveOriginalMediaBeforeEdit" in core or "ayuGramArchiveDeletedMessageMediaForBefore" in core or "AyuGramMediaEditOriginalPreviewController" in ui:
-        raise SystemExit("Media-edit archive integration already appears to be applied; refusing duplicate patch")
+    if "public enum AyuGramMediaArchive {" not in archive:
+        raise SystemExit("Existing AyuGramMediaArchive API was not found")
+    if "AyuGramMediaArchive.archivedOriginalMediaURL" in ui:
+        raise SystemExit("Before already uses the existing AyuGram media archive")
 
-    core = replace_once(core, CORE_ANCHOR, CORE_HELPER + "\n" + CORE_ANCHOR, "TelegramCore helper insertion")
-    core = replace_once(core, CORE_HOOK_OLD, CORE_HOOK_NEW, "incoming message edit hook")
+    if "public static func archivedOriginalMediaURL(" not in archive:
+        archive = replace_once(
+            archive,
+            "public enum AyuGramMediaArchive {",
+            "public enum AyuGramMediaArchive {\n" + ARCHIVE_LOOKUP,
+            "existing archive lookup insertion"
+        )
 
-    delete_hook_old = """            case let .DeleteMessages(ids):
-                _internal_deleteMessages(transaction: transaction, mediaBox: mediaBox, ids: ids, manualAddMessageThreadStatsDifference: { id, add, remove in
-                    addMessageThreadStatsDifference(threadKey: id, remove: remove, addedMessagePeer: nil, addedMessageId: nil, isOutgoing: false)
-                })
-                deletedMessageIds.append(contentsOf: ids.map { .messageId($0) })"""
-    delete_hook_new = """            case let .DeleteMessages(ids):
-                // Preserve media before Telegram processes deletion; deletion behavior is unchanged.
-                for id in ids {
-                    if let message = transaction.getMessage(id) {
-                        ayuGramArchiveDeletedMessageMediaForBefore(message: message, mediaBox: mediaBox)
-                    }
-                }
-                _internal_deleteMessages(transaction: transaction, mediaBox: mediaBox, ids: ids, manualAddMessageThreadStatsDifference: { id, add, remove in
-                    addMessageThreadStatsDifference(threadKey: id, remove: remove, addedMessagePeer: nil, addedMessageId: nil, isOutgoing: false)
-                })
-                deletedMessageIds.append(contentsOf: ids.map { .messageId($0) })"""
-    core = replace_once(core, delete_hook_old, delete_hook_new, "pre-delete media archive hook")
+    if "import QuickLook\n" not in ui:
+        ui = replace_once(ui, "import TelegramCore\n", "import TelegramCore\nimport QuickLook\n", "QuickLook import")
+    if "import AyuGramIOS\n" not in ui:
+        ui = replace_once(ui, "import TelegramCore\n", "import TelegramCore\nimport AyuGramIOS\n", "AyuGram archive import")
+    if "AyuGramMediaEditOriginalPreviewController" not in ui:
+        ui = replace_once(ui, "private struct MessageContextMenuData {\n", UI_CLASS + "private struct MessageContextMenuData {\n", "Before preview controller")
+    ui = replace_once(
+        ui,
+        "        var downloadableMediaResourceInfos: [String] = []\n",
+        UI_ACTION + "        var downloadableMediaResourceInfos: [String] = []\n",
+        "Before context-menu action"
+    )
 
-    ui = replace_once(ui, UI_IMPORT_ANCHOR, UI_IMPORT_ANCHOR + "import QuickLook\n", "QuickLook import")
-    ui = replace_once(ui, UI_CLASS_ANCHOR, UI_CLASS + UI_CLASS_ANCHOR, "original preview controller")
-    ui = replace_once(ui, UI_ACTION_ANCHOR, UI_ACTION + UI_ACTION_ANCHOR, "View Original context menu action")
-
-    CORE.write_text(core)
-    UI.write_text(ui)
-    print("Media edit archive integration applied:")
-    print(f"  {CORE.relative_to(ROOT)}")
-    print(f"  {UI.relative_to(ROOT)}")
+    ARCHIVE.write_text(archive, encoding="utf-8")
+    UI.write_text(ui, encoding="utf-8")
+    print("Before now reads the existing AyuGram edit/deleted media archive.")
+    print("No deleted-message capture, retention UI, or manual Save code was changed.")
 
 if __name__ == "__main__":
     main()
