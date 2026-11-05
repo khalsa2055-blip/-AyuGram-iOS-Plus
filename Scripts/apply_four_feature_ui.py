@@ -639,11 +639,15 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
             raise SystemExit("Could not uniquely scope ChatController.openPeerMention during peek")
         chat_controller = chat_controller.replace(open_mention_signature, open_mention_guard, 1)
     for old, new in guarded_anchors:
-        if new in chat_controller:
-            continue
-        if chat_controller.count(old) != 1:
-            raise SystemExit(f"Read-only preview interaction anchor not unique: {old.splitlines()[0]}")
-        chat_controller = chat_controller.replace(old, new, 1)
+        count = chat_controller.count(old)
+        if count:
+            # Some Telegram revisions declare the same interaction callback in
+            # more than one construction path. Guard every matching path: the
+            # peekData check is a no-op for ordinary chats and must cover all
+            # read-only preview instances.
+            chat_controller = chat_controller.replace(old, new)
+        elif new not in chat_controller:
+            raise SystemExit(f"Read-only preview interaction anchor missing: {old.splitlines()[0]}")
 
     # A reaction can remove an already-selected reaction without entering
     # Telegram's normal "add reaction" permission branch. Deny before either path.
