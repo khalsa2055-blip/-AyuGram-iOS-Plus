@@ -78,20 +78,18 @@ capture.write_text(capture_source, encoding="utf-8")
 smoke = base / "AyuGramSmokeTest.swift"
 if smoke.is_file():
     smoke_text = smoke.read_text(encoding="utf-8")
-    smoke_text = smoke_text.replace(
-        '            let messageID = Int32(1_710_000_000) + abs(Int32(accountID % 10_000))\\n',
-        '            let messageID = Int32(1_710_000_000) + abs(Int32(accountID % 10_000))\\n            let savedStem = "account-\\(accountID)-dialog-\\(dialogID)-message-\\(messageID)"\\n',
-        1,
-    )
-    smoke_text = smoke_text.replace('"message-\\(messageID)-media-1.jpg"', '"\\(savedStem)-media-1.jpg"', 1)
-    smoke_text = smoke_text.replace('"message-\\(messageID)-media-2.mp4"', '"\\(savedStem)-media-2.mp4"', 1)
-    smoke_text = smoke_text.replace(
-        '            let messageID = Int32(1_700_000_000) + abs(Int32(accountID % 10_000))\\n',
-        '            let messageID = Int32(1_700_000_000) + abs(Int32(accountID % 10_000))\\n            let savedStem = "account-\\(accountID)-dialog-\\(dialogID)-message-\\(messageID)"\\n',
-        1,
-    )
-    smoke_text = smoke_text.replace('"message-\\(messageID)-media.jpg"', '"\\(savedStem)-media.jpg"', 1)
-    smoke_text = smoke_text.replace('"message-\\(messageID).json"', '"\\(savedStem).json"', 1)
+    # Build each fixture name from its local identifiers; do not introduce a
+    # savedStem local whose declaration can land outside the fixture's closure.
+    smoke_replacements = {
+        r'"message-\(messageID)-media-1.jpg"': r'"account-\(accountID)-dialog-\(dialogID)-message-\(messageID)-media-1.jpg"',
+        r'"message-\(messageID)-media-2.mp4"': r'"account-\(accountID)-dialog-\(dialogID)-message-\(messageID)-media-2.mp4"',
+        r'"message-\(messageID)-media.jpg"': r'"account-\(accountID)-dialog-\(dialogID)-message-\(messageID)-media.jpg"',
+        r'"message-\(messageID).json"': r'"account-\(accountID)-dialog-\(dialogID)-message-\(messageID).json"',
+    }
+    for old, new in smoke_replacements.items():
+        smoke_text = smoke_text.replace(old, new, 1)
+    if "savedStem" in smoke_text:
+        raise SystemExit("Smoke-test fixture still references an out-of-scope savedStem")
     smoke.write_text(smoke_text, encoding="utf-8")
 
 print("PASS: manual Save stores photos and videos together in saved/king; History keeps its separate Media folder.")
