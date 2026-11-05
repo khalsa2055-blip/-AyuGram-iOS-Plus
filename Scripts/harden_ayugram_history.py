@@ -267,18 +267,31 @@ archive.write_text(s)
 
 # Preserve media metadata through the Postbox history copy. This prevents a
 # successful capture from being reduced to a text-only row.
-s = store.read_text()
-old_init = '''                mimeType: snapshot.mimeType,
+store_text = store.read_text(encoding="utf-8")
+old_metadata = """                fromID: snapshot.fromID,
+                topicID: snapshot.topicID,
+"""
+new_metadata = """                fromID: snapshot.fromID,
+                fromName: snapshot.fromName,
+                topicID: snapshot.topicID,
+"""
+if "fromName: snapshot.fromName" not in store_text:
+    if store_text.count(old_metadata) != 1:
+        raise SystemExit("Postbox History sender metadata constructor anchor not unique")
+    store_text = store_text.replace(old_metadata, new_metadata, 1)
+
+old_deleted_at = """                mimeType: snapshot.mimeType,
                 isDeleted: deleted
-            )'''
-new_init = '''                mimeType: snapshot.mimeType,
-                isDeleted: deleted
-            )'''
-if old_init not in s:
-    raise SystemExit("History store constructor anchor not found")
-# No semantic change here; this assertion intentionally ensures the current
-# constructor shape remains compatible with the capture code.
-store.write_text(s)
+            )"""
+new_deleted_at = """                mimeType: snapshot.mimeType,
+                isDeleted: deleted,
+                deletedAt: snapshot.deletedAt
+            )"""
+if "deletedAt: snapshot.deletedAt" not in store_text:
+    if store_text.count(old_deleted_at) != 1:
+        raise SystemExit("Postbox History deletion timestamp constructor anchor not unique")
+    store_text = store_text.replace(old_deleted_at, new_deleted_at, 1)
+store.write_text(store_text, encoding="utf-8")
 
 # Confirm the History path is connected end-to-end, including metadata and immutable revisions.
 store_text = store.read_text(encoding="utf-8")
