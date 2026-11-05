@@ -3,7 +3,7 @@ name: AyuGram iOS — Swiftgram Compatibility Check
 on:
   workflow_dispatch:
   push:
-    branches: [ "feature/four-feature-integration" ]
+    branches: [ "feature/four-feature-integration", "feature/before-media-prefetch-primary" ]
     paths:
       - "patches/**"
       - "Scripts/harden_ayugram_history.py"
@@ -168,6 +168,32 @@ jobs:
 
       - name: Apply private preview and Before UI
         run: python3 Scripts/apply_four_feature_ui.py
+
+      - name: Verify Before reuses the existing automatic archive
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          menu = Path("telegram-ios/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift").read_text(encoding="utf-8")
+          before_start = menu.index('ContextMenuActionItem(text: "قبل"')
+          before_end = menu.index("// Always expose the full AyuGram History list", before_start)
+          before = menu[before_start:before_end]
+          assert "AyuGramPostboxHistoryStore.revisions(" in before, "Before is not reading the existing edit snapshots"
+          assert "limit: 500" in before and "values.last?.mediaPath" in before, "Before must choose the first/original saved revision"
+          assert "AyuGramOriginalMediaPreviewController(url: URL(fileURLWithPath: path))" in before
+          assert "AyuGramMediaEditArchive" not in before, "A second independent archive must not be used"
+
+          capture = Path("telegram-ios/submodules/AyuGramIOS/Sources/AyuGramCaptureService.swift").read_text(encoding="utf-8")
+          assert 'revisionKey: "deleted"' in capture, "Existing deleted-message archive path is missing"
+          assert 'revisionKey: "edit-\\(editDate)-\\(UUID().uuidString)"' in capture, "Existing pre-edit archive path is missing"
+          assert "AyuGramPostboxHistoryStore.appendDeleted" in capture
+          assert "AyuGramPostboxHistoryStore.appendEdited" in capture
+
+          assert menu.count('text: "AyuGram Save"') == 2, "Manual Save entry points changed"
+          assert menu.count("AyuGramCaptureService.saveNow(") == 2, "Manual Save API routing changed"
+          print("PASS: Before opens the first original media snapshot from the existing automatic archive.")
+          print("PASS: deleted-message capture, trash UI, and manual Save paths remain separate and unchanged.")
+          PY
 
       - name: Parse modified Swift sources without building the app
         run: |
