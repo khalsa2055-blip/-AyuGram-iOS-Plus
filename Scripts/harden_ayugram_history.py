@@ -101,13 +101,28 @@ if new_root not in archive_text:
     if archive_text.count(old_root) != 1:
         raise SystemExit("Media archive root path anchor not unique")
     archive_text = archive_text.replace(old_root, new_root, 1)
-# Fail closed on incomplete media archives instead of returning a path to a partial album.
+# Archive attempts are idempotent. A message can be captured first by the
+# interactive delete path and again when Telegram's server deletion update arrives.
+# Reuse the already-copied resource in the stable "deleted" revision folder; never
+# remove a good archive merely because MediaBox has since released its source file.
 archive_text = archive_text.replace(
     """            ), FileManager.default.fileExists(atPath: sourcePath) else {
                 continue
             }""",
     """            ), FileManager.default.fileExists(atPath: sourcePath) else {
-                try? FileManager.default.removeItem(at: supportURL)
+                let existingFiles = (try? FileManager.default.contentsOfDirectory(
+                    at: supportURL,
+                    includingPropertiesForKeys: nil,
+                    options: [.skipsHiddenFiles]
+                )) ?? []
+                if let archivedFile = existingFiles.first(where: { $0.lastPathComponent.hasPrefix("\\(index).") }) {
+                    copiedResourceCount += 1
+                    if firstPath == nil {
+                        firstPath = archivedFile.path
+                        firstMimeType = resource.mimeType
+                    }
+                    continue
+                }
                 return (nil, nil)
             }""",
     1,
@@ -141,13 +156,11 @@ archive_text = archive_text.replace(
                     firstMimeType = resource.mimeType
                 }
             } catch {
-                try? FileManager.default.removeItem(at: supportURL)
                 return (nil, nil)
             }
         }
 
         guard copiedResourceCount == resources.count, let firstPath else {
-            try? FileManager.default.removeItem(at: supportURL)
             return (nil, nil)
         }
         return (firstPath, firstMimeType)""",
@@ -155,6 +168,10 @@ archive_text = archive_text.replace(
 )
 if "var copiedResourceCount = 0" not in archive_text or "guard copiedResourceCount == resources.count" not in archive_text:
     raise SystemExit("Media archive completeness guard did not apply")
+if "first(where: { $0.lastPathComponent.hasPrefix" not in archive_text:
+    raise SystemExit("Duplicate deletion archive retry path did not apply")
+if "try? FileManager.default.removeItem(at: supportURL)" in archive_text:
+    raise SystemExit("Archive retry must not delete previously copied resource files")
 
 archive.write_text(archive_text, encoding="utf-8")
 
