@@ -458,7 +458,9 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
             '                return\n'
             '            }',
             '        }, openJoinLink: { [weak self] joinHash in\n'
-            '            guard let strongSelf = self, case nil = strongSelf.peekData else { return }'
+            '            guard let strongSelf = self, case nil = strongSelf.peekData else {\n'
+            '                return\n'
+            '            }'
         ),
         (
             '        }, activateAdAction: { [weak self] messageId, progress, media, fullscreen in\n'
@@ -466,7 +468,9 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
             '                return\n'
             '            }',
             '        }, activateAdAction: { [weak self] messageId, progress, media, fullscreen in\n'
-            '            guard let self, case nil = self.peekData else { return }'
+            '            guard let self, case nil = self.peekData else {\n'
+            '                return\n'
+            '            }'
         ),
     ]
     # Telegram revisions vary in indentation and callback-body formatting.
@@ -554,7 +558,7 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
             """}, openJoinLink: { [weak self] joinHash in
             guard let strongSelf = self else {""",
             """}, openJoinLink: { [weak self] joinHash in
-            guard let strongSelf = self, case nil = strongSelf.peekData else { return }""",
+            guard let strongSelf = self, case nil = strongSelf.peekData else {""",
         ),
         (
             """}, openWebView: { [weak self] buttonText, url, simple, source in
