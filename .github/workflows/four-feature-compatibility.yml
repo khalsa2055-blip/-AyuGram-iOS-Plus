@@ -285,14 +285,14 @@ jobs:
           gate_start = state_source.index("public func canSendMessagesToChat")
           gate_end = state_source.index("public func canSendReactionsToChat", gate_start)
           send_gate = state_source[gate_start:gate_end]
-          assert "AyuGram read-only peek send gate" in send_gate
-          assert "case .member = channel.participationStatus" in send_gate
+          assert "canSendMessagesToPeer(EnginePeer(peer), ignoreDefault: canBypassRestrictions)" in send_gate, "Telegram native message-permission check was changed or removed"
           react_start = state_source.index("public func canSendReactionsToChat")
           react_end = state_source.index("public func canJoinInaccessibleCommunityChat", react_start)
           reaction_gate = state_source[react_start:react_end]
-          assert "AyuGram read-only peek reactions gate" in reaction_gate
-          assert "case .member = channel.participationStatus" in reaction_gate
-          print("PASS: native chat composer and reactions are disabled for non-member preview viewers.")
+          assert "canSendReactionsToPeer(EnginePeer(peer), ignoreDefault: canBypassRestrictions)" in reaction_gate, "Telegram native reaction-permission check was changed or removed"
+          assert "AyuGram read-only peek send gate" not in send_gate, "Do not inject a global membership override into ordinary chats"
+          assert "AyuGram read-only peek reactions gate" not in reaction_gate, "Do not inject a global membership override into ordinary chats"
+          print("PASS: Telegram's native message and reaction permission gates remain authoritative.")
           print("PASS: peek timeout remains native and read-only; no Join action.")
           PY
           echo "All four feature integration markers found."
