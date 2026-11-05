@@ -128,7 +128,7 @@ private func ayuGramArchiveDeletedMessageMediaForBefore(
     }
     do {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let temporary = directory.appendingPathComponent(".\\(UUID().uuidString).deleted-media-tmp")
+        let temporary = directory.appendingPathComponent(".\(UUID().uuidString).deleted-media-tmp")
         try FileManager.default.copyItem(at: URL(fileURLWithPath: sourcePath), to: temporary)
         try FileManager.default.moveItem(at: temporary, to: destination)
     } catch {
