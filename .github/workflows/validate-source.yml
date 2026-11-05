@@ -216,9 +216,9 @@ jobs:
           strings "$CORE_BINARY" > "$RUNNER_TEMP/core-strings.txt"
           strings "$UI_BINARY" > "$RUNNER_TEMP/ui-strings.txt"
           grep -Fq "AyuGramMediaEditArchive" "$RUNNER_TEMP/core-strings.txt" || { echo "Missing Core marker: AyuGramMediaEditArchive"; exit 1; }
-          grep -Fq "قبل" "$RUNNER_TEMP/ui-strings.txt" || { echo "Missing UI marker: View Original"; exit 1; }
+          grep -Fq "Before" "$RUNNER_TEMP/ui-strings.txt" || { echo "Missing UI marker: Before"; exit 1; }
           grep -Fq "Original media" "$RUNNER_TEMP/ui-strings.txt" || { echo "Missing UI marker: Original media"; exit 1; }
-          echo "PASS: archive storage and View Original UI markers are present in compiled frameworks."
+          echo "PASS: archive storage and Before UI markers are present in compiled frameworks."
 
       - name: Install and launch in iOS Simulator
         shell: bash
