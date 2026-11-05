@@ -777,6 +777,35 @@ if save_anchor not in archive_text:
 if "public static func saveToSaved(message: AyuMessage) -> Bool" not in archive_text:
     archive.write_text(archive_text.replace(save_anchor, save_api + save_anchor, 1))
 
+# Apply the fail-closed content rule to the real archive implementation from the patch.
+archive_text = archive.read_text(encoding="utf-8")
+saved_start = archive_text.index("public static func saveToSaved")
+saved_end = archive_text.index("public static func archive", saved_start)
+saved_body = archive_text[saved_start:saved_end]
+metadata_anchor = """        let metadata: [String: Any] = [
+            "messageID": message.messageID,"""
+metadata_guard = """        guard didSave else {
+            return false
+        }
+
+        let metadata: [String: Any] = [
+            "messageID": message.messageID,"""
+if "guard didSave else" not in saved_body:
+    if metadata_anchor not in saved_body:
+        raise SystemExit("Saved content guard anchor missing from saveToSaved")
+    saved_body = saved_body.replace(metadata_anchor, metadata_guard, 1)
+metadata_tail = """            try data.write(to: messagesRoot.appendingPathComponent("\\(filePrefix).json"), options: .atomic)
+            didSave = true
+        } catch {"""
+metadata_tail_new = """            try data.write(to: messagesRoot.appendingPathComponent("\\(filePrefix).json"), options: .atomic)
+        } catch {"""
+if metadata_tail in saved_body:
+    saved_body = saved_body.replace(metadata_tail, metadata_tail_new, 1)
+elif "didSave = true" in saved_body.split("let metadata: [String: Any]", 1)[1]:
+    raise SystemExit("Metadata-only Saved success flag remains")
+archive_text = archive_text[:saved_start] + saved_body + archive_text[saved_end:]
+archive.write_text(archive_text, encoding="utf-8")
+
 # Turn each History row into a real actionable Save row while keeping the
 # message preview/date/media information visible.
 ui_text = ui.read_text()
