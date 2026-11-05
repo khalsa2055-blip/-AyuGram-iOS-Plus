@@ -823,7 +823,6 @@ metadata_write = re.search(
     r'(?m)(^[ \t]*try data\.write\(to: messagesRoot\.appendingPathComponent\(".*?\.json"\), options: \.atomic\)\n)[ \t]*didSave = true\n',
     metadata_body,
 )
-)
 if metadata_write:
     metadata_body = metadata_body[:metadata_write.start()] + metadata_write.group(1) + metadata_body[metadata_write.end():]
 elif re.search(r'(?m)^[ \\t]*didSave = true[ \\t]*$', metadata_body):
