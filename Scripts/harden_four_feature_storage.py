@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Keep manual-save media together in king and avoid filename collisions."""
 from pathlib import Path
+import re
 
 base = Path("telegram-ios/submodules/AyuGramIOS/Sources")
 archive = base / "AyuGramMediaArchive.swift"
@@ -88,8 +89,15 @@ if smoke.is_file():
     }
     for old, new in smoke_replacements.items():
         smoke_text = smoke_text.replace(old, new, 1)
+    # Remove the previous intermediate variable and inline its stable identity
+    # in every filename interpolation, including fixtures added by older patches.
+    smoke_text = re.sub(r"(?m)^[ \t]*let savedStem\s*=.*(?:\n|$)", "", smoke_text)
+    smoke_text = smoke_text.replace(
+        r"\(savedStem)",
+        r"account-\(accountID)-dialog-\(dialogID)-message-\(messageID)",
+    )
     if "savedStem" in smoke_text:
-        raise SystemExit("Smoke-test fixture still references an out-of-scope savedStem")
+        raise SystemExit("Smoke-test fixture still references savedStem after normalization")
     smoke.write_text(smoke_text, encoding="utf-8")
 
 print("PASS: manual Save stores photos and videos together in saved/king; History keeps its separate Media folder.")
