@@ -93,7 +93,6 @@ jobs:
         run: |
           set -euo pipefail
           python3 Scripts/apply_media_edit_archive.py upstream
-          python3 Scripts/apply_deleted_message_archive.py --upstream upstream
 
       - name: Test invite-preview policy and audit native Telegram route
         shell: bash
