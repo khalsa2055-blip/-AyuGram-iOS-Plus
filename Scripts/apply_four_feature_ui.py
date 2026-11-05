@@ -337,6 +337,70 @@ if "AyuGram read-only peek: suppress Join action" not in chat_controller:
         + chat_controller[end:]
     )
 
+# Telegram's native send permission function checks channel bans, but not membership.
+# Scope a hard read-only gate to ChatController instances created with ChatPeekTimeout.
+# Normal chats continue to use Telegram's permission implementation unchanged.
+if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
+    replacements = (
+        ("canSendMessagesToChat(self.presentationInterfaceState)", "self.ayuGramCanSendMessagesInCurrentChat()"),
+        ("canSendMessagesToChat(strongSelf.presentationInterfaceState)", "strongSelf.ayuGramCanSendMessagesInCurrentChat()"),
+        ("canSendReactionsToChat(strongSelf.presentationInterfaceState)", "strongSelf.ayuGramCanSendReactionsInCurrentChat()"),
+    )
+    for old, new in replacements:
+        count = chat_controller.count(old)
+        if count == 0:
+            raise SystemExit(f"Read-only preview send-gate anchor missing: {old}")
+        chat_controller = chat_controller.replace(old, new)
+
+    send_method = "    func sendMessages(_ messages: [EnqueueMessage], media: Bool = false, postpone: Bool = false, commit: Bool = false) {"
+    helpers = """    private func ayuGramCanSendMessagesInCurrentChat() -> Bool {
+        guard self.peekData == nil else {
+            return false
+        }
+        return canSendMessagesToChat(self.presentationInterfaceState)
+    }
+
+    private func ayuGramCanSendReactionsInCurrentChat() -> Bool {
+        guard self.peekData == nil else {
+            return false
+        }
+        return canSendReactionsToChat(self.presentationInterfaceState)
+    }
+
+"""
+    if chat_controller.count(send_method) != 1:
+        raise SystemExit("Could not uniquely locate ChatController sendMessages entry point")
+    chat_controller = chat_controller.replace(send_method, helpers + send_method, 1)
+    chat_controller = chat_controller.replace(
+        send_method + "\n",
+        send_method + "\n        guard self.peekData == nil else { return }\n",
+        1,
+    )
+
+    if "guard self.peekData == nil else { return }" not in chat_controller:
+        raise SystemExit("Direct sendMessages read-only guard did not install")
+
+for token in (
+    "canSendMessagesToChat(self.presentationInterfaceState)",
+    "canSendMessagesToChat(strongSelf.presentationInterfaceState)",
+    "canSendReactionsToChat(strongSelf.presentationInterfaceState)",
+):
+    if token in chat_controller:
+        raise SystemExit(f"Unscoped preview send permission remains: {token}")
+if chat_controller.count("ayuGramCanSendMessagesInCurrentChat()") < 10:
+    raise SystemExit("Not all composer/sticker/command/file-send call sites use the preview gate")
+if chat_controller.count("ayuGramCanSendReactionsInCurrentChat()") != 2:
+    raise SystemExit("Both reaction send entry points must use the preview gate")
+
+# The gallery-level Before action is only meaningful for edited messages.
+# Hide it on untouched media rather than presenting an empty preview action.
+gallery_before_guard = 'if !message.containsSecretMedia && !isCopyProtected {\n            actions.append(.action(ContextMenuActionItem(text: "Before"'
+gallery_before_guarded = 'if message.attributes.contains(where: { $0 is EditedMessageAttribute }) && !message.containsSecretMedia && !isCopyProtected {\n            actions.append(.action(ContextMenuActionItem(text: "Before"'
+if gallery_before_guard in menu:
+    menu = replace_once(menu, gallery_before_guard, gallery_before_guarded, "Before edited-media visibility")
+elif gallery_before_guarded not in menu:
+    raise SystemExit("Could not locate gallery Before action visibility guard")
+
 if "AyuGramOriginalMediaPreviewController" not in menu:
     menu = replace_once(
         menu,
