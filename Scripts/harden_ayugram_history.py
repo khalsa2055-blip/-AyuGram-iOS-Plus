@@ -825,7 +825,10 @@ metadata_write = re.search(
 )
 if metadata_write:
     metadata_body = metadata_body[:metadata_write.start()] + metadata_write.group(1) + metadata_body[metadata_write.end():]
-elif re.search(r'(?m)^[ \\t]*didSave = true[ \\t]*archive_text = archive_text[:saved_start] + saved_body + archive_text[saved_end:]
+elif re.search(r'(?m)^[ \\t]*didSave = true[ \\t]*$', metadata_body):
+    raise SystemExit("Unrecognized metadata-only Saved success flag")
+saved_body = metadata_section[0] + "let metadata: [String: Any]" + metadata_body
+archive_text = archive_text[:saved_start] + saved_body + archive_text[saved_end:]
 archive.write_text(archive_text, encoding="utf-8")
 
 # Turn each History row into a real actionable Save row while keeping the
