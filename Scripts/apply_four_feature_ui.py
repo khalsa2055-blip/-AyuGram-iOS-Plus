@@ -557,6 +557,55 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
             """}, openWebView: { [weak self] buttonText, url, simple, source in
             guard let self, case nil = self.peekData else {""",
         ),
+        (
+            """}, openConferenceCall: { [weak self] message in
+            self?.controllerInteraction?.openConferenceCall(message)""",
+            """}, openConferenceCall: { [weak self] message in
+            guard let self, case nil = self.peekData else { return }
+            self.controllerInteraction?.openConferenceCall(message)""",
+        ),
+        (
+            """}, activateSwitchInline: { [weak self] peerId, inputString, peerTypes in
+            guard let strongSelf = self else {""",
+            """}, activateSwitchInline: { [weak self] peerId, inputString, peerTypes in
+            guard let strongSelf = self, case nil = self.peekData else {""",
+        ),
+        (
+            """        }, editMessageFactCheck: { [weak self] messageId in
+            guard let self else {""",
+            """        }, editMessageFactCheck: { [weak self] messageId in
+            guard let self, case nil = self.peekData else {""",
+        ),
+        (
+            """        }, sendGift: { [weak self] peerId in
+            guard let self else {""",
+            """        }, sendGift: { [weak self] peerId in
+            guard let self, case nil = self.peekData else {""",
+        ),
+        (
+            """        }, openUniqueGift: { [weak self] slug in
+            guard let self else {""",
+            """        }, openUniqueGift: { [weak self] slug in
+            guard let self, case nil = self.peekData else {""",
+        ),
+        (
+            """        }, openMessageFeeException: { [weak self] in
+            guard let self, let peer = self.presentationInterfaceState.renderedPeer?.peer.flatMap(EnginePeer.init) else {""",
+            """        }, openMessageFeeException: { [weak self] in
+            guard let self, case nil = self.peekData, let peer = self.presentationInterfaceState.renderedPeer?.peer.flatMap(EnginePeer.init) else {""",
+        ),
+        (
+            """        }, adContextAction: { [weak self] message, sourceNode, gesture in
+            guard let self else {""",
+            """        }, adContextAction: { [weak self] message, sourceNode, gesture in
+            guard let self, case nil = self.peekData else {""",
+        ),
+        (
+            """        }, removeAd: { [weak self] opaqueId in
+            guard let self else {""",
+            """        }, removeAd: { [weak self] opaqueId in
+            guard let self, case nil = self.peekData else {""",
+        ),
     ]
     for old, new in additional_read_only_anchors:
         if new in chat_controller:
