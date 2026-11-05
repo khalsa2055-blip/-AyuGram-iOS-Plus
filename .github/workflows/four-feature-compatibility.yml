@@ -260,8 +260,8 @@ jobs:
               ],
           )
           EOF
-          USE_BAZEL_VERSION=8.4.2 bazelisk build --jobs=4 --config=macos --apple_platform_type=ios --ios_multi_cpus=arm64 --platforms=//:ios_arm64 --features=-treat_warnings_as_errors --per_file_copt='^submodules/.*[.](m|mm)$@-Wno-error=deprecated-declarations' --verbose_failures //submodules/TelegramUI/Components/AyuGramSettingsScreen:AyuGramSettingsScreen //submodules/ChatPresentationInterfaceState:ChatPresentationInterfaceState
-          echo "AyuGram settings and native read-only permission modules compiled; no Telegram app or IPA was built."
+          USE_BAZEL_VERSION=8.4.2 bazelisk build --jobs=4 --config=macos --apple_platform_type=ios --ios_multi_cpus=arm64 --platforms=//:ios_arm64 --features=-treat_warnings_as_errors --per_file_copt='^submodules/.*[.](m|mm)$@-Wno-error=deprecated-declarations' --verbose_failures //submodules/TelegramUI/Components/AyuGramSettingsScreen:AyuGramSettingsScreen //submodules/ChatPresentationInterfaceState:ChatPresentationInterfaceState //submodules/TelegramUI:TelegramUI //submodules/TelegramUI/Components/Chat/ChatMessageDateAndStatusNode:ChatMessageDateAndStatusNode
+          echo "AyuGram settings, TelegramUI send/preview actions, chat date/status UI and native permissions compiled; no Telegram app or IPA was built."
 
       - name: Verify all four feature entry points
         run: |
