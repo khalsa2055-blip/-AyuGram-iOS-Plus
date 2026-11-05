@@ -686,7 +686,7 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
                     }
 
                     if case .stars = chosenReaction {
-                        if !canSendReactionsToChat(strongSelf.presentationInterfaceState) {"""
+                        if !strongSelf.ayuGramCanSendReactionsInCurrentChat() {"""
     chosen_reaction_guard = """                    guard let chosenReaction = chosenReaction else {
                         return
                     }
