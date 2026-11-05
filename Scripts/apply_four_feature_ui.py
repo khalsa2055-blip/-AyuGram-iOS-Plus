@@ -698,9 +698,24 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
                     if case .stars = chosenReaction {
                         if !strongSelf.ayuGramCanSendReactionsInCurrentChat() {"""
     if chosen_reaction_guard not in chat_controller:
-        if chat_controller.count(chosen_reaction_anchor) != 1:
-            raise SystemExit("Reaction add/remove network-path anchor not unique")
-        chat_controller = chat_controller.replace(chosen_reaction_anchor, chosen_reaction_guard, 1)
+        reaction_positions = []
+        search_from = 0
+        while True:
+            position = chat_controller.find(chosen_reaction_anchor, search_from)
+            if position < 0:
+                break
+            reaction_positions.append(position)
+            search_from = position + len(chosen_reaction_anchor)
+        if not reaction_positions:
+            raise SystemExit("Reaction add/remove network-path anchor missing")
+        # The history-filter guard appears earlier; the final matching guard is
+        # the network add/remove callback and must be the one blocked in peek.
+        network_position = reaction_positions[-1]
+        chat_controller = (
+            chat_controller[:network_position]
+            + chosen_reaction_guard
+            + chat_controller[network_position + len(chosen_reaction_anchor):]
+        )
 
     # Disable the avatar/profile and header More surfaces during a private peek.
     long_tap_old = 'if let strongSelf = self, let peerView = strongSelf.contentData?.state.peerView'
