@@ -1525,7 +1525,7 @@ u = u.replace(
     1,
 u = u.replace(
     'let kind = message.isDeleted ? "Deleted message" : "Edited message"',
-    'let kind = message.isDeleted ? "Deleted message" : "Edited message"\\n        let historyMark = AyuHistoryDisplay.mark(isDeleted: message.isDeleted, settings: settings)\\n        let dateMark = historyMark.isEmpty ? kind : historyMark',
+    'let kind = message.isDeleted ? "Deleted message" : "Edited message"\n        let historyMark = AyuHistoryDisplay.mark(isDeleted: message.isDeleted, settings: settings)\n        let dateMark = historyMark.isEmpty ? kind : historyMark',
     1,
 )
 )
@@ -1565,7 +1565,7 @@ item_match = re.search(r'(?m)^(\s*)entries\.append\(\.item\(message\.fakeID, (.+
 if item_match:
     indent = item_match.group(1)
     sender = indent + 'let sender = message.fromName ?? ""\n'
-    meta = indent + 'let meta = deletionDate.map { "\\(dateMark) \\(date) • Deleted \\($0)" } ?? "\\(dateMark) \\(date)"\\n'
+    meta = indent + 'let meta = deletionDate.map { "\\(dateMark) \\(date) • Deleted \\($0)" } ?? "\\(dateMark) \\(date)"\n'
     if "case message(Int64, AyuMessage" in u:
         replacement = sender + meta + indent + 'entries.append(.message(message.fakeID, message, body, meta, kind, sender))'
     else:
