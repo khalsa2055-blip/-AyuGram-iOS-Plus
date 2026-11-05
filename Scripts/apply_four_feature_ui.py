@@ -380,16 +380,17 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
     if "guard self.peekData == nil else { return }" not in chat_controller:
         raise SystemExit("Direct sendMessages read-only guard did not install")
 
-for token in (
-    "canSendMessagesToChat(self.presentationInterfaceState)",
-    "canSendMessagesToChat(strongSelf.presentationInterfaceState)",
-    "canSendReactionsToChat(strongSelf.presentationInterfaceState)",
-):
-    if token in chat_controller:
-        raise SystemExit(f"Unscoped preview send permission remains: {token}")
-if chat_controller.count("ayuGramCanSendMessagesInCurrentChat()") < 10:
+if chat_controller.count("canSendMessagesToChat(self.presentationInterfaceState)") != 1:
+    raise SystemExit("The only remaining native message gate must be inside the scoped wrapper")
+if "canSendMessagesToChat(strongSelf.presentationInterfaceState)" in chat_controller:
+    raise SystemExit("An unscoped message send gate remains in a ChatController call site")
+if chat_controller.count("canSendReactionsToChat(self.presentationInterfaceState)") != 1:
+    raise SystemExit("The only remaining native reaction gate must be inside the scoped wrapper")
+if "canSendReactionsToChat(strongSelf.presentationInterfaceState)" in chat_controller:
+    raise SystemExit("An unscoped reaction gate remains in a ChatController call site")
+if chat_controller.count("ayuGramCanSendMessagesInCurrentChat()") < 15:
     raise SystemExit("Not all composer/sticker/command/file-send call sites use the preview gate")
-if chat_controller.count("ayuGramCanSendReactionsInCurrentChat()") != 2:
+if chat_controller.count("ayuGramCanSendReactionsInCurrentChat()") != 3:
     raise SystemExit("Both reaction send entry points must use the preview gate")
 
 # The gallery-level Before action is only meaningful for edited messages.
