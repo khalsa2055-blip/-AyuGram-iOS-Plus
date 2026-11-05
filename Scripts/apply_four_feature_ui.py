@@ -726,9 +726,12 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
     avatar_old = 'guard let strongSelf = self, let peer = strongSelf.presentationInterfaceState.renderedPeer?.chatMainPeer else {'
     avatar_new = 'guard let strongSelf = self, case nil = strongSelf.peekData, let peer = strongSelf.presentationInterfaceState.renderedPeer?.chatMainPeer else {'
     if avatar_new not in avatar_section:
-        if avatar_section.count(avatar_old) != 1:
-            raise SystemExit("Avatar context guard anchor not unique")
-        avatar_section = avatar_section.replace(avatar_old, avatar_new, 1)
+        avatar_matches = avatar_section.count(avatar_old)
+        if avatar_matches < 1:
+            raise SystemExit("Avatar context guard anchor missing")
+        # Telegram has multiple avatar context branches in this bounded section;
+        # guard every matching entry point so no profile action leaks in peek.
+        avatar_section = avatar_section.replace(avatar_old, avatar_new)
     chat_controller = chat_controller[:avatar_context_start] + avatar_section + chat_controller[avatar_context_end:]
 
     title_tap_old = 'self.chatTitleView?.tapAction = { [weak self] in\\n            self?.navigationButtonAction(.openChatInfo(expandAvatar: false, section: nil))'
