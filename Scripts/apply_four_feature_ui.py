@@ -681,40 +681,35 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
     # There are two identical nil-reaction guards: the first only changes the
     # history filter, while the second reaches the network add/remove path.
     # Anchor the latter by its following stars-reaction permission branch.
-    chosen_reaction_anchor = """                    guard let chosenReaction = chosenReaction else {
+    # The reaction callback has multiple Telegram-version-specific permission
+    # checks. Locate its semantic boundary instead of depending on the exact
+    # helper used by the earlier message-permission rewrite.
+    reaction_guard = """                    guard let chosenReaction = chosenReaction else {
                         return
-                    }
-
-                    if case .stars = chosenReaction {
-                        if !strongSelf.ayuGramCanSendReactionsInCurrentChat() {"""
-    chosen_reaction_guard = """                    guard let chosenReaction = chosenReaction else {
-                        return
-                    }
-                    guard strongSelf.ayuGramCanSendReactionsInCurrentChat() else {
-                        strongSelf.displaySendReactionRestrictedToast()
-                        return
-                    }
-
-                    if case .stars = chosenReaction {
-                        if !strongSelf.ayuGramCanSendReactionsInCurrentChat() {"""
-    if chosen_reaction_guard not in chat_controller:
-        reaction_positions = []
-        search_from = 0
-        while True:
-            position = chat_controller.find(chosen_reaction_anchor, search_from)
-            if position < 0:
-                break
+                    }"""
+    reaction_positions = []
+    search_from = 0
+    while True:
+        position = chat_controller.find(reaction_guard, search_from)
+        if position < 0:
+            break
+        stars_position = chat_controller.find("if case .stars = chosenReaction {", position)
+        if stars_position >= 0 and stars_position - position < 700:
             reaction_positions.append(position)
-            search_from = position + len(chosen_reaction_anchor)
-        if not reaction_positions:
-            raise SystemExit("Reaction add/remove network-path anchor missing")
-        # The history-filter guard appears earlier; the final matching guard is
-        # the network add/remove callback and must be the one blocked in peek.
-        network_position = reaction_positions[-1]
+        search_from = position + len(reaction_guard)
+
+    if not reaction_positions:
+        raise SystemExit("Reaction add/remove callback boundary missing")
+    # The last matching callback is the network add/remove path, not the
+    # earlier history-filter branch. This guard is intentionally scoped only
+    # to Telegram's native temporary peek controller.
+    network_position = reaction_positions[-1]
+    after_guard = network_position + len(reaction_guard)
+    if "case nil = strongSelf.peekData" not in chat_controller[after_guard:after_guard + 220]:
         chat_controller = (
-            chat_controller[:network_position]
-            + chosen_reaction_guard
-            + chat_controller[network_position + len(chosen_reaction_anchor):]
+            chat_controller[:after_guard]
+            + "\n                    guard case nil = strongSelf.peekData else { return }"
+            + chat_controller[after_guard:]
         )
 
     # Disable the avatar/profile and header More surfaces during a private peek.
