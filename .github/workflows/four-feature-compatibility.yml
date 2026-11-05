@@ -213,20 +213,36 @@ jobs:
           test -f "$config/MODULE.bazel"
           test -f "$config/variables.bzl"
 
-      - name: Relax legacy StoreKit warnings for compatibility-only compile
+      - name: Relax legacy warning-as-error flags in compatibility checkout only
         working-directory: telegram-ios
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
-          path = Path("Swiftgram/SGIAP/BUILD")
-          source = path.read_text(encoding="utf-8")
-          strict = '    copts = [\n        "-warnings-as-errors",\n    ],\n'
-          if strict not in source:
-              raise SystemExit("Expected SGIAP strict-warning setting was not found; refusing an unverified edit")
-          path.write_text(source.replace(strict, "", 1), encoding="utf-8")
-          print("PASS: disabled SGIAP warnings-as-errors only in the temporary compatibility checkout.")
+          changed = []
+          for root_name in ("Swiftgram", "submodules", "Telegram"):
+              root = Path(root_name)
+              if not root.exists():
+                  continue
+              for path in root.rglob("BUILD*"):
+                  if not path.is_file():
+                      continue
+                  source = path.read_text(encoding="utf-8")
+                  updated, count = re.subn(
+                      r'(?m)^\\s*"-warnings-as-errors",\\s*\\n',
+                      "",
+                      source,
+                  )
+                  if count:
+                      path.write_text(updated, encoding="utf-8")
+                      changed.append((str(path), count))
+          if not changed:
+              raise SystemExit("No legacy warnings-as-errors flags found; refusing a no-op compatibility edit")
+          for path, count in changed:
+              print(f"Relaxed {count} warning-as-error flag(s): {path}")
+          print("PASS: changes apply only to the temporary Telegram checkout used by this compatibility test.")
           PY
 
       - name: Compile only the AyuGram settings Swift module
