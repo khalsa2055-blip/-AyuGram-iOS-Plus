@@ -558,11 +558,11 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
             guard let self, case nil = self.peekData else {""",
         ),
         (
-            """}, openConferenceCall: { [weak self] message in
-            self?.controllerInteraction?.openConferenceCall(message)""",
-            """}, openConferenceCall: { [weak self] message in
-            guard let self, case nil = self.peekData else { return }
-            self.controllerInteraction?.openConferenceCall(message)""",
+            """                openConferenceCall: { [weak self] message in
+                    self?.controllerInteraction?.openConferenceCall(message)""",
+            """                openConferenceCall: { [weak self] message in
+                    guard let self, case nil = self.peekData else { return }
+                    self.controllerInteraction?.openConferenceCall(message)""",
         ),
         (
             """}, activateSwitchInline: { [weak self] peerId, inputString, peerTypes in
