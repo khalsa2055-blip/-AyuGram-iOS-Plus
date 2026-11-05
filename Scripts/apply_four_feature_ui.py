@@ -461,14 +461,6 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
             '            guard let strongSelf = self, case nil = strongSelf.peekData else { return }'
         ),
         (
-            '        }, openWebView: { [weak self] buttonText, url, simple, source in\n'
-            '            guard let self else {\n'
-            '                return\n'
-            '            }',
-            '        }, openWebView: { [weak self] buttonText, url, simple, source in\n'
-            '            guard let self, case nil = self.peekData else { return }'
-        ),
-        (
             '        }, activateAdAction: { [weak self] messageId, progress, media, fullscreen in\n'
             '            guard let self else {\n'
             '                return\n'
@@ -477,6 +469,26 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
             '            guard let self, case nil = self.peekData else { return }'
         ),
     ]
+    # Telegram revisions vary in indentation and callback-body formatting.
+    # Locate the web-view callback by its stable closure label and guard its
+    # weak-self entry without requiring a brittle whole-body text match.
+    web_marker = "openWebView: { [weak self] buttonText, url, simple, source in"
+    web_start = chat_controller.find(web_marker)
+    if web_start < 0:
+        raise SystemExit("Read-only preview web-view callback is missing")
+    web_line_start = chat_controller.rfind("},", 0, web_start)
+    web_end = chat_controller.find("}, activateAdAction:", web_start)
+    if web_line_start < 0 or web_end < 0:
+        raise SystemExit("Could not safely bound the web-view callback")
+    web_block = chat_controller[web_line_start:web_end]
+    weak_guard = "guard let self else {"
+    guarded_weak_guard = "guard let self, case nil = self.peekData else {"
+    if "case nil = self.peekData" not in web_block:
+        if web_block.count(weak_guard) != 1:
+            raise SystemExit("Could not safely locate web-view weak-self guard")
+        web_block = web_block.replace(weak_guard, guarded_weak_guard, 1)
+        chat_controller = chat_controller[:web_line_start] + web_block + chat_controller[web_end:]
+
     # A preview is strictly read-only: prevent navigation and all secondary actions.
     additional_read_only_anchors = [
         (
