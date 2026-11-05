@@ -293,6 +293,22 @@ if "deletedAt: snapshot.deletedAt" not in store_text:
     store_text = store_text.replace(old_deleted_at, new_deleted_at, 1)
 store.write_text(store_text, encoding="utf-8")
 
+# Keep each immutable revision distinct even when Telegram reports the same edit
+# timestamp and text for two media-only edits.
+if "existing.mediaPath == value.mediaPath" not in store_text:
+    duplicate_anchor = """                && existing.editDate == value.editDate
+                && existing.text == value.text
+"""
+    duplicate_replacement = """                && existing.editDate == value.editDate
+                && existing.text == value.text
+                && existing.mediaPath == value.mediaPath
+                && existing.mimeType == value.mimeType
+"""
+    if store_text.count(duplicate_anchor) != 1:
+        raise SystemExit("Postbox History duplicate detection anchor not unique")
+    store_text = store_text.replace(duplicate_anchor, duplicate_replacement, 1)
+store.write_text(store_text, encoding="utf-8")
+
 # Confirm the History path is connected end-to-end, including metadata and immutable revisions.
 store_text = store.read_text(encoding="utf-8")
 archive_text = archive.read_text(encoding="utf-8")
