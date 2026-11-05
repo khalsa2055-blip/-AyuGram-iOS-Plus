@@ -670,7 +670,8 @@ missing_media_test = """        add("History → Saved rejects missing media") {
             let ok = paths.contains(firstPath) && paths.contains(secondPath)
             return (ok, ok ? "same-time media-only revisions remain independently addressable" : "one same-time media revision was dropped")
         }
-"""\nif 'add("History → Saved rejects missing media")' not in smoke_text or 'add("same-time media revisions remain distinct")' not in smoke_text:
+"""
+if 'add("History → Saved rejects missing media")' not in smoke_text or 'add("same-time media revisions remain distinct")' not in smoke_text:
     smoke_text = smoke_text.replace('        add("history display labels") {', missing_media_test + '        add("history display labels") {', 1)
 smoke.write_text(smoke_text, encoding="utf-8")
 
