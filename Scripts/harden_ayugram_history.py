@@ -1610,11 +1610,11 @@ u = u.replace(
     "let kind = AyuHistoryDisplay.label(isDeleted: message.isDeleted, settings: settings)",
     'let kind = message.isDeleted ? "Deleted message" : "Edited message"',
     1,
+)
 u = u.replace(
     'let kind = message.isDeleted ? "Deleted message" : "Edited message"',
     'let kind = message.isDeleted ? "Deleted message" : "Edited message"\n        let historyMark = AyuHistoryDisplay.mark(isDeleted: message.isDeleted, settings: settings)\n        let dateMark = historyMark.isEmpty ? kind : historyMark',
     1,
-)
 )
 u = u.replace("formatter.dateStyle = .medium", "formatter.dateStyle = .short", 1)
 
