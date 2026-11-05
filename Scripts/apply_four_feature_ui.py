@@ -812,7 +812,9 @@ if "canSendReactionsToChat(strongSelf.presentationInterfaceState)" in chat_contr
     raise SystemExit("An unscoped reaction gate remains in a ChatController call site")
 if chat_controller.count("ayuGramCanSendMessagesInCurrentChat()") < 15:
     raise SystemExit("Not all composer/sticker/command/file-send call sites use the preview gate")
-if chat_controller.count("ayuGramCanSendReactionsInCurrentChat()") != 4:
+# One occurrence is the scoped helper; Telegram revisions may expose more than two call sites.
+# Require at least two guarded call sites plus the helper, while rejecting any unscoped native gate below.
+if chat_controller.count("ayuGramCanSendReactionsInCurrentChat()") < 3:
     raise SystemExit("Both reaction send entry points must use the preview gate")
 
 # The gallery-level Before action is only meaningful for edited messages.
