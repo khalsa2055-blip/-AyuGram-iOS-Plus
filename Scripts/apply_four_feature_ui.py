@@ -488,67 +488,54 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
     additional_read_only_anchors = [
         (
             "                openUrl: { [weak self] url in\\n                    self?.openUrl(url, concealed: false, skipConcealedAlert: isLocation, message: nil)",
-            ,
             "                openUrl: { [weak self] url in\\n                    guard let self, case nil = self.peekData else { return }\\n                    self.openUrl(url, concealed: false, skipConcealedAlert: isLocation, message: nil)",
         ),
         (
             "                openPeer: { [weak self] peer, navigation in\\n                    self?.openPeer(peer: EnginePeer(peer), navigation: navigation, fromMessage: nil)",
-            ,
             "                openPeer: { [weak self] peer, navigation in\\n                    guard let self, case nil = self.peekData else { return }\\n                    self.openPeer(peer: EnginePeer(peer), navigation: navigation, fromMessage: nil)",
         ),
         (
             "                callPeer: { [weak self] peerId, isVideo in\\n                    self?.controllerInteraction?.callPeer(peerId, isVideo)",
-            ,
             "                callPeer: { [weak self] peerId, isVideo in\\n                    guard let self, case nil = self.peekData else { return }\\n                    self.controllerInteraction?.callPeer(peerId, isVideo)",
         ),
         (
             "                openConferenceCall: { [weak self] message in\\n                    self?.controllerInteraction?.openConferenceCall(message)",
-            ,
             "                openConferenceCall: { [weak self] message in\\n                    guard let self, case nil = self.peekData else { return }\\n                    self.controllerInteraction?.openConferenceCall(message)",
         ),
         (
             "}, openPeer: { [weak self] peer, navigation, fromMessage, source in\\n            var expandAvatar = false",
-            ,
             "}, openPeer: { [weak self] peer, navigation, fromMessage, source in\\n            guard let self, case nil = self.peekData else { return }\\n            var expandAvatar = false",
         ),
         (
             "}, openPeerMention: { [weak self] name, progress in\\n            self?.openPeerMention(name, progress: progress)",
-            ,
             "}, openPeerMention: { [weak self] name, progress in\\n            guard let self, case nil = self.peekData else { return }\\n            self.openPeerMention(name, progress: progress)",
         ),
         (
             "}, openMessageContextMenu: { [weak self] message, selectAll, node, frame, anyRecognizer, location in\\n            guard let self, self.isNodeLoaded else {",
-            ,
             "}, openMessageContextMenu: { [weak self] message, selectAll, node, frame, anyRecognizer, location in\\n            guard let self, self.isNodeLoaded, case nil = self.peekData else {",
         ),
         (
             "}, openMessageReactionContextMenu: { [weak self] message, sourceView, gesture, value in\\n            guard let self else {",
-            ,
             "}, openMessageReactionContextMenu: { [weak self] message, sourceView, gesture, value in\\n            guard let self, case nil = self.peekData else {",
         ),
         (
             "}, openUrl: { [weak self] urlData in\\n            guard let strongSelf = self else {",
-            ,
             "}, openUrl: { [weak self] urlData in\\n            guard let strongSelf = self, case nil = self.peekData else {",
         ),
         (
             "}, openExternalInstantPage: { [weak self] instantPage in\\n            guard let self else {",
-            ,
             "}, openExternalInstantPage: { [weak self] instantPage in\\n            guard let self, case nil = self.peekData else {",
         ),
         (
             "}, activateSwitchInline: { [weak self] peerId, inputString, peerTypes in\\n            guard let strongSelf = self else {",
-            ,
             "}, activateSwitchInline: { [weak self] peerId, inputString, peerTypes in\\n            guard let strongSelf = self, case nil = self.peekData else {",
         ),
         (
             "        }, openUniqueGift: { [weak self] slug in\\n            guard let self else {",
-            ,
             "        }, openUniqueGift: { [weak self] slug in\\n            guard let self, case nil = self.peekData else {",
         ),
         (
             "        }, openMessageFeeException: { [weak self] in\\n            guard let self, let peer = self.presentationInterfaceState.renderedPeer?.peer.flatMap(EnginePeer.init) else {",
-            ,
             "        }, openMessageFeeException: { [weak self] in\\n            guard let self, case nil = self.peekData, let peer = self.presentationInterfaceState.renderedPeer?.peer.flatMap(EnginePeer.init) else {",
         ),
     ]
