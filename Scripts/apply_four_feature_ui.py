@@ -429,7 +429,7 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
             '}, pollOptionLongTap: { [weak self] optionId, params in\\n'
             '            self.openPollOptionContextMenu(optionId: optionId, params: params)',
             '}, pollOptionLongTap: { [weak self] optionId, params in\\n'
-            '            guard case nil = self?.peekData else { return }\\n'
+            '            guard let self, case nil = self.peekData else { return }\\n'
             '            self.openPollOptionContextMenu(optionId: optionId, params: params)'
         ),
         (
@@ -449,6 +449,39 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
             '}, joinVoiceChat: { [weak self] peerId, invite, call in\\n'
             '            guard let self, case nil = self.peekData else { return }\\n'
             '            self.joinGroupCall(peerId: peerId, invite: invite, activeCall: EngineGroupCallDescription(call))'
+        ),
+        (
+            '        requestMessageActionUrlAuth: { [weak self] subject in\\n'
+            '            if case let .url(url, _) = subject {\\n'
+            '                self?.controllerInteraction?.requestMessageActionUrlAuth(url, subject)',
+            '        requestMessageActionUrlAuth: { [weak self] subject in\\n'
+            '            guard let self, case nil = self.peekData else { return }\\n'
+            '            if case let .url(url, _) = subject {\\n'
+            '                self.controllerInteraction?.requestMessageActionUrlAuth(url, subject)'
+        ),
+        (
+            '        }, openJoinLink: { [weak self] joinHash in\\n'
+            '            guard let strongSelf = self else {\\n'
+            '                return\\n'
+            '            }',
+            '        }, openJoinLink: { [weak self] joinHash in\\n'
+            '            guard let strongSelf = self, case nil = strongSelf.peekData else { return }'
+        ),
+        (
+            '        }, openWebView: { [weak self] buttonText, url, simple, source in\\n'
+            '            guard let self else {\\n'
+            '                return\\n'
+            '            }',
+            '        }, openWebView: { [weak self] buttonText, url, simple, source in\\n'
+            '            guard let self, case nil = self.peekData else { return }'
+        ),
+        (
+            '        }, activateAdAction: { [weak self] messageId, progress, media, fullscreen in\\n'
+            '            guard let self else {\\n'
+            '                return\\n'
+            '            }',
+            '        }, activateAdAction: { [weak self] messageId, progress, media, fullscreen in\\n'
+            '            guard let self, case nil = self.peekData else { return }'
         ),
     ]
     for old, new in guarded_anchors:
@@ -479,10 +512,20 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
     long_tap_new = 'if let strongSelf = self, case nil = strongSelf.peekData, let peerView = strongSelf.contentData?.state.peerView'
     if long_tap_old in chat_controller:
         chat_controller = replace_once(chat_controller, long_tap_old, long_tap_new, "preview title long-tap")
+    avatar_context_marker = "avatarNode.contextAction = { [weak self] node, gesture in"
+    avatar_context_start = chat_controller.find(avatar_context_marker)
+    avatar_context_end = chat_controller.find("            chatInfoButtonItem = UIBarButtonItem(customDisplayNode: avatarNode)!", avatar_context_start)
+    if avatar_context_start < 0 or avatar_context_end < 0:
+        raise SystemExit("Avatar context menu section not found")
+    avatar_section = chat_controller[avatar_context_start:avatar_context_end]
     avatar_old = 'guard let strongSelf = self, let peer = strongSelf.presentationInterfaceState.renderedPeer?.chatMainPeer else {'
     avatar_new = 'guard let strongSelf = self, case nil = strongSelf.peekData, let peer = strongSelf.presentationInterfaceState.renderedPeer?.chatMainPeer else {'
-    if avatar_old in chat_controller:
-        chat_controller = replace_once(chat_controller, avatar_old, avatar_new, "preview avatar context")
+    if avatar_new not in avatar_section:
+        if avatar_section.count(avatar_old) != 1:
+            raise SystemExit("Avatar context guard anchor not unique")
+        avatar_section = avatar_section.replace(avatar_old, avatar_new, 1)
+    chat_controller = chat_controller[:avatar_context_start] + avatar_section + chat_controller[avatar_context_end:]
+
     title_tap_old = 'self.chatTitleView?.tapAction = { [weak self] in\\n            self?.navigationButtonAction(.openChatInfo(expandAvatar: false, section: nil))'
     title_tap_new = 'self.chatTitleView?.tapAction = { [weak self] in\\n            guard case nil = self?.peekData else { return }\\n            self?.navigationButtonAction(.openChatInfo(expandAvatar: false, section: nil))'
     if title_tap_old in chat_controller:
@@ -492,6 +535,22 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
     more_guard_new = '            guard let self, case nil = self.peekData else { return }\\n            guard let peerId = self.chatLocation.peerId else {'
     if more_guard_old in chat_controller:
         chat_controller = chat_controller.replace(more_guard_old, more_guard_new, 1)
+    profile_button_old = """        chatInfoButtonItem.target = self
+        chatInfoButtonItem.action = #selector(self.rightNavigationButtonAction)
+"""
+    profile_button_new = """        if self.peekData == nil {
+            chatInfoButtonItem.target = self
+            chatInfoButtonItem.action = #selector(self.rightNavigationButtonAction)
+        } else {
+            chatInfoButtonItem.target = nil
+            chatInfoButtonItem.action = nil
+        }
+"""
+    if profile_button_new not in chat_controller:
+        if chat_controller.count(profile_button_old) != 1:
+            raise SystemExit("Profile button action anchor not unique")
+        chat_controller = chat_controller.replace(profile_button_old, profile_button_new, 1)
+
     more_button_line = '        self.moreBarButton.addTarget(self, action: #selector(self.moreButtonPressed), forControlEvents: .touchUpInside)'
     if more_button_line in chat_controller and 'self.moreBarButton.isHidden = self.peekData != nil' not in chat_controller:
         chat_controller = chat_controller.replace(
@@ -499,6 +558,13 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
             '        self.moreBarButton.isHidden = self.peekData != nil\\n' + more_button_line,
             1,
         )
+
+    group_call_marker = "    public override func joinGroupCall(peerId: PeerId, invite: String?, activeCall: EngineGroupCallDescription) {"
+    group_call_guard = group_call_marker + "\\n        guard case nil = self.peekData else { return }"
+    if group_call_guard not in chat_controller:
+        if chat_controller.count(group_call_marker) != 1:
+            raise SystemExit("ChatController group-call override anchor not unique")
+        chat_controller = chat_controller.replace(group_call_marker, group_call_guard, 1)
 
     send_method = "    func sendMessages(_ messages: [EnqueueMessage], media: Bool = false, postpone: Bool = false, commit: Bool = false) {"
     helpers = """    private func ayuGramCanSendMessagesInCurrentChat() -> Bool {
@@ -538,7 +604,7 @@ if "canSendReactionsToChat(strongSelf.presentationInterfaceState)" in chat_contr
     raise SystemExit("An unscoped reaction gate remains in a ChatController call site")
 if chat_controller.count("ayuGramCanSendMessagesInCurrentChat()") < 15:
     raise SystemExit("Not all composer/sticker/command/file-send call sites use the preview gate")
-if chat_controller.count("ayuGramCanSendReactionsInCurrentChat()") != 3:
+if chat_controller.count("ayuGramCanSendReactionsInCurrentChat()") != 4:
     raise SystemExit("Both reaction send entry points must use the preview gate")
 
 # The gallery-level Before action is only meaningful for edited messages.
