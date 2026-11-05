@@ -213,6 +213,22 @@ jobs:
           test -f "$config/MODULE.bazel"
           test -f "$config/variables.bzl"
 
+      - name: Relax legacy StoreKit warnings for compatibility-only compile
+        working-directory: telegram-ios
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("Swiftgram/SGIAP/BUILD")
+          source = path.read_text(encoding="utf-8")
+          strict = '    copts = [\n        "-warnings-as-errors",\n    ],\n'
+          if strict not in source:
+              raise SystemExit("Expected SGIAP strict-warning setting was not found; refusing an unverified edit")
+          path.write_text(source.replace(strict, "", 1), encoding="utf-8")
+          print("PASS: disabled SGIAP warnings-as-errors only in the temporary compatibility checkout.")
+          PY
+
       - name: Compile only the AyuGram settings Swift module
         working-directory: telegram-ios
         run: |
