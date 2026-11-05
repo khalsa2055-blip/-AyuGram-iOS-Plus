@@ -52,6 +52,99 @@ for p in (archive, message, store, capture):
     if not p.exists():
         raise SystemExit(f"Missing AyuGram history source: {p}")
 
+# Preserve sender/deletion metadata when Postbox assigns its durable History ID.
+# Without these two assignments the UI silently loses the values captured by the bridge.
+store_text = store.read_text(encoding="utf-8")
+if "fromName: snapshot.fromName" not in store_text:
+    old = "                fromID: snapshot.fromID,\\n"
+    if store_text.count(old) != 1:
+        raise SystemExit("Postbox history sender metadata anchor not unique")
+    store_text = store_text.replace(old, old + "                fromName: snapshot.fromName,\\n", 1)
+if "deletedAt: snapshot.deletedAt" not in store_text:
+    old = "                isDeleted: deleted\\n"
+    if store_text.count(old) != 1:
+        raise SystemExit("Postbox history deletion timestamp anchor not unique")
+    store_text = store_text.replace(
+        old,
+        "                isDeleted: deleted,\\n                deletedAt: snapshot.deletedAt\\n",
+        1,
+    )
+store.write_text(store_text, encoding="utf-8")
+
+# Give every captured revision its own immutable media directory. The old path
+# reused <account>/<dialog>/<message>/0.ext, so a second edit could point at the
+# first edit's media because copyItem was skipped when the filename existed.
+archive_text = archive.read_text(encoding="utf-8")
+old_signature = """        messageID: Int32,
+        resources: [AyuMediaResourceInfo]
+"""
+new_signature = """        messageID: Int32,
+        revisionKey: String? = nil,
+        resources: [AyuMediaResourceInfo]
+"""
+if new_signature not in archive_text:
+    if archive_text.count(old_signature) != 1:
+        raise SystemExit("Media archive revision signature anchor not unique")
+    archive_text = archive_text.replace(old_signature, new_signature, 1)
+
+old_root = """        guard let supportURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("AyuGram", isDirectory: true)
+            .appendingPathComponent("History", isDirectory: true)
+            .appendingPathComponent(String(accountID), isDirectory: true)
+            .appendingPathComponent(String(dialogID), isDirectory: true)
+            .appendingPathComponent(String(messageID), isDirectory: true) else {
+            return (nil, nil)
+        }
+
+        do {
+            try FileManager.default.createDirectory(at: supportURL, withIntermediateDirectories: true)
+"""
+new_root = """        guard let messageRoot = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("AyuGram", isDirectory: true)
+            .appendingPathComponent("History", isDirectory: true)
+            .appendingPathComponent(String(accountID), isDirectory: true)
+            .appendingPathComponent(String(dialogID), isDirectory: true)
+            .appendingPathComponent(String(messageID), isDirectory: true) else {
+            return (nil, nil)
+        }
+        let supportURL = revisionKey.map { messageRoot.appendingPathComponent($0, isDirectory: true) } ?? messageRoot
+
+        do {
+            try FileManager.default.createDirectory(at: supportURL, withIntermediateDirectories: true)
+"""
+if new_root not in archive_text:
+    if old_root not in archive_text:
+        raise SystemExit("Media archive root path anchor not found")
+    archive_text = archive_text.replace(old_root, new_root, 1)
+archive.write_text(archive_text, encoding="utf-8")
+
+# Keep deleted, edited and explicitly-saved media in distinct immutable folders.
+capture_text = capture.read_text(encoding="utf-8")
+call_specs = [
+    (
+        "messageID: message.id.id,\\n                    resources: resources",
+        "messageID: message.id.id,\\n                    revisionKey: \"deleted\",\\n                    resources: resources",
+        "deleted media archive",
+    ),
+    (
+        "messageID: snapshot.messageID,\\n                resources: uniqueResources",
+        "messageID: snapshot.messageID,\\n                revisionKey: \"manual-\\(UUID().uuidString)\",\\n                resources: uniqueResources",
+        "manual Save media archive",
+    ),
+    (
+        "messageID: message.id.id,\\n                resources: mediaCapture.resources",
+        "messageID: message.id.id,\\n                revisionKey: \"edit-\\(editDate)-\\(UUID().uuidString)\",\\n                resources: mediaCapture.resources",
+        "edited media archive",
+    ),
+]
+for old, new, label in call_specs:
+    if new in capture_text:
+        continue
+    if capture_text.count(old) != 1:
+        raise SystemExit(f"{label} revision-key anchor not unique")
+    capture_text = capture_text.replace(old, new, 1)
+capture.write_text(capture_text, encoding="utf-8")
+
 # Migrate settings created by older installed builds.
 # Synthesized Codable decoding fails when newer AyuSettings properties are missing;
 # captureDeleted uses try? for this store, which would silently disable automatic History.
@@ -191,6 +284,19 @@ if old_init not in s:
 # No semantic change here; this assertion intentionally ensures the current
 # constructor shape remains compatible with the capture code.
 store.write_text(s)
+
+# Confirm the History path is connected end-to-end, including metadata and immutable revisions.
+store_text = store.read_text(encoding="utf-8")
+archive_text = archive.read_text(encoding="utf-8")
+capture_text = capture.read_text(encoding="utf-8")
+for required in ("fromName: snapshot.fromName", "deletedAt: snapshot.deletedAt"):
+    if required not in store_text:
+        raise SystemExit(f"Postbox History metadata was dropped: {required}")
+if "revisionKey: String? = nil" not in archive_text or "revisionKey.map" not in archive_text:
+    raise SystemExit("History media archive does not isolate each captured revision")
+for required in ('revisionKey: "deleted"', 'revisionKey: "manual-\\(UUID().uuidString)"', 'revisionKey: "edit-\\(editDate)-\\(UUID().uuidString)"'):
+    if required not in capture_text:
+        raise SystemExit(f"History archive call is missing its revision folder: {required}")
 
 # Fail the build if the settings migration that enables capture was bypassed.
 if "Older versions may not contain every field introduced later." not in settings_store.read_text():
