@@ -193,6 +193,35 @@ for old, new, label in call_specs:
     if count != 1:
         raise SystemExit(f"{label} revision-key anchor not unique (found {count})")
     capture_text = capture_text.replace(old, new, 1)
+capture_text = capture.read_text(encoding="utf-8")
+save_start = capture_text.index("public static func saveNow")
+save_end = capture_text.index("public static func captureEdited", save_start)
+save_body = capture_text[save_start:save_end]
+old_save_archive = """            mediaPath = archived.path
+            mimeType = archived.mimeType"""
+new_save_archive = """            guard let archivedPath = archived.path,
+                  FileManager.default.fileExists(atPath: archivedPath) else {
+                return false
+            }
+            mediaPath = archivedPath
+            mimeType = archived.mimeType"""
+if old_save_archive in save_body:
+    save_body = save_body.replace(old_save_archive, new_save_archive, 1)
+elif "guard let archivedPath = archived.path" not in save_body:
+    raise SystemExit("Manual Save archive-success guard anchor not found")
+empty_media_anchor = """        }
+
+        let savedSnapshot = AyuMessage("""
+empty_media_replacement = """        } else if snapshot.text.isEmpty {
+            return false
+        }
+
+        let savedSnapshot = AyuMessage("""
+if empty_media_anchor in save_body:
+    save_body = save_body.replace(empty_media_anchor, empty_media_replacement, 1)
+elif "else if snapshot.text.isEmpty" not in save_body:
+    raise SystemExit("Manual Save empty-content guard anchor not found")
+capture_text = capture_text[:save_start] + save_body + capture_text[save_end:]
 capture.write_text(capture_text, encoding="utf-8")
 
 # Migrate settings created by older installed builds.
@@ -674,6 +703,10 @@ save_api = '''    public static func saveToSaved(message: AyuMessage) -> Bool {
             }
         }
 
+        guard didSave else {
+            return false
+        }
+
         let metadata: [String: Any] = [
             "messageID": message.messageID,
             "dialogID": message.dialogID,
@@ -688,12 +721,11 @@ save_api = '''    public static func saveToSaved(message: AyuMessage) -> Bool {
         do {
             let data = try JSONSerialization.data(withJSONObject: metadata, options: [.prettyPrinted, .sortedKeys])
             try data.write(to: messagesRoot.appendingPathComponent("\\(filePrefix).json"), options: .atomic)
-            didSave = true
         } catch {
             return false
         }
 
-        return didSave
+        return true
     }
 
 '''
