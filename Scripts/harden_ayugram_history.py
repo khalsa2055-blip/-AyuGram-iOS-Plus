@@ -1523,6 +1523,11 @@ u = u.replace(
     "let kind = AyuHistoryDisplay.label(isDeleted: message.isDeleted, settings: settings)",
     'let kind = message.isDeleted ? "Deleted message" : "Edited message"',
     1,
+u = u.replace(
+    'let kind = message.isDeleted ? "Deleted message" : "Edited message"',
+    'let kind = message.isDeleted ? "Deleted message" : "Edited message"\\n        let historyMark = AyuHistoryDisplay.mark(isDeleted: message.isDeleted, settings: settings)\\n        let dateMark = historyMark.isEmpty ? kind : historyMark',
+    1,
+)
 )
 u = u.replace("formatter.dateStyle = .medium", "formatter.dateStyle = .short", 1)
 
@@ -1560,11 +1565,11 @@ item_match = re.search(r'(?m)^(\s*)entries\.append\(\.item\(message\.fakeID, (.+
 if item_match:
     indent = item_match.group(1)
     sender = indent + 'let sender = message.fromName ?? ""\n'
-    meta = indent + 'let meta = deletionDate.map { "\\(date) • Deleted \\($0)" } ?? date\n'
+    meta = indent + 'let meta = deletionDate.map { "\\(dateMark) \\(date) • Deleted \\($0)" } ?? "\\(dateMark) \\(date)"\\n'
     if "case message(Int64, AyuMessage" in u:
         replacement = sender + meta + indent + 'entries.append(.message(message.fakeID, message, body, meta, kind, sender))'
     else:
-        replacement = sender + meta + indent + 'entries.append(.item(message.fakeID, "\\(sender.isEmpty ? \"Unknown sender\" : sender) • \\(kind) • \\(meta)\\(mediaLabel)\\n\\(body)"))'
+        replacement = sender + meta + indent + 'entries.append(.item(message.fakeID, "\\(sender.isEmpty ? \"Unknown sender\" : sender) • \\(kind) • \\(meta)\\n\\(body)"))'
     u = u[:item_match.start()] + replacement + u[item_match.end():]
 else:
     # Support a future richer .message model if the source is deliberately upgraded.
@@ -1624,6 +1629,10 @@ if 'body = "Media unavailable (' not in u:
     raise SystemExit("History needs a fallback if the archived media file is missing")
 if "item.displayText.isEmpty && hasMedia ? 0.0" not in u:
     raise SystemExit("Empty text rows should collapse the body area when media preview is present")
+if "AyuHistoryDisplay.mark(isDeleted: message.isDeleted, settings: settings)" not in u:
+    raise SystemExit("Deleted/edited marker is missing from the History metadata line")
+if "mediaLabel" in u[u.find("private func ayuHistoryEntries"):u.find("public func ayuGramHistoryScreen")]:
+    raise SystemExit("History entries still reference the removed mediaLabel variable")
 
 # Keep History ordered like a conversation: oldest at the top, newest at the bottom,
 # then position the initial viewport on the newest captured message.
