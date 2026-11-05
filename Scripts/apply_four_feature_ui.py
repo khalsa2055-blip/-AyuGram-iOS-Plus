@@ -830,11 +830,13 @@ private extension DateFormatter {
                             userID: context.account.peerId.toInt64(),
                             dialogID: message.id.peerId.toInt64(),
                             messageID: message.id.id,
-                            limit: 1
+                            // Revisions are returned newest-first; the last saved edit snapshot
+                            // is the first/original media before the initial edit.
+                            limit: 500
                         )
                     }
                     _ = (revisions |> deliverOnMainQueue).startStandalone(next: { values in
-                        guard let path = values.first?.mediaPath,
+                        guard let path = values.last?.mediaPath,
                               FileManager.default.fileExists(atPath: path) else {
                             controllerInteraction.displayUndo(.info(title: nil, text: "Original media was not cached before the edit.", timeout: 2.0, customUndoText: nil))
                             return
