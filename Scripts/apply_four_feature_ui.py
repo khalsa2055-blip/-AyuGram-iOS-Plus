@@ -372,6 +372,134 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
             raise SystemExit(f"Read-only preview send-gate anchor missing: {old}")
         chat_controller = chat_controller.replace(old, new)
 
+    # Block non-message interactions that write to Telegram or reveal member lists.
+    guarded_anchors = [
+        (
+            '}, requestMessageActionCallback: { [weak self] message, data, isGame, requiresPassword, progress in\\n'
+            '            guard let strongSelf = self else {\\n'
+            '                return\\n'
+            '            }',
+            '}, requestMessageActionCallback: { [weak self] message, data, isGame, requiresPassword, progress in\\n'
+            '            guard let strongSelf = self else {\\n'
+            '                return\\n'
+            '            }\\n'
+            '            guard case nil = strongSelf.peekData else { return }'
+        ),
+        (
+            '}, requestSelectMessagePollOptions: { [weak self] id, opaqueIdentifiers in\\n'
+            '            guard let strongSelf = self, let controllerInteraction = strongSelf.controllerInteraction else {\\n'
+            '                return\\n'
+            '            }',
+            '}, requestSelectMessagePollOptions: { [weak self] id, opaqueIdentifiers in\\n'
+            '            guard let strongSelf = self, let controllerInteraction = strongSelf.controllerInteraction else {\\n'
+            '                return\\n'
+            '            }\\n'
+            '            guard case nil = strongSelf.peekData else { return }'
+        ),
+        (
+            '}, requestAddMessagePollOption: { [weak self] id, text, entities, opaqueIdentifier, mediaReference in\\n'
+            '            guard let strongSelf = self, let controllerInteraction = strongSelf.controllerInteraction else {\\n'
+            '                return\\n'
+            '            }',
+            '}, requestAddMessagePollOption: { [weak self] id, text, entities, opaqueIdentifier, mediaReference in\\n'
+            '            guard let strongSelf = self, let controllerInteraction = strongSelf.controllerInteraction else {\\n'
+            '                return\\n'
+            '            }\\n'
+            '            guard case nil = strongSelf.peekData else { return }'
+        ),
+        (
+            '}, requestOpenMessagePollResults: { [weak self] messageId, pollId in\\n'
+            '            guard let strongSelf = self, pollId.namespace == Namespaces.Media.CloudPoll else {\\n'
+            '                return\\n'
+            '            }',
+            '}, requestOpenMessagePollResults: { [weak self] messageId, pollId in\\n'
+            '            guard let strongSelf = self, pollId.namespace == Namespaces.Media.CloudPoll else {\\n'
+            '                return\\n'
+            '            }\\n'
+            '            guard case nil = strongSelf.peekData else { return }'
+        ),
+        (
+            '}, requestMessageActionUrlAuth: { [weak self] defaultUrl, subject in\\n'
+            '            if let strongSelf = self {',
+            '}, requestMessageActionUrlAuth: { [weak self] defaultUrl, subject in\\n'
+            '            if let strongSelf = self {\\n'
+            '                guard case nil = strongSelf.peekData else { return }'
+        ),
+        (
+            '}, pollOptionLongTap: { [weak self] optionId, params in\\n'
+            '            self.openPollOptionContextMenu(optionId: optionId, params: params)',
+            '}, pollOptionLongTap: { [weak self] optionId, params in\\n'
+            '            guard case nil = self?.peekData else { return }\\n'
+            '            self.openPollOptionContextMenu(optionId: optionId, params: params)'
+        ),
+        (
+            '}, openMessagePollResults: { [weak self] messageId, optionOpaqueIdentifier in\\n'
+            '            guard let strongSelf = self else {\\n'
+            '                return\\n'
+            '            }',
+            '}, openMessagePollResults: { [weak self] messageId, optionOpaqueIdentifier in\\n'
+            '            guard let strongSelf = self else {\\n'
+            '                return\\n'
+            '            }\\n'
+            '            guard case nil = strongSelf.peekData else { return }'
+        ),
+        (
+            '}, joinVoiceChat: { [weak self] peerId, invite, call in\\n'
+            '            self?.joinGroupCall(peerId: peerId, invite: invite, activeCall: EngineGroupCallDescription(call))',
+            '}, joinVoiceChat: { [weak self] peerId, invite, call in\\n'
+            '            guard let self, case nil = self.peekData else { return }\\n'
+            '            self.joinGroupCall(peerId: peerId, invite: invite, activeCall: EngineGroupCallDescription(call))'
+        ),
+    ]
+    for old, new in guarded_anchors:
+        if new in chat_controller:
+            continue
+        if chat_controller.count(old) != 1:
+            raise SystemExit(f"Read-only preview interaction anchor not unique: {old.splitlines()[0]}")
+        chat_controller = chat_controller.replace(old, new, 1)
+
+    # A reaction can remove an already-selected reaction without entering
+    # Telegram's normal "add reaction" permission branch. Deny before either path.
+    chosen_reaction_anchor = """                    guard let chosenReaction = chosenReaction else {
+                        return
+                    }
+"""
+    chosen_reaction_guard = chosen_reaction_anchor + """                    guard strongSelf.ayuGramCanSendReactionsInCurrentChat() else {
+                        strongSelf.displaySendReactionRestrictedToast()
+                        return
+                    }
+"""
+    if chosen_reaction_guard not in chat_controller:
+        if chat_controller.count(chosen_reaction_anchor) != 1:
+            raise SystemExit("Reaction add/remove gate anchor not unique")
+        chat_controller = chat_controller.replace(chosen_reaction_anchor, chosen_reaction_guard, 1)
+
+    # Disable the avatar/profile and header More surfaces during a private peek.
+    long_tap_old = 'if let strongSelf = self, let peerView = strongSelf.contentData?.state.peerView'
+    long_tap_new = 'if let strongSelf = self, case nil = strongSelf.peekData, let peerView = strongSelf.contentData?.state.peerView'
+    if long_tap_old in chat_controller:
+        chat_controller = replace_once(chat_controller, long_tap_old, long_tap_new, "preview title long-tap")
+    avatar_old = 'guard let strongSelf = self, let peer = strongSelf.presentationInterfaceState.renderedPeer?.chatMainPeer else {'
+    avatar_new = 'guard let strongSelf = self, case nil = strongSelf.peekData, let peer = strongSelf.presentationInterfaceState.renderedPeer?.chatMainPeer else {'
+    if avatar_old in chat_controller:
+        chat_controller = replace_once(chat_controller, avatar_old, avatar_new, "preview avatar context")
+    title_tap_old = 'self.chatTitleView?.tapAction = { [weak self] in\\n            self?.navigationButtonAction(.openChatInfo(expandAvatar: false, section: nil))'
+    title_tap_new = 'self.chatTitleView?.tapAction = { [weak self] in\\n            guard case nil = self?.peekData else { return }\\n            self?.navigationButtonAction(.openChatInfo(expandAvatar: false, section: nil))'
+    if title_tap_old in chat_controller:
+        chat_controller = chat_controller.replace(title_tap_old, title_tap_new, 1)
+
+    more_guard_old = '            guard let self else {\\n                return\\n            }\\n            guard let peerId = self.chatLocation.peerId else {'
+    more_guard_new = '            guard let self, case nil = self.peekData else { return }\\n            guard let peerId = self.chatLocation.peerId else {'
+    if more_guard_old in chat_controller:
+        chat_controller = chat_controller.replace(more_guard_old, more_guard_new, 1)
+    more_button_line = '        self.moreBarButton.addTarget(self, action: #selector(self.moreButtonPressed), forControlEvents: .touchUpInside)'
+    if more_button_line in chat_controller and 'self.moreBarButton.isHidden = self.peekData != nil' not in chat_controller:
+        chat_controller = chat_controller.replace(
+            more_button_line,
+            '        self.moreBarButton.isHidden = self.peekData != nil\\n' + more_button_line,
+            1,
+        )
+
     send_method = "    func sendMessages(_ messages: [EnqueueMessage], media: Bool = false, postpone: Bool = false, commit: Bool = false) {"
     helpers = """    private func ayuGramCanSendMessagesInCurrentChat() -> Bool {
         guard case nil = self.peekData else {
