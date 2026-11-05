@@ -193,6 +193,7 @@ for old, new, label in call_specs:
     if count != 1:
         raise SystemExit(f"{label} revision-key anchor not unique (found {count})")
     capture_text = capture_text.replace(old, new, 1)
+capture.write_text(capture_text, encoding="utf-8")
 capture_text = capture.read_text(encoding="utf-8")
 save_start = capture_text.index("public static func saveNow")
 save_end = capture_text.index("public static func captureEdited", save_start)
@@ -669,7 +670,7 @@ missing_media_test = """        add("History → Saved rejects missing media") {
             let ok = paths.contains(firstPath) && paths.contains(secondPath)
             return (ok, ok ? "same-time media-only revisions remain independently addressable" : "one same-time media revision was dropped")
         }
-"""if 'add("History → Saved rejects missing media")' not in smoke_text or 'add("same-time media revisions remain distinct")' not in smoke_text:
+"""\nif 'add("History → Saved rejects missing media")' not in smoke_text or 'add("same-time media revisions remain distinct")' not in smoke_text:
     smoke_text = smoke_text.replace('        add("history display labels") {', missing_media_test + '        add("history display labels") {', 1)
 smoke.write_text(smoke_text, encoding="utf-8")
 
