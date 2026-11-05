@@ -678,18 +678,26 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
 
     # A reaction can remove an already-selected reaction without entering
     # Telegram's normal "add reaction" permission branch. Deny before either path.
+    # There are two identical nil-reaction guards: the first only changes the
+    # history filter, while the second reaches the network add/remove path.
+    # Anchor the latter by its following stars-reaction permission branch.
     chosen_reaction_anchor = """                    guard let chosenReaction = chosenReaction else {
                         return
                     }
-"""
-    chosen_reaction_guard = chosen_reaction_anchor + """                    guard strongSelf.ayuGramCanSendReactionsInCurrentChat() else {
+
+                    if case .stars = chosenReaction {"""
+    chosen_reaction_guard = """                    guard let chosenReaction = chosenReaction else {
+                        return
+                    }
+                    guard strongSelf.ayuGramCanSendReactionsInCurrentChat() else {
                         strongSelf.displaySendReactionRestrictedToast()
                         return
                     }
-"""
+
+                    if case .stars = chosenReaction {"""
     if chosen_reaction_guard not in chat_controller:
         if chat_controller.count(chosen_reaction_anchor) != 1:
-            raise SystemExit("Reaction add/remove gate anchor not unique")
+            raise SystemExit("Reaction add/remove network-path anchor not unique")
         chat_controller = chat_controller.replace(chosen_reaction_anchor, chosen_reaction_guard, 1)
 
     # Disable the avatar/profile and header More surfaces during a private peek.
