@@ -2,7 +2,7 @@ name: AyuGram-iOS-Plus CI
 
 on:
   push:
-    branches: [main, feature/media-edit-archive, feature/four-feature-integration, feature/deleted-message-archive-reversible]
+    branches: [main, feature/media-edit-archive, feature/four-feature-integration, feature/deleted-message-archive-reversible, feature/before-media-prefetch-primary]
   pull_request:
     branches: [main]
   workflow_dispatch:
