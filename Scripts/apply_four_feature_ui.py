@@ -427,6 +427,9 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
         ),
         (
             '}, pollOptionLongTap: { [weak self] optionId, params in\n'
+            '            guard let self, let params else {\n'
+            '                return\n'
+            '            }\n'
             '            self.openPollOptionContextMenu(optionId: optionId, params: params)',
             '}, pollOptionLongTap: { [weak self] optionId, params in\n'
             '            guard let self, case nil = self.peekData else { return }\n'
