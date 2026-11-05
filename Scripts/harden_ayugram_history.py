@@ -630,6 +630,49 @@ if anchor not in smoke_text:
     raise SystemExit("Smoke test insertion anchor not found")
 smoke.write_text(smoke_text.replace(anchor, test + anchor, 1))
 
+# Runtime regression coverage for false-positive saves and same-time media-only edits.
+smoke_text = smoke.read_text(encoding="utf-8")
+missing_media_test = """        add("History → Saved rejects missing media") {
+            let dialogID = Int64(9_820_000) + abs(accountID % 100_000)
+            let messageID = Int32(1_720_000_000) + abs(Int32(accountID % 10_000))
+            let missingPath = FileManager.default.temporaryDirectory
+                .appendingPathComponent("ayu-missing-\\(accountID)-\\(messageID).jpg").path
+            try? FileManager.default.removeItem(atPath: missingPath)
+            let message = AyuMessage(
+                fakeID: 0, userID: accountID, dialogID: dialogID, peerID: dialogID,
+                fromID: accountID, messageID: messageID, date: Int32(Date().timeIntervalSince1970),
+                text: "", mediaPath: missingPath, mimeType: "image/jpeg", isDeleted: false
+            )
+            let saved = AyuGramMediaArchive.saveToSaved(message: message)
+            let savedStem = "account-\\(accountID)-dialog-\\(dialogID)-message-\\(messageID)"
+            let metadata = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?
+                .appendingPathComponent("Telegram", isDirectory: true)
+                .appendingPathComponent("AyuGram", isDirectory: true)
+                .appendingPathComponent("saved", isDirectory: true)
+                .appendingPathComponent("Messages", isDirectory: true)
+                .appendingPathComponent("\\(savedStem).json")
+            let ok = !saved && !(metadata.map { FileManager.default.fileExists(atPath: $0.path) } ?? false)
+            return (ok, ok ? "missing media did not create a false-positive Saved record" : "missing media was incorrectly reported as saved")
+        }
+
+        add("same-time media revisions remain distinct") {
+            let dialogID = Int64(9_830_000) + abs(accountID % 100_000)
+            let messageID = Int32(1_730_000_000) + abs(Int32(accountID % 10_000))
+            let editDate = Int32(Date().timeIntervalSince1970)
+            let firstPath = "/tmp/ayu-revision-first-\\(accountID).jpg"
+            let secondPath = "/tmp/ayu-revision-second-\\(accountID).jpg"
+            let first = AyuMessage(fakeID: 0, userID: accountID, dialogID: dialogID, peerID: dialogID, fromID: accountID, messageID: messageID, date: editDate, editDate: editDate, text: "", mediaPath: firstPath, mimeType: "image/jpeg", isDeleted: false)
+            let second = AyuMessage(fakeID: 0, userID: accountID, dialogID: dialogID, peerID: dialogID, fromID: accountID, messageID: messageID, date: editDate, editDate: editDate, text: "", mediaPath: secondPath, mimeType: "image/jpeg", isDeleted: false)
+            _ = AyuGramPostboxHistoryStore.appendEdited(transaction: transaction, messages: [first, second])
+            let revisions = AyuGramPostboxHistoryStore.revisions(transaction: transaction, userID: accountID, dialogID: dialogID, messageID: messageID, limit: 10)
+            let paths = Set(revisions.compactMap { $0.mediaPath })
+            let ok = paths.contains(firstPath) && paths.contains(secondPath)
+            return (ok, ok ? "same-time media-only revisions remain independently addressable" : "one same-time media revision was dropped")
+        }
+"""if 'add("History → Saved rejects missing media")' not in smoke_text or 'add("same-time media revisions remain distinct")' not in smoke_text:
+    smoke_text = smoke_text.replace('        add("history display labels") {', missing_media_test + '        add("history display labels") {', 1)
+smoke.write_text(smoke_text, encoding="utf-8")
+
 
 # Add a separate user-controlled Saved folder. History is automatic; Saved is
 # populated only when the user taps the row's real Save action.
@@ -1861,4 +1904,19 @@ if '.applicationSupportDirectory' not in media_archive_text:
     raise SystemExit("Automatic History media must use Application Support")
 if '.appendingPathComponent("History", isDirectory: true)' not in media_archive_text:
     raise SystemExit("Automatic History storage path missing")
-print("AyuGram History v5 applied: per-dialog History + automatic app-private media capture + largest-photo selection + storage-boundary checks; manual Save preserved.")
+manual_save_body = capture_text.split("public static func saveNow", 1)[1].split("public static func captureEdited", 1)[0]
+if "guard let archivedPath = archived.path" not in manual_save_body or "else if snapshot.text.isEmpty" not in manual_save_body:
+    raise SystemExit("Manual Save must reject unavailable media and empty content")
+manual_storage_body = media_archive_text.split("public static func saveToSaved", 1)[1].split("public static func archive", 1)[0]
+if "guard didSave else" not in manual_storage_body:
+    raise SystemExit("Manual Save must not count metadata-only output as success")
+if "didSave = true" in manual_storage_body.split("let metadata: [String: Any]", 1)[1]:
+    raise SystemExit("Metadata-only output must not count as a saved item")
+if "guard copiedResourceCount == resources.count, let firstPath else" not in media_archive_text:
+    raise SystemExit("Automatic media archive must reject incomplete resource sets")
+interactive_delete = root / "submodules/TelegramCore/Sources/TelegramEngine/Messages/DeleteMessagesInteractively.swift"
+if not interactive_delete.exists() or "ayuAccountID: account.peerId.toInt64()" not in interactive_delete.read_text():
+    raise SystemExit("Interactive user deletion is not wired to automatic History capture")
+if "ayuAccountID: ayuAccountID ?? stateManager?.accountPeerId.toInt64()" not in interactive_delete.read_text():
+    raise SystemExit("Interactive delete helper does not pass the active account into capture")
+print("AyuGram History v6 applied: per-dialog History + fail-closed media archive + truthful manual Save + direct/interactive deletion wiring checks.")
