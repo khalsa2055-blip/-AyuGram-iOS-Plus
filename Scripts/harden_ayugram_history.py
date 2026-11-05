@@ -101,6 +101,61 @@ if new_root not in archive_text:
     if archive_text.count(old_root) != 1:
         raise SystemExit("Media archive root path anchor not unique")
     archive_text = archive_text.replace(old_root, new_root, 1)
+# Fail closed on incomplete media archives instead of returning a path to a partial album.
+archive_text = archive_text.replace(
+    """            ), FileManager.default.fileExists(atPath: sourcePath) else {
+                continue
+            }""",
+    """            ), FileManager.default.fileExists(atPath: sourcePath) else {
+                try? FileManager.default.removeItem(at: supportURL)
+                return (nil, nil)
+            }""",
+    1,
+)
+archive_text = archive_text.replace(
+    """        var firstPath: String?
+        var firstMimeType: String?
+
+        for (index, resource) in resources.enumerated() {""",
+    """        var firstPath: String?
+        var firstMimeType: String?
+        var copiedResourceCount = 0
+
+        for (index, resource) in resources.enumerated() {""",
+    1,
+)
+archive_text = archive_text.replace(
+    """                if firstPath == nil {
+                    firstPath = destinationURL.path
+                    firstMimeType = resource.mimeType
+                }
+            } catch {
+                continue
+            }
+        }
+
+        return (firstPath, firstMimeType)""",
+    """                copiedResourceCount += 1
+                if firstPath == nil {
+                    firstPath = destinationURL.path
+                    firstMimeType = resource.mimeType
+                }
+            } catch {
+                try? FileManager.default.removeItem(at: supportURL)
+                return (nil, nil)
+            }
+        }
+
+        guard copiedResourceCount == resources.count, let firstPath else {
+            try? FileManager.default.removeItem(at: supportURL)
+            return (nil, nil)
+        }
+        return (firstPath, firstMimeType)""",
+    1,
+)
+if "var copiedResourceCount = 0" not in archive_text or "guard copiedResourceCount == resources.count" not in archive_text:
+    raise SystemExit("Media archive completeness guard did not apply")
+
 archive.write_text(archive_text, encoding="utf-8")
 
 # Keep deleted, edited and explicitly-saved media in distinct immutable folders.
