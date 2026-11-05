@@ -685,7 +685,8 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
                         return
                     }
 
-                    if case .stars = chosenReaction {"""
+                    if case .stars = chosenReaction {
+                        if !canSendReactionsToChat(strongSelf.presentationInterfaceState) {"""
     chosen_reaction_guard = """                    guard let chosenReaction = chosenReaction else {
                         return
                     }
@@ -694,7 +695,8 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
                         return
                     }
 
-                    if case .stars = chosenReaction {"""
+                    if case .stars = chosenReaction {
+                        if !strongSelf.ayuGramCanSendReactionsInCurrentChat() {"""
     if chosen_reaction_guard not in chat_controller:
         if chat_controller.count(chosen_reaction_anchor) != 1:
             raise SystemExit("Reaction add/remove network-path anchor not unique")
