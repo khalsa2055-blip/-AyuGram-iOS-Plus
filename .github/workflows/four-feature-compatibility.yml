@@ -7,6 +7,7 @@ on:
     paths:
       - "patches/**"
       - "Scripts/harden_ayugram_history.py"
+      - "Scripts/harden_four_feature_storage.py"
       - "Scripts/apply_four_feature_ui.py"
       - "Experiments/PrivateInviteLinkInspector/**"
       - ".github/workflows/four-feature-compatibility.yml"
