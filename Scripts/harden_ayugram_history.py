@@ -1359,6 +1359,63 @@ for delete_file in delete_paths:
             raise SystemExit(f"Automatic History photo capture anchor missing in {delete_file}")
         delete_file.write_text(d)
 
+# Preserve the sender of the pre-edit snapshot as well as deleted-message snapshots.
+capture_text = capture.read_text(encoding="utf-8")
+edited_signature = """        mediaCapture: AyuMessageMediaCapture?,
+        accountID: Int64,
+        editDate: Int32
+"""
+edited_signature_new = """        mediaCapture: AyuMessageMediaCapture?,
+        accountID: Int64,
+        senderName: String? = nil,
+        editDate: Int32
+"""
+if edited_signature_new not in capture_text:
+    if capture_text.count(edited_signature) != 1:
+        raise SystemExit("Edited capture sender-name signature anchor not unique")
+    capture_text = capture_text.replace(edited_signature, edited_signature_new, 1)
+
+edit_start = capture_text.index("public static func captureEdited")
+edit_block = capture_text[edit_start:]
+old_bridge = """            accountID: accountID,
+            isDeleted: false,
+            editDate: editDate,"""
+new_bridge = """            accountID: accountID,
+            fromName: senderName,
+            isDeleted: false,
+            editDate: editDate,"""
+if new_bridge not in edit_block:
+    if edit_block.count(old_bridge) != 1:
+        raise SystemExit("Edited snapshot sender-name bridge anchor not unique")
+    edit_block = edit_block.replace(old_bridge, new_bridge, 1)
+capture_text = capture_text[:edit_start] + edit_block
+capture.write_text(capture_text, encoding="utf-8")
+
+# Resolve the old message's author before Telegram overwrites the Postbox row.
+state_utils = root / "submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift"
+state_text = state_utils.read_text(encoding="utf-8")
+old_edit_call = """                        accountID: accountPeerId.toInt64(),
+                        editDate: max(editedAttribute.date, previousMessage.attributes.compactMap { ($0 as? EditedMessageAttribute)?.date }.max() ?? 0)"""
+new_edit_call = """                        accountID: accountPeerId.toInt64(),
+                        senderName: {
+                            guard let author = previousMessage.author else { return nil }
+                            if let user = author as? TelegramUser {
+                                let parts = [user.firstName, user.lastName].compactMap { $0 }.filter { !$0.isEmpty }
+                                return parts.isEmpty ? nil : parts.joined(separator: " ")
+                            } else if let channel = author as? TelegramChannel {
+                                return channel.title
+                            } else if let group = author as? TelegramGroup {
+                                return group.title
+                            }
+                            return nil
+                        }(),
+                        editDate: max(editedAttribute.date, previousMessage.attributes.compactMap { ($0 as? EditedMessageAttribute)?.date }.max() ?? 0)"""
+if new_edit_call not in state_text:
+    if state_text.count(old_edit_call) != 1:
+        raise SystemExit("Pre-edit sender lookup anchor not unique in AccountStateManagementUtils")
+    state_text = state_text.replace(old_edit_call, new_edit_call, 1)
+state_utils.write_text(state_text, encoding="utf-8")
+
 # 5) Manual AyuGram Save: retain sender name and local media even when Telegram's
 # own Save/Forward action is unavailable. It still depends on media being locally available.
 context_menu = root / "submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift"
