@@ -88,12 +88,24 @@ jobs:
               raise SystemExit("Invite preview must not use generic/external URL handoff")
           if "importChatInvite" in patch or "joinChatInteractively" in patch:
               raise SystemExit("Invite preview must never invoke a join operation")
-          if "participationStatus" in patch or "canSendMessagesToChat" in patch or "canSendReactionsToChat" in patch:
-              raise SystemExit("Preview patch must not globally change permissions for ordinary non-member chats")
+          # The scoped ChatController wrapper must deny a peek but delegate to
+          # Telegram's original permission functions in every ordinary chat.
+          scoped_permissions = (
+              "private func ayuGramCanSendMessagesInCurrentChat() -> Bool",
+              "private func ayuGramCanSendReactionsInCurrentChat() -> Bool",
+              "guard case nil = self.peekData",
+              "return canSendMessagesToChat(self.presentationInterfaceState)",
+              "return canSendReactionsToChat(self.presentationInterfaceState)",
+          )
+          missing_scoped = [marker for marker in scoped_permissions if marker not in patch]
+          if missing_scoped:
+              raise SystemExit("Missing scoped read-only permission gates: " + ", ".join(missing_scoped))
+          if "ChatPresentationInterfaceState.swift" in patch or "case .member = channel.participationStatus" in patch:
+              raise SystemExit("Preview must not globally change Telegram permissions for ordinary chats")
           print("PASS: settings entry and safe invite parsing")
           print("PASS: Telegram MTProto checkChatInvite path via joinLinkInformation")
           print("PASS: only server-issued .peek opens ChatController with ChatPeekTimeout")
           print("PASS: invite metadata/member identities are not exposed; no join/send APIs")
-          print("PASS: no global permission changes to ordinary non-member chats")
+          print("PASS: peek-only send/reaction gates delegate to native Telegram permissions otherwise")
           print("PASS: native Telegram chat timeline and media rendering are used")
           PY
