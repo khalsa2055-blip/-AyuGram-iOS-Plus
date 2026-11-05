@@ -734,13 +734,13 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
         avatar_section = avatar_section.replace(avatar_old, avatar_new)
     chat_controller = chat_controller[:avatar_context_start] + avatar_section + chat_controller[avatar_context_end:]
 
-    title_tap_old = 'self.chatTitleView?.tapAction = { [weak self] in\\n            self?.navigationButtonAction(.openChatInfo(expandAvatar: false, section: nil))'
-    title_tap_new = 'self.chatTitleView?.tapAction = { [weak self] in\\n            guard case nil = self?.peekData else { return }\\n            self?.navigationButtonAction(.openChatInfo(expandAvatar: false, section: nil))'
+    title_tap_old = 'self.chatTitleView?.tapAction = { [weak self] in\n            self?.navigationButtonAction(.openChatInfo(expandAvatar: false, section: nil))'
+    title_tap_new = 'self.chatTitleView?.tapAction = { [weak self] in\n            guard case nil = self?.peekData else { return }\n            self?.navigationButtonAction(.openChatInfo(expandAvatar: false, section: nil))'
     if title_tap_old in chat_controller:
         chat_controller = chat_controller.replace(title_tap_old, title_tap_new, 1)
 
-    more_guard_old = '            guard let self else {\\n                return\\n            }\\n            guard let peerId = self.chatLocation.peerId else {'
-    more_guard_new = '            guard let self, case nil = self.peekData else { return }\\n            guard let peerId = self.chatLocation.peerId else {'
+    more_guard_old = '            guard let self else {\n                return\n            }\n            guard let peerId = self.chatLocation.peerId else {'
+    more_guard_new = '            guard let self, case nil = self.peekData else { return }\n            guard let peerId = self.chatLocation.peerId else {'
     if more_guard_old in chat_controller:
         chat_controller = chat_controller.replace(more_guard_old, more_guard_new, 1)
     profile_button_old = """        chatInfoButtonItem.target = self
@@ -763,12 +763,12 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
     if more_button_line in chat_controller and 'self.moreBarButton.isHidden = self.peekData != nil' not in chat_controller:
         chat_controller = chat_controller.replace(
             more_button_line,
-            '        self.moreBarButton.isHidden = self.peekData != nil\\n' + more_button_line,
+            '        self.moreBarButton.isHidden = self.peekData != nil\n' + more_button_line,
             1,
         )
 
     group_call_marker = "    public override func joinGroupCall(peerId: PeerId, invite: String?, activeCall: EngineGroupCallDescription) {"
-    group_call_guard = group_call_marker + "\\n        guard case nil = self.peekData else { return }"
+    group_call_guard = group_call_marker + "\n        guard case nil = self.peekData else { return }"
     if group_call_guard not in chat_controller:
         if chat_controller.count(group_call_marker) != 1:
             raise SystemExit("ChatController group-call override anchor not unique")
