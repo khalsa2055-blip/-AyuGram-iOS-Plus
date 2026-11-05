@@ -289,7 +289,7 @@ jobs:
           assert "ChatPeekTimeout" in source
           assert "ayuGramCanSendMessagesInCurrentChat" in source, "Read-only preview message gate is missing"
           assert "ayuGramCanSendReactionsInCurrentChat" in source, "Read-only preview reaction gate is missing"
-          assert "guard case nil = self.peekData" in source, "Peek state must block message/reaction sends"
+          assert source.count("guard case nil = self.peekData") >= 4, "Peek state must block messages, reactions and group calls"
           assert source.count("canSendMessagesToChat(self.presentationInterfaceState)") == 1, "Native message permission should only be called inside the scoped wrapper"
           assert source.count("canSendReactionsToChat(self.presentationInterfaceState)") == 1, "Native reaction permission should only be called inside the scoped wrapper"
           assert "canSendMessagesToChat(strongSelf.presentationInterfaceState)" not in source
@@ -297,6 +297,22 @@ jobs:
           send_start = source.index("func sendMessages(_ messages: [EnqueueMessage]")
           send_body = source[send_start:send_start + 500]
           assert "guard case nil = self.peekData else { return }" in send_body, "Direct sendMessages path is not blocked during preview"
+          for required in (
+              "requestMessageActionCallback",
+              "requestSelectMessagePollOptions",
+              "requestAddMessagePollOption",
+              "requestOpenMessagePollResults",
+              "openMessagePollResults",
+              "openJoinLink",
+              "openWebView",
+              "requestMessageActionUrlAuth",
+              "joinVoiceChat",
+              "AyuGram read-only peek: dismiss at deadline",
+          ):
+              assert required in source, f"Preview interaction lock missing: {required}"
+          assert "self.moreBarButton.isHidden = self.peekData != nil" in source, "Preview More/member menu is still visible"
+          assert "chatInfoButtonItem.target = nil" in source, "Preview profile button is still active"
+          assert "guard case nil = self.peekData else { return }" in source[source.index("public override func joinGroupCall"):], "A direct group-call path remains open"
           state_source = Path("telegram-ios/submodules/ChatPresentationInterfaceState/Sources/ChatPresentationInterfaceState.swift").read_text(encoding="utf-8")
           gate_start = state_source.index("public func canSendMessagesToChat")
           gate_end = state_source.index("public func canSendReactionsToChat", gate_start)
