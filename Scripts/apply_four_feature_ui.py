@@ -426,16 +426,6 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
             '                guard case nil = strongSelf.peekData else { return }'
         ),
         (
-            '}, pollOptionLongTap: { [weak self] optionId, params in\n'
-            '            guard let self, let params else {\n'
-            '                return\n'
-            '            }\n'
-            '            self.openPollOptionContextMenu(optionId: optionId, params: params)',
-            '}, pollOptionLongTap: { [weak self] optionId, params in\n'
-            '            guard let self, case nil = self.peekData else { return }\n'
-            '            self.openPollOptionContextMenu(optionId: optionId, params: params)'
-        ),
-        (
             '}, openMessagePollResults: { [weak self] messageId, optionOpaqueIdentifier in\n'
             '            guard let strongSelf = self else {\n'
             '                return\n'
@@ -641,6 +631,28 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
         if chat_controller.count(open_mention_signature) != 1:
             raise SystemExit("Could not uniquely scope ChatController.openPeerMention during peek")
         chat_controller = chat_controller.replace(open_mention_signature, open_mention_guard, 1)
+    # Poll long-press callback signatures vary slightly across the AyuGram/Swiftgram
+    # patch revisions. Guard the callback semantically instead of matching its
+    # entire multi-line body as a brittle literal anchor.
+    poll_marker = "}, pollOptionLongTap: { [weak self] optionId, params in"
+    poll_start = chat_controller.find(poll_marker)
+    if poll_start < 0:
+        raise SystemExit("Read-only preview poll long-press callback is missing")
+    poll_end = chat_controller.find("}, openCheckoutOrReceipt:", poll_start)
+    if poll_end < 0:
+        raise SystemExit("Could not bound the poll long-press callback")
+    poll_block = chat_controller[poll_start:poll_end]
+    if "case nil = self.peekData" not in poll_block:
+        old_poll_guard = "guard let self, let params else {"
+        if poll_block.count(old_poll_guard) != 1:
+            raise SystemExit("Could not safely locate poll long-press optional-parameter guard")
+        poll_block = poll_block.replace(
+            old_poll_guard,
+            "guard let self, let params, case nil = self.peekData else {",
+            1,
+        )
+        chat_controller = chat_controller[:poll_start] + poll_block + chat_controller[poll_end:]
+
     for old, new in guarded_anchors:
         count = chat_controller.count(old)
         if count:
