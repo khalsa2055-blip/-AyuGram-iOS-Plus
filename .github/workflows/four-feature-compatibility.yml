@@ -226,7 +226,7 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           changed = []
-          for root_name in ("Swiftgram", "submodules", "Telegram"):
+          for root_name in ("Swiftgram", "submodules", "Telegram", "third-party"):
               root = Path(root_name)
               if not root.exists():
                   continue
