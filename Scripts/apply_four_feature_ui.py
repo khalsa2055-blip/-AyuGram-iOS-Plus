@@ -484,7 +484,6 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
             '            guard let self, case nil = self.peekData else { return }'
         ),
     ]
-    # A preview is for reading only: do not open profiles, links, context menus, calls, or bot entry points.
     # A preview is strictly read-only: prevent navigation and all secondary actions.
     additional_read_only_anchors = [
         (
@@ -568,20 +567,28 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
 
     # Central backstops: no link or username navigation from a peek controller.
     open_url_signature = """    func openUrl(
-        _ url: String,"""
-    open_url_guard = open_url_signature + """
-        guard case nil = self.peekData else { return }"""
+        _ url: String,
+        concealed: Bool,
+        forceExternal: Bool = false,
+        forceUpdate: Bool = false,
+        skipUrlAuth: Bool = false,
+        skipConcealedAlert: Bool = false,
+        message: Message? = nil,
+        allowInlineWebpageResolution: Bool = false,
+        progress: Promise<Bool>? = nil,
+        commit: @escaping () -> Void = {}
+    ) {"""
+    open_url_guard = open_url_signature + "\n        guard case nil = self.peekData else { return }"
     if open_url_guard not in chat_controller:
         if chat_controller.count(open_url_signature) != 1:
             raise SystemExit("Could not uniquely scope ChatController.openUrl during peek")
         chat_controller = chat_controller.replace(open_url_signature, open_url_guard, 1)
-    open_mention_signature = "    func openPeerMention(_ name: String,"
+    open_mention_signature = "    func openPeerMention(_ name: String, navigation: ChatControllerInteractionNavigateToPeer = .default, sourceMessageId: MessageId? = nil, progress: Promise<Bool>? = nil) {"
     open_mention_guard = open_mention_signature + "\n        guard case nil = self.peekData else { return }"
     if open_mention_guard not in chat_controller:
         if chat_controller.count(open_mention_signature) != 1:
             raise SystemExit("Could not uniquely scope ChatController.openPeerMention during peek")
         chat_controller = chat_controller.replace(open_mention_signature, open_mention_guard, 1)
-
     for old, new in guarded_anchors:
         if new in chat_controller:
             continue
