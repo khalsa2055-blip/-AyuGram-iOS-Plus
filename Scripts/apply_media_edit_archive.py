@@ -105,6 +105,36 @@ private func ayuGramArchiveOriginalMediaBeforeEdit(
         return
     }
 }
+
+/// Preserve currently available media before Telegram processes a deletion.
+/// The same message-keyed archive is used by the Before preview action.
+private func ayuGramArchiveDeletedMessageMediaForBefore(
+    message: Message,
+    mediaBox: MediaBox
+) {
+    guard
+        let candidate = ayuGramEditableMediaCandidate(message.media),
+        let sourcePath = candidate.resources.compactMap({ mediaBox.completedResourcePath($0) }).first,
+        let directory = ayuGramMediaEditArchiveDirectory()
+    else {
+        return
+    }
+
+    let destination = directory
+        .appendingPathComponent(ayuGramMediaEditArchiveStem(message.id))
+        .appendingPathExtension(candidate.fileExtension)
+    guard !FileManager.default.fileExists(atPath: destination.path) else {
+        return
+    }
+    do {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let temporary = directory.appendingPathComponent(".\\(UUID().uuidString).deleted-media-tmp")
+        try FileManager.default.copyItem(at: URL(fileURLWithPath: sourcePath), to: temporary)
+        try FileManager.default.moveItem(at: temporary, to: destination)
+    } catch {
+        return
+    }
+}
 '''
 
 CORE_ANCHOR = "func replayFinalState(\n"
@@ -189,11 +219,29 @@ def main() -> None:
     core = CORE.read_text()
     ui = UI.read_text()
 
-    if "ayuGramArchiveOriginalMediaBeforeEdit" in core or "AyuGramMediaEditOriginalPreviewController" in ui:
+    if "ayuGramArchiveOriginalMediaBeforeEdit" in core or "ayuGramArchiveDeletedMessageMediaForBefore" in core or "AyuGramMediaEditOriginalPreviewController" in ui:
         raise SystemExit("Media-edit archive integration already appears to be applied; refusing duplicate patch")
 
     core = replace_once(core, CORE_ANCHOR, CORE_HELPER + "\n" + CORE_ANCHOR, "TelegramCore helper insertion")
     core = replace_once(core, CORE_HOOK_OLD, CORE_HOOK_NEW, "incoming message edit hook")
+
+    delete_hook_old = """            case let .DeleteMessages(ids):
+                _internal_deleteMessages(transaction: transaction, mediaBox: mediaBox, ids: ids, manualAddMessageThreadStatsDifference: { id, add, remove in
+                    addMessageThreadStatsDifference(threadKey: id, remove: remove, addedMessagePeer: nil, addedMessageId: nil, isOutgoing: false)
+                })
+                deletedMessageIds.append(contentsOf: ids.map { .messageId($0) })"""
+    delete_hook_new = """            case let .DeleteMessages(ids):
+                // Preserve media before Telegram processes deletion; deletion behavior is unchanged.
+                for id in ids {
+                    if let message = transaction.getMessage(id) {
+                        ayuGramArchiveDeletedMessageMediaForBefore(message: message, mediaBox: mediaBox)
+                    }
+                }
+                _internal_deleteMessages(transaction: transaction, mediaBox: mediaBox, ids: ids, manualAddMessageThreadStatsDifference: { id, add, remove in
+                    addMessageThreadStatsDifference(threadKey: id, remove: remove, addedMessagePeer: nil, addedMessageId: nil, isOutgoing: false)
+                })
+                deletedMessageIds.append(contentsOf: ids.map { .messageId($0) })"""
+    core = replace_once(core, delete_hook_old, delete_hook_new, "pre-delete media archive hook")
 
     ui = replace_once(ui, UI_IMPORT_ANCHOR, UI_IMPORT_ANCHOR + "import QuickLook\n", "QuickLook import")
     ui = replace_once(ui, UI_CLASS_ANCHOR, UI_CLASS + UI_CLASS_ANCHOR, "original preview controller")
