@@ -1,12 +1,34 @@
 #!/usr/bin/env python3
-"""Prevent manual-save filename collisions between accounts and Telegram dialogs."""
+"""Keep manual-save media together in king and avoid filename collisions."""
 from pathlib import Path
 
-archive = Path("telegram-ios/submodules/AyuGramIOS/Sources/AyuGramMediaArchive.swift")
+base = Path("telegram-ios/submodules/AyuGramIOS/Sources")
+archive = base / "AyuGramMediaArchive.swift"
+capture = base / "AyuGramCaptureService.swift"
 if not archive.is_file():
     raise SystemExit(f"Missing AyuGram media archive source: {archive}")
+if not capture.is_file():
+    raise SystemExit(f"Missing AyuGram capture service source: {capture}")
 
 source = archive.read_text(encoding="utf-8")
+signature = "    public static func saveToSaved(message: AyuMessage) -> Bool {"
+updated_signature = '    public static func saveToSaved(message: AyuMessage, folderName: String = "Media") -> Bool {'
+if signature in source:
+    if source.count(signature) != 1:
+        raise SystemExit("Expected one saveToSaved declaration")
+    source = source.replace(signature, updated_signature, 1)
+elif updated_signature not in source:
+    raise SystemExit("Could not locate saveToSaved declaration")
+
+media_root = '        let mediaRoot = root.appendingPathComponent("Media", isDirectory: true)'
+updated_media_root = '        let mediaRoot = root.appendingPathComponent(folderName, isDirectory: true)'
+if media_root in source:
+    if source.count(media_root) != 1:
+        raise SystemExit("Expected one Saved media folder declaration")
+    source = source.replace(media_root, updated_media_root, 1)
+elif updated_media_root not in source:
+    raise SystemExit("Could not locate Saved media folder declaration")
+
 anchor = '        let messagesRoot = root.appendingPathComponent("Messages", isDirectory: true)\n'
 stem = '        let messagesRoot = root.appendingPathComponent("Messages", isDirectory: true)\n        let savedStem = "account-\\(message.userID)-dialog-\\(message.dialogID)-message-\\(message.messageID)"\n'
 if "let savedStem = " not in source:
@@ -29,6 +51,8 @@ for old, new in replacements.items():
         raise SystemExit(f"Saved filename anchor missing: {old}")
 
 required = [
+    updated_signature,
+    updated_media_root,
     'let savedStem = "account-\\(message.userID)-dialog-\\(message.dialogID)-message-\\(message.messageID)"',
     '"\\(savedStem)-media-\\(index + 1).\\(ext)"',
     '"\\(savedStem)-media.\\(ext)"',
@@ -37,26 +61,37 @@ required = [
 ]
 for marker in required:
     if marker not in source:
-        raise SystemExit(f"Dialog-safe saved filename missing: {marker}")
-
+        raise SystemExit(f"Saved archive invariant missing: {marker}")
 archive.write_text(source, encoding="utf-8")
-smoke = Path("telegram-ios/submodules/AyuGramIOS/Sources/AyuGramSmokeTest.swift")
+
+capture_source = capture.read_text(encoding="utf-8")
+manual_call = "        return AyuGramMediaArchive.saveToSaved(message: savedSnapshot)"
+king_call = '        return AyuGramMediaArchive.saveToSaved(message: savedSnapshot, folderName: "king")'
+if manual_call in capture_source:
+    if capture_source.count(manual_call) != 1:
+        raise SystemExit("Expected one manual Save call site")
+    capture_source = capture_source.replace(manual_call, king_call, 1)
+elif king_call not in capture_source:
+    raise SystemExit("Could not uniquely locate manual Save call site")
+capture.write_text(capture_source, encoding="utf-8")
+
+smoke = base / "AyuGramSmokeTest.swift"
 if smoke.is_file():
     smoke_text = smoke.read_text(encoding="utf-8")
     smoke_text = smoke_text.replace(
-        '            let messageID = Int32(1_710_000_000) + abs(Int32(accountID % 10_000))\n',
-        '            let messageID = Int32(1_710_000_000) + abs(Int32(accountID % 10_000))\n            let savedStem = "account-\\(accountID)-dialog-\\(dialogID)-message-\\(messageID)"\n',
+        '            let messageID = Int32(1_710_000_000) + abs(Int32(accountID % 10_000))\\n',
+        '            let messageID = Int32(1_710_000_000) + abs(Int32(accountID % 10_000))\\n            let savedStem = "account-\\(accountID)-dialog-\\(dialogID)-message-\\(messageID)"\\n',
         1,
     )
     smoke_text = smoke_text.replace('"message-\\(messageID)-media-1.jpg"', '"\\(savedStem)-media-1.jpg"', 1)
     smoke_text = smoke_text.replace('"message-\\(messageID)-media-2.mp4"', '"\\(savedStem)-media-2.mp4"', 1)
     smoke_text = smoke_text.replace(
-        '            let messageID = Int32(1_700_000_000) + abs(Int32(accountID % 10_000))\n',
-        '            let messageID = Int32(1_700_000_000) + abs(Int32(accountID % 10_000))\n            let savedStem = "account-\\(accountID)-dialog-\\(dialogID)-message-\\(messageID)"\n',
+        '            let messageID = Int32(1_700_000_000) + abs(Int32(accountID % 10_000))\\n',
+        '            let messageID = Int32(1_700_000_000) + abs(Int32(accountID % 10_000))\\n            let savedStem = "account-\\(accountID)-dialog-\\(dialogID)-message-\\(messageID)"\\n',
         1,
     )
     smoke_text = smoke_text.replace('"message-\\(messageID)-media.jpg"', '"\\(savedStem)-media.jpg"', 1)
     smoke_text = smoke_text.replace('"message-\\(messageID).json"', '"\\(savedStem).json"', 1)
     smoke.write_text(smoke_text, encoding="utf-8")
 
-print("PASS: saved media/text/metadata filenames are isolated by account and dialog.")
+print("PASS: manual Save stores photos and videos together in saved/king; History keeps its separate Media folder.")
