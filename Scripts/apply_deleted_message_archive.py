@@ -77,7 +77,7 @@ private func ayuGramArchiveMessageBeforeDeletion(_ message: Message, mediaBox: M
                 }
                 mediaRecords.append([
                     "kind": kind,
-                    "fileName": originalName ?? NSNull(),
+                    "fileName": (originalName as Any?) ?? NSNull(),
                     "archiveFile": copied ? archivedName : NSNull(),
                     "cachedAtDeletion": copied
                 ])
