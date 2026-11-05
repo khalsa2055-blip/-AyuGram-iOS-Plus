@@ -176,6 +176,12 @@ jobs:
           xcrun swiftc -frontend -parse telegram-ios/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
           xcrun swiftc -frontend -parse telegram-ios/submodules/TelegramUI/Sources/ChatController.swift
           xcrun swiftc -frontend -parse telegram-ios/submodules/ChatPresentationInterfaceState/Sources/ChatPresentationInterfaceState.swift
+          xcrun swiftc -frontend -parse telegram-ios/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift
+          xcrun swiftc -frontend -parse telegram-ios/submodules/TelegramCore/Sources/TelegramEngine/Messages/DeleteMessages.swift
+          xcrun swiftc -frontend -parse telegram-ios/submodules/AyuGramIOS/Sources/AyuGramMediaArchive.swift
+          xcrun swiftc -frontend -parse telegram-ios/submodules/AyuGramIOS/Sources/AyuGramPostboxHistoryStore.swift
+          xcrun swiftc -frontend -parse telegram-ios/submodules/AyuGramIOS/Sources/AyuGramCaptureService.swift
+          xcrun swiftc -frontend -parse telegram-ios/submodules/AyuGramIOS/Sources/AyuGramPostboxBridge.swift
           echo "Modified Swift sources parsed successfully; no app or IPA build was run."
 
       - name: Prepare minimal Bazel configuration repository for library check
@@ -281,6 +287,16 @@ jobs:
           assert "Conversation_PrivateChannelTimeLimitedAlertJoin" not in peek_timeout
           assert "joinChatInteractively" not in peek_timeout
           assert "ChatPeekTimeout" in source
+          assert "ayuGramCanSendMessagesInCurrentChat" in source, "Read-only preview message gate is missing"
+          assert "ayuGramCanSendReactionsInCurrentChat" in source, "Read-only preview reaction gate is missing"
+          assert "guard case nil = self.peekData" in source, "Peek state must block message/reaction sends"
+          assert source.count("canSendMessagesToChat(self.presentationInterfaceState)") == 1, "Native message permission should only be called inside the scoped wrapper"
+          assert source.count("canSendReactionsToChat(self.presentationInterfaceState)") == 1, "Native reaction permission should only be called inside the scoped wrapper"
+          assert "canSendMessagesToChat(strongSelf.presentationInterfaceState)" not in source
+          assert "canSendReactionsToChat(strongSelf.presentationInterfaceState)" not in source
+          send_start = source.index("func sendMessages(_ messages: [EnqueueMessage]")
+          send_body = source[send_start:send_start + 500]
+          assert "guard case nil = self.peekData else { return }" in send_body, "Direct sendMessages path is not blocked during preview"
           state_source = Path("telegram-ios/submodules/ChatPresentationInterfaceState/Sources/ChatPresentationInterfaceState.swift").read_text(encoding="utf-8")
           gate_start = state_source.index("public func canSendMessagesToChat")
           gate_end = state_source.index("public func canSendReactionsToChat", gate_start)
@@ -292,10 +308,25 @@ jobs:
           assert "canSendReactionsToPeer(EnginePeer(peer), ignoreDefault: canBypassRestrictions)" in reaction_gate, "Telegram native reaction-permission check was changed or removed"
           assert "AyuGram read-only peek send gate" not in send_gate, "Do not inject a global membership override into ordinary chats"
           assert "AyuGram read-only peek reactions gate" not in reaction_gate, "Do not inject a global membership override into ordinary chats"
-          print("PASS: Telegram's native message and reaction permission gates remain authoritative.")
-          print("PASS: peek timeout remains native and read-only; no Join action.")
+          print("PASS: Telegram's native permissions remain authoritative in ordinary chats.")
+          print("PASS: every message/reaction send path is denied while ChatPeekTimeout is active.")
+          history_store = Path("telegram-ios/submodules/AyuGramIOS/Sources/AyuGramPostboxHistoryStore.swift").read_text(encoding="utf-8")
+          media_archive = Path("telegram-ios/submodules/AyuGramIOS/Sources/AyuGramMediaArchive.swift").read_text(encoding="utf-8")
+          capture_service = Path("telegram-ios/submodules/AyuGramIOS/Sources/AyuGramCaptureService.swift").read_text(encoding="utf-8")
+          assert "fromName: snapshot.fromName" in history_store
+          assert "deletedAt: snapshot.deletedAt" in history_store
+          assert "revisionKey: String? = nil" in media_archive
+          assert "revisionKey.map" in media_archive
+          for revision in ('revisionKey: "deleted"', 'revisionKey: "manual-\\(UUID().uuidString)"', 'revisionKey: "edit-\\(editDate)-\\(UUID().uuidString)"'):
+              assert revision in capture_service, f"Missing immutable archive route: {revision}"
+          assert "AyuGramCaptureService.captureEdited(" in Path("telegram-ios/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift").read_text(encoding="utf-8")
+          assert "saveDeletedMessages == true" in capture_service
+          assert "AyuGramPostboxHistoryStore.appendDeleted" in capture_service
+          assert "AyuGramPostboxHistoryStore.appendEdited" in capture_service
+          assert "AyuGramMediaArchive.saveToSaved(message: savedSnapshot)" in capture_service
+          print("PASS: deleted/edit snapshots, sender/time metadata and immutable Before media archives are linked.")
           PY
-          echo "All four feature integration markers found."
+          echo "All four feature integration markers and detailed wiring checks passed."
 
       - name: Show changed files
         working-directory: telegram-ios
