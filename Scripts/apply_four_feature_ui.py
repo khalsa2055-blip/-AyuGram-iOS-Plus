@@ -355,7 +355,7 @@ if "AyuGram read-only peek: suppress Join action" not in timeout_block:
     action_end = timeout_block.index(cancel_action, action_start)
     timeout_block = (
         timeout_block[:action_start]
-        + "                        // AyuGram read-only peek: suppress Join action.\\n"
+        + "                        // AyuGram read-only peek: suppress Join action.\n"
         + timeout_block[action_end:]
     )
 
@@ -370,7 +370,7 @@ if "AyuGram read-only peek: dismiss at deadline" not in timeout_block:
     alert_end += len(alert_end_marker)
     timeout_block = (
         timeout_block[:alert_start]
-        + "                // AyuGram read-only peek: dismiss at deadline without Join.\\n"
+        + "                // AyuGram read-only peek: dismiss at deadline without Join.\n"
         + "                strongSelf.dismiss()"
         + timeout_block[alert_end:]
     )
