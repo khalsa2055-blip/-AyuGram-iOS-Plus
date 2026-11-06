@@ -11,6 +11,7 @@ on:
       - "Scripts/apply_four_feature_ui.py"
       - "Experiments/PrivateInviteLinkInspector/**"
       - ".github/workflows/four-feature-compatibility.yml"
+      - ".github/workflows/four-feature-simulator.yml"
 
 permissions:
   contents: read
