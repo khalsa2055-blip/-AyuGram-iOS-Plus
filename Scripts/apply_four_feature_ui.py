@@ -495,14 +495,11 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
         chat_controller = chat_controller[:web_line_start] + web_block + chat_controller[web_end:]
 
     # A preview is strictly read-only: prevent navigation and all secondary actions.
+    # Keep only the interaction guards that cannot be enforced by the
+    # centralized send, URL, peer-mention and group-call methods below.
+    # A very large initializer with many individually guarded closures pushes
+    # Swift's type checker over its expression complexity limit.
     additional_read_only_anchors = [
-        (
-            """                openUrl: { [weak self] url in
-                    self?.openUrl(url, concealed: false, skipConcealedAlert: isLocation, message: nil)""",
-            """                openUrl: { [weak self] url in
-                    guard let self, case nil = self.peekData else { return }
-                    self.openUrl(url, concealed: false, skipConcealedAlert: isLocation, message: nil)""",
-        ),
         (
             """                openPeer: { [weak self] peer, navigation in
                     self?.openPeer(peer: EnginePeer(peer), navigation: navigation, fromMessage: nil)""",
@@ -525,13 +522,6 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
             var expandAvatar = false""",
         ),
         (
-            """}, openPeerMention: { [weak self] name, progress in
-            self?.openPeerMention(name, progress: progress)""",
-            """}, openPeerMention: { [weak self] name, progress in
-            guard let self, case nil = self.peekData else { return }
-            self.openPeerMention(name, progress: progress)""",
-        ),
-        (
             """}, openMessageContextMenu: { [weak self] message, selectAll, node, frame, anyRecognizer, location in
             guard let self, self.isNodeLoaded else {""",
             """}, openMessageContextMenu: { [weak self] message, selectAll, node, frame, anyRecognizer, location in
@@ -544,77 +534,11 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
             guard let self, case nil = self.peekData else {""",
         ),
         (
-            """}, openUrl: { [weak self] urlData in
-            guard let strongSelf = self else {""",
-            """}, openUrl: { [weak self] urlData in
-            guard let strongSelf = self, case nil = self.peekData else {""",
-        ),
-        (
-            """}, openExternalInstantPage: { [weak self] instantPage in
-            guard let self else {""",
-            """}, openExternalInstantPage: { [weak self] instantPage in
-            guard let self, case nil = self.peekData else {""",
-        ),
-        (
-            """}, openJoinLink: { [weak self] joinHash in
-            guard let strongSelf = self else {""",
-            """}, openJoinLink: { [weak self] joinHash in
-            guard let strongSelf = self, case nil = strongSelf.peekData else {""",
-        ),
-        (
-            """}, openWebView: { [weak self] buttonText, url, simple, source in
-            guard let self else {""",
-            """}, openWebView: { [weak self] buttonText, url, simple, source in
-            guard let self, case nil = self.peekData else {""",
-        ),
-        (
             """                openConferenceCall: { [weak self] message in
                     self?.controllerInteraction?.openConferenceCall(message)""",
             """                openConferenceCall: { [weak self] message in
                     guard let self, case nil = self.peekData else { return }
                     self.controllerInteraction?.openConferenceCall(message)""",
-        ),
-        (
-            """}, activateSwitchInline: { [weak self] peerId, inputString, peerTypes in
-            guard let strongSelf = self else {""",
-            """}, activateSwitchInline: { [weak self] peerId, inputString, peerTypes in
-            guard let strongSelf = self, case nil = self.peekData else {""",
-        ),
-        (
-            """        }, editMessageFactCheck: { [weak self] messageId in
-            guard let self else {""",
-            """        }, editMessageFactCheck: { [weak self] messageId in
-            guard let self, case nil = self.peekData else {""",
-        ),
-        (
-            """        }, sendGift: { [weak self] peerId in
-            guard let self else {""",
-            """        }, sendGift: { [weak self] peerId in
-            guard let self, case nil = self.peekData else {""",
-        ),
-        (
-            """        }, openUniqueGift: { [weak self] slug in
-            guard let self else {""",
-            """        }, openUniqueGift: { [weak self] slug in
-            guard let self, case nil = self.peekData else {""",
-        ),
-        (
-            """        }, openMessageFeeException: { [weak self] in
-            guard let self, let peer = self.presentationInterfaceState.renderedPeer?.peer.flatMap(EnginePeer.init) else {""",
-            """        }, openMessageFeeException: { [weak self] in
-            guard let self, case nil = self.peekData, let peer = self.presentationInterfaceState.renderedPeer?.peer.flatMap(EnginePeer.init) else {""",
-        ),
-        (
-            """        }, adContextAction: { [weak self] message, sourceNode, gesture in
-            guard let self else {""",
-            """        }, adContextAction: { [weak self] message, sourceNode, gesture in
-            guard let self, case nil = self.peekData else {""",
-        ),
-        (
-            """        }, removeAd: { [weak self] opaqueId in
-            guard let self else {""",
-            """        }, removeAd: { [weak self] opaqueId in
-            guard let self, case nil = self.peekData else {""",
         ),
     ]
     for old, new in additional_read_only_anchors:
