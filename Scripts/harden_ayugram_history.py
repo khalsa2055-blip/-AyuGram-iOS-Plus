@@ -480,7 +480,15 @@ context_menu_text = context_menu.read_text()
 legacy_before_action_pattern = re.compile(
     r"(?ms)^        if !message\.containsSecretMedia && !isCopyProtected \{\n.*?^        \}\n"
 )
-context_menu_text, legacy_action_count = legacy_before_action_pattern.subn("", context_menu_text)
+legacy_before_action_matches = list(legacy_before_action_pattern.finditer(context_menu_text))
+legacy_action_count = sum(
+    'ContextMenuActionItem(text: "Before"' in match.group(0)
+    for match in legacy_before_action_matches
+)
+context_menu_text = legacy_before_action_pattern.sub(
+    lambda match: "" if 'ContextMenuActionItem(text: "Before"' in match.group(0) else match.group(0),
+    context_menu_text
+)
 legacy_preview_pattern = re.compile(
     r"(?ms)^private final class AyuGramOriginalPreviewItem: NSObject, QLPreviewItem \{\n.*?^private struct MessageContextMenuData \{\n"
 )
