@@ -492,8 +492,27 @@ if "AyuGramOriginalMediaPreviewController" not in context_menu_text:
     raise SystemExit("Gallery Before preview controller was not normalized")
 if "AyuGramOriginalPreviewController" in context_menu_text or "AyuGramOriginalPreviewItem" in context_menu_text:
     raise SystemExit("Legacy Before preview controller names remain")
-if context_menu_text.count("import QuickLook\\n") != 1:
-    raise SystemExit("Gallery Before QuickLook import is missing or duplicated")
+# Normalize the QuickLook import across the Telegram baseline and AyuGram patch.
+# The baseline may already import QuickLook; keep exactly one import and add it
+# only when neither source supplied it.
+context_lines = context_menu_text.splitlines(keepends=True)
+normalized_lines = []
+quicklook_seen = False
+for line in context_lines:
+    if line.strip() == "import QuickLook":
+        if quicklook_seen:
+            continue
+        quicklook_seen = True
+    normalized_lines.append(line)
+if not quicklook_seen:
+    import_index = next(
+        (index + 1 for index, line in enumerate(normalized_lines) if line.strip() == "import UIKit"),
+        0
+    )
+    normalized_lines.insert(import_index, "import QuickLook\n")
+context_menu_text = "".join(normalized_lines)
+if sum(line.strip() == "import QuickLook" for line in context_menu_text.splitlines()) != 1:
+    raise SystemExit("Could not normalize exactly one QuickLook import")
 if "ayuGramHistoryScreen(context: context" not in context_menu_text:
     raise SystemExit("AyuGram History context-menu action is missing")
 context_menu_text = context_menu_text.replace(
