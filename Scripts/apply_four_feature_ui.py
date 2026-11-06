@@ -409,40 +409,11 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
             '            guard case nil = strongSelf.peekData else { return }'
         ),
         (
-            '}, requestOpenMessagePollResults: { [weak self] messageId, pollId in\n'
-            '            guard let strongSelf = self, pollId.namespace == Namespaces.Media.CloudPoll else {\n'
-            '                return\n'
-            '            }',
-            '}, requestOpenMessagePollResults: { [weak self] messageId, pollId in\n'
-            '            guard let strongSelf = self, pollId.namespace == Namespaces.Media.CloudPoll else {\n'
-            '                return\n'
-            '            }\n'
-            '            guard case nil = strongSelf.peekData else { return }'
-        ),
-        (
             '}, requestMessageActionUrlAuth: { [weak self] defaultUrl, subject in\n'
             '            if let strongSelf = self {',
             '}, requestMessageActionUrlAuth: { [weak self] defaultUrl, subject in\n'
             '            if let strongSelf = self {\n'
             '                guard case nil = strongSelf.peekData else { return }'
-        ),
-        (
-            '}, openMessagePollResults: { [weak self] messageId, optionOpaqueIdentifier in\n'
-            '            guard let strongSelf = self else {\n'
-            '                return\n'
-            '            }',
-            '}, openMessagePollResults: { [weak self] messageId, optionOpaqueIdentifier in\n'
-            '            guard let strongSelf = self else {\n'
-            '                return\n'
-            '            }\n'
-            '            guard case nil = strongSelf.peekData else { return }'
-        ),
-        (
-            '}, joinVoiceChat: { [weak self] peerId, invite, call in\n'
-            '            self?.joinGroupCall(peerId: peerId, invite: invite, activeCall: EngineGroupCallDescription(call))',
-            '}, joinVoiceChat: { [weak self] peerId, invite, call in\n'
-            '            guard let self, case nil = self.peekData else { return }\n'
-            '            self.joinGroupCall(peerId: peerId, invite: invite, activeCall: EngineGroupCallDescription(call))'
         ),
         (
             '        requestMessageActionUrlAuth: { [weak self] subject in\n'
@@ -494,11 +465,7 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
         web_block = web_block.replace(weak_guard, guarded_weak_guard, 1)
         chat_controller = chat_controller[:web_line_start] + web_block + chat_controller[web_end:]
 
-    # A preview is strictly read-only: prevent navigation and all secondary actions.
-    # Keep only the interaction guards that cannot be enforced by the
-    # centralized send, URL, peer-mention and group-call methods below.
-    # A very large initializer with many individually guarded closures pushes
-    # Swift's type checker over its expression complexity limit.
+    # Keep only UI entry points that do not route through a central guarded method.
     additional_read_only_anchors = [
         (
             """                openPeer: { [weak self] peer, navigation in
@@ -542,11 +509,11 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
         ),
     ]
     for old, new in additional_read_only_anchors:
-        if new in chat_controller:
-            continue
-        if chat_controller.count(old) != 1:
-            raise SystemExit(f"Read-only preview tap/menu/action anchor not unique: {old.splitlines()[0]}")
-        chat_controller = chat_controller.replace(old, new, 1)
+        count = chat_controller.count(old)
+        if count:
+            chat_controller = chat_controller.replace(old, new, 1)
+        elif new not in chat_controller:
+            raise SystemExit(f"Read-only preview UI anchor missing: {old.splitlines()[0]}")
 
     # Central backstops: no link or username navigation from a peek controller.
     open_url_signature = """    func openUrl(
@@ -572,27 +539,7 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
         if chat_controller.count(open_mention_signature) != 1:
             raise SystemExit("Could not uniquely scope ChatController.openPeerMention during peek")
         chat_controller = chat_controller.replace(open_mention_signature, open_mention_guard, 1)
-    # Poll long-press callback signatures vary slightly across the AyuGram/Swiftgram
-    # patch revisions. Guard the callback semantically instead of matching its
-    # entire multi-line body as a brittle literal anchor.
-    poll_marker = "}, pollOptionLongTap: { [weak self] optionId, params in"
-    poll_start = chat_controller.find(poll_marker)
-    if poll_start < 0:
-        raise SystemExit("Read-only preview poll long-press callback is missing")
-    poll_end = chat_controller.find("}, openCheckoutOrReceipt:", poll_start)
-    if poll_end < 0:
-        raise SystemExit("Could not bound the poll long-press callback")
-    poll_block = chat_controller[poll_start:poll_end]
-    if "case nil = self.peekData" not in poll_block:
-        old_poll_guard = "guard let self, let params else {"
-        if poll_block.count(old_poll_guard) != 1:
-            raise SystemExit("Could not safely locate poll long-press optional-parameter guard")
-        poll_block = poll_block.replace(
-            old_poll_guard,
-            "guard let self, let params, case nil = self.peekData else {",
-            1,
-        )
-        chat_controller = chat_controller[:poll_start] + poll_block + chat_controller[poll_end:]
+    # Poll writes are denied at their requestSelect/requestAdd callbacks above.
 
     for old, new in guarded_anchors:
         count = chat_controller.count(old)
