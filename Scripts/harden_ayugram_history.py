@@ -473,39 +473,27 @@ if not context_menu.exists():
     raise SystemExit(f"Missing AyuGram message context menu source: {context_menu}")
 context_menu_text = context_menu.read_text()
 
-# Remove the original unconditional Before entry from the base AyuGram patch.
-# apply_four_feature_ui.py adds one guarded action for edited photo/video only;
-# leaving both implementations here created duplicate actions and exposed Before
-# for messages that had never been edited.
-legacy_before_action_pattern = re.compile(
-    r"(?ms)^        if !message\.containsSecretMedia && !isCopyProtected \{\n.*?^        \}\n"
+# Keep the gallery-level Before entry, but give it the same original-media
+# preview controller used by the message menu. The UI integration step below
+# adds the edit-only guard to this action; deleting it here made that guard
+# impossible to apply and caused the simulator/compatibility checks to fail.
+before_action_count = context_menu_text.count('ContextMenuActionItem(text: "Before"')
+if before_action_count != 1:
+    raise SystemExit(f"Expected one base gallery Before action before UI integration; found {before_action_count}")
+context_menu_text = context_menu_text.replace(
+    "AyuGramOriginalPreviewController",
+    "AyuGramOriginalMediaPreviewController"
 )
-legacy_before_action_matches = list(legacy_before_action_pattern.finditer(context_menu_text))
-legacy_action_count = sum(
-    'ContextMenuActionItem(text: "Before"' in match.group(0)
-    for match in legacy_before_action_matches
+context_menu_text = context_menu_text.replace(
+    "AyuGramOriginalPreviewItem",
+    "AyuGramOriginalMediaPreviewItem"
 )
-context_menu_text = legacy_before_action_pattern.sub(
-    lambda match: "" if 'ContextMenuActionItem(text: "Before"' in match.group(0) else match.group(0),
-    context_menu_text
-)
-legacy_preview_pattern = re.compile(
-    r"(?ms)^private final class AyuGramOriginalPreviewItem: NSObject, QLPreviewItem \{\n.*?^private struct MessageContextMenuData \{\n"
-)
-context_menu_text, legacy_preview_count = legacy_preview_pattern.subn(
-    "private struct MessageContextMenuData {\n",
-    context_menu_text
-)
-if legacy_action_count != legacy_preview_count or legacy_action_count > 1:
-    raise SystemExit(
-        f"Legacy Before cleanup mismatch: actions={legacy_action_count}, previews={legacy_preview_count}"
-    )
-if legacy_preview_count == 1:
-    if context_menu_text.count("import QuickLook\n") != 1:
-        raise SystemExit("Legacy Before controller QuickLook import anchor is not unique")
-    context_menu_text = context_menu_text.replace("import QuickLook\n", "", 1)
+if "AyuGramOriginalMediaPreviewController" not in context_menu_text:
+    raise SystemExit("Gallery Before preview controller was not normalized")
 if "AyuGramOriginalPreviewController" in context_menu_text or "AyuGramOriginalPreviewItem" in context_menu_text:
-    raise SystemExit("Unfiltered legacy Before preview controller remains")
+    raise SystemExit("Legacy Before preview controller names remain")
+if context_menu_text.count("import QuickLook\\n") != 1:
+    raise SystemExit("Gallery Before QuickLook import is missing or duplicated")
 if "ayuGramHistoryScreen(context: context" not in context_menu_text:
     raise SystemExit("AyuGram History context-menu action is missing")
 context_menu_text = context_menu_text.replace(
