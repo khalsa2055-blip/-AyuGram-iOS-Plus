@@ -325,6 +325,23 @@ jobs:
           assert "self?.openPeer(peer: EnginePeer(peer), navigation: navigation, fromMessage: nil)" not in source, "Gallery peer navigation bypasses preview guard"
           assert "self?.controllerInteraction?.callPeer(peerId, isVideo)" not in source, "Direct peer calls bypass preview guard"
           assert "self?.controllerInteraction?.openConferenceCall(message)" not in source, "Conference call entry bypasses preview guard"
+          gallery_start = source.index("let openChatMessageParams = OpenChatMessageParams(")
+          gallery_end = source.index("self.controllerInteraction?.isOpeningMediaSignal", gallery_start)
+          message_gallery = source[gallery_start:gallery_end]
+          for forbidden in (
+              "self?.openUrl(url, concealed: false, skipConcealedAlert: isLocation, message: nil)",
+              "self?.openPeer(peer: EnginePeer(peer), navigation: navigation, fromMessage: nil)",
+              "self?.controllerInteraction?.callPeer(peerId, isVideo)",
+              "self?.controllerInteraction?.openConferenceCall(message)",
+              "self?.sendMessages([message])",
+          ):
+              assert forbidden not in message_gallery, f"Unblocked message-gallery action remains: {forbidden}"
+          action_start = source.index("actionInteraction: GalleryControllerActionInteraction(")
+          action_end = source.index("navigateToMessageContext:", action_start)
+          gallery_actions = source[action_start:action_end]
+          assert gallery_actions.count("guard let self, case nil = self.peekData else { return }") >= 10, "Gallery navigation and state-changing callbacks are not fully read-only"
+          assert "guard case nil = self.peekData else { return }" in gallery_actions, "Gallery media-send callback is not blocked"
+          assert "self.openUrlIn(url)" in gallery_actions and "guard let self, case nil = self.peekData else { return }" in gallery_actions, "In-app gallery URL action is not scoped"
           assert "guard case nil = self.peekData else { return }" in source[source.index("public override func joinGroupCall"):], "A direct group-call path remains open"
           state_source = Path("telegram-ios/submodules/ChatPresentationInterfaceState/Sources/ChatPresentationInterfaceState.swift").read_text(encoding="utf-8")
           gate_start = state_source.index("public func canSendMessagesToChat")
