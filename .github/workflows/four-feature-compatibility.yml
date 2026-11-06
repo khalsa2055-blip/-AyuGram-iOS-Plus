@@ -339,7 +339,11 @@ jobs:
           action_start = source.index("actionInteraction: GalleryControllerActionInteraction(")
           action_end = source.index("navigateToMessageContext:", action_start)
           gallery_actions = source[action_start:action_end]
-          assert gallery_actions.count("guard let self, case nil = self.peekData else { return }") >= 10, "Gallery navigation and state-changing callbacks are not fully read-only"
+          assert gallery_actions.count("guard let self, case nil = self.peekData else { return }") >= 9, "Gallery navigation and state-changing callbacks are not fully read-only"
+          edit_media_start = gallery_actions.index("editMedia:")
+          edit_media_end = gallery_actions.index("updateCanReadHistory:", edit_media_start)
+          edit_media_action = gallery_actions[edit_media_start:edit_media_end]
+          assert "guard let self, case nil = self.peekData else {" in edit_media_action, "Gallery media editing remains enabled in preview"
           assert "guard case nil = self.peekData else { return }" in gallery_actions, "Gallery media-send callback is not blocked"
           assert "self.openUrlIn(url)" in gallery_actions and "guard let self, case nil = self.peekData else { return }" in gallery_actions, "In-app gallery URL action is not scoped"
           assert "guard case nil = self.peekData else { return }" in source[source.index("public override func joinGroupCall"):], "A direct group-call path remains open"
