@@ -520,6 +520,20 @@ jobs:
         working-directory: telegram-ios
         run: |
           set -euo pipefail
+          # Simulator-only builds must not resolve Apple provisioning profiles or app extensions.
+          # Restore the baseline .bazelrc automatically after the build, including on failure.
+          bazelrc_backup="$(mktemp)"
+          cp .bazelrc "$bazelrc_backup"
+          restore_bazelrc() {
+            cp "$bazelrc_backup" .bazelrc
+            rm -f "$bazelrc_backup"
+          }
+          trap restore_bazelrc EXIT
+          cat >> .bazelrc <<'BAZELRC'
+          build --//Telegram:disableProvisioningProfiles
+          build --//Telegram:disableExtensions
+          BAZELRC
+
           echo "Simulator build (single cached attempt)"
           USE_BAZEL_VERSION=8.4.2 python3 build-system/Make/Make.py \
             --bazel="$(command -v bazelisk)" \
