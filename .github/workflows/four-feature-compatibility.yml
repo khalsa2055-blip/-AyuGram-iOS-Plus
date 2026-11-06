@@ -381,7 +381,9 @@ jobs:
           assert "saveDeletedMessages == true" in capture_service
           assert "AyuGramPostboxHistoryStore.appendDeleted" in capture_service
           assert "AyuGramPostboxHistoryStore.appendEdited" in capture_service
-          assert "AyuGramMediaArchive.saveToSaved(message: savedSnapshot)" in capture_service
+          assert 'AyuGramMediaArchive.saveToSaved(message: savedSnapshot, folderName: "king")' in capture_service, "Manual Save must remain routed to saved/king"
+          assert 'public static func saveToSaved(message: AyuMessage, folderName: String = "Media")' in media_archive
+          assert 'let mediaRoot = root.appendingPathComponent(folderName, isDirectory: true)' in media_archive
           print("PASS: deleted/edit snapshots, sender/time metadata and immutable Before media archives are linked.")
           PY
           echo "All four feature integration markers and detailed wiring checks passed."
