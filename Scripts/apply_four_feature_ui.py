@@ -468,6 +468,13 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
     # Keep only UI entry points that do not route through a central guarded method.
     additional_read_only_anchors = [
         (
+            """                openUrl: { [weak self] url in
+                    self?.openUrl(url, concealed: false, skipConcealedAlert: isLocation, message: nil)""",
+            """                openUrl: { [weak self] url in
+                    guard let self, case nil = self.peekData else { return }
+                    self.openUrl(url, concealed: false, skipConcealedAlert: isLocation, message: nil)""",
+        ),
+        (
             """                openPeer: { [weak self] peer, navigation in
                     self?.openPeer(peer: EnginePeer(peer), navigation: navigation, fromMessage: nil)""",
             """                openPeer: { [weak self] peer, navigation in
