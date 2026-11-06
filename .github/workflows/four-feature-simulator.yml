@@ -442,6 +442,7 @@ jobs:
           PY
 
       - name: Prepare unsigned arm64 device IPA for iLoader
+        if: false # Keep device IPA disabled until all four feature validations pass.
         working-directory: telegram-ios
         run: |
           python3 - <<'PY'
@@ -782,6 +783,7 @@ jobs:
           ls -lh ci-artifacts
 
       - name: Build and verify arm64 iPhone IPA
+        if: false # Keep device IPA disabled until all four feature validations pass.
         working-directory: telegram-ios
         run: |
           set -euo pipefail
@@ -838,6 +840,7 @@ jobs:
           ls -lh ci-artifacts/AyuGram-iOS-Plus-device-arm64.ipa
 
       - name: Upload arm64 device IPA
+        if: false # Keep device IPA disabled until all four feature validations pass.
         uses: actions/upload-artifact@v4
         with:
           name: AyuGram-iOS-Plus-device-arm64-${{ github.run_number }}
