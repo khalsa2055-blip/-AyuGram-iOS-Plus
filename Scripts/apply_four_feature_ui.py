@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Apply the two UI surfaces that complete the four-feature AyuGram integration."""
 from pathlib import Path
+import re
 
 ROOT = Path("telegram-ios")
 SETTINGS = ROOT / "submodules/TelegramUI/Components/AyuGramSettingsScreen/Sources/AyuGramSettingsScreen.swift"
