@@ -26,7 +26,6 @@ concurrency:
 jobs:
   build-simulator:
     # Full simulator/device packaging is manual-only; source checks must never start IPA packaging on push.
-    if: github.event_name == 'workflow_dispatch'
     # Telegram-iOS baseline builds sim_arm64; use Apple Silicon runner so Simulator can install it directly.
     runs-on: macos-26
     timeout-minutes: 360
