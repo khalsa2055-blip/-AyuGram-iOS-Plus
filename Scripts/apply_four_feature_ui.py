@@ -8,6 +8,7 @@ SETTINGS = ROOT / "submodules/TelegramUI/Components/AyuGramSettingsScreen/Source
 SETTINGS_BUILD = ROOT / "submodules/TelegramUI/Components/AyuGramSettingsScreen/BUILD"
 MENU = ROOT / "submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift"
 CHAT_CONTROLLER = ROOT / "submodules/TelegramUI/Sources/ChatController.swift"
+CHAT_CONTROLLER_INTERACTION = ROOT / "submodules/TelegramUI/Components/ChatControllerInteraction/Sources/ChatControllerInteraction.swift"
 
 def replace_once(source: str, old: str, new: str, label: str) -> str:
     count = source.count(old)
@@ -15,7 +16,7 @@ def replace_once(source: str, old: str, new: str, label: str) -> str:
         raise SystemExit(f"{label}: expected exactly one anchor, found {count}")
     return source.replace(old, new, 1)
 
-for path in (SETTINGS, SETTINGS_BUILD, MENU, CHAT_CONTROLLER):
+for path in (SETTINGS, SETTINGS_BUILD, MENU, CHAT_CONTROLLER, CHAT_CONTROLLER_INTERACTION):
     if not path.is_file():
         raise SystemExit(f"Missing required AyuGram integration file: {path}")
 
@@ -23,6 +24,7 @@ settings = SETTINGS.read_text(encoding="utf-8")
 build = SETTINGS_BUILD.read_text(encoding="utf-8")
 menu = MENU.read_text(encoding="utf-8")
 chat_controller = CHAT_CONTROLLER.read_text(encoding="utf-8")
+chat_controller_interaction = CHAT_CONTROLLER_INTERACTION.read_text(encoding="utf-8")
 
 # Give Swift's constraint solver the concrete interaction type before it checks
 # Telegram's large callback initializer; the read-only closures otherwise push
@@ -386,191 +388,7 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
             raise SystemExit(f"Read-only preview send-gate anchor missing: {old}")
         chat_controller = chat_controller.replace(old, new)
 
-    # Block non-message interactions that write to Telegram or reveal member lists.
-    guarded_anchors = [
-        (
-            '}, requestMessageActionCallback: { [weak self] message, data, isGame, requiresPassword, progress in\n'
-            '            guard let strongSelf = self else {\n'
-            '                return\n'
-            '            }',
-            '}, requestMessageActionCallback: { [weak self] message, data, isGame, requiresPassword, progress in\n'
-            '            guard let strongSelf = self else {\n'
-            '                return\n'
-            '            }\n'
-            '            guard case nil = strongSelf.peekData else { return }'
-        ),
-        (
-            '}, requestSelectMessagePollOptions: { [weak self] id, opaqueIdentifiers in\n'
-            '            guard let strongSelf = self, let controllerInteraction = strongSelf.controllerInteraction else {\n'
-            '                return\n'
-            '            }',
-            '}, requestSelectMessagePollOptions: { [weak self] id, opaqueIdentifiers in\n'
-            '            guard let strongSelf = self, let controllerInteraction = strongSelf.controllerInteraction else {\n'
-            '                return\n'
-            '            }\n'
-            '            guard case nil = strongSelf.peekData else { return }'
-        ),
-        (
-            '}, requestAddMessagePollOption: { [weak self] id, text, entities, opaqueIdentifier, mediaReference in\n'
-            '            guard let strongSelf = self, let controllerInteraction = strongSelf.controllerInteraction else {\n'
-            '                return\n'
-            '            }',
-            '}, requestAddMessagePollOption: { [weak self] id, text, entities, opaqueIdentifier, mediaReference in\n'
-            '            guard let strongSelf = self, let controllerInteraction = strongSelf.controllerInteraction else {\n'
-            '                return\n'
-            '            }\n'
-            '            guard case nil = strongSelf.peekData else { return }'
-        ),
-        (
-            '}, requestMessageActionUrlAuth: { [weak self] defaultUrl, subject in\n'
-            '            if let strongSelf = self {',
-            '}, requestMessageActionUrlAuth: { [weak self] defaultUrl, subject in\n'
-            '            if let strongSelf = self {\n'
-            '                guard case nil = strongSelf.peekData else { return }'
-        ),
-        (
-            '        requestMessageActionUrlAuth: { [weak self] subject in\n'
-            '            if case let .url(url, _) = subject {\n'
-            '                self?.controllerInteraction?.requestMessageActionUrlAuth(url, subject)',
-            '        requestMessageActionUrlAuth: { [weak self] subject in\n'
-            '            guard let self, case nil = self.peekData else { return }\n'
-            '            if case let .url(url, _) = subject {\n'
-            '                self.controllerInteraction?.requestMessageActionUrlAuth(url, subject)'
-        ),
-        (
-            '        }, openJoinLink: { [weak self] joinHash in\n'
-            '            guard let strongSelf = self else {\n'
-            '                return\n'
-            '            }',
-            '        }, openJoinLink: { [weak self] joinHash in\n'
-            '            guard let strongSelf = self, case nil = strongSelf.peekData else {\n'
-            '                return\n'
-            '            }'
-        ),
-        (
-            '        }, activateAdAction: { [weak self] messageId, progress, media, fullscreen in\n'
-            '            guard let self else {\n'
-            '                return\n'
-            '            }',
-            '        }, activateAdAction: { [weak self] messageId, progress, media, fullscreen in\n'
-            '            guard let self, case nil = self.peekData else {\n'
-            '                return\n'
-            '            }'
-        ),
-    ]
-    # Telegram revisions vary in indentation and callback-body formatting.
-    # Locate the web-view callback by its stable closure label and guard its
-    # weak-self entry without requiring a brittle whole-body text match.
-    web_marker = "openWebView: { [weak self] buttonText, url, simple, source in"
-    web_start = chat_controller.find(web_marker)
-    if web_start < 0:
-        raise SystemExit("Read-only preview web-view callback is missing")
-    web_line_start = chat_controller.rfind("},", 0, web_start)
-    web_end = chat_controller.find("}, activateAdAction:", web_start)
-    if web_line_start < 0 or web_end < 0:
-        raise SystemExit("Could not safely bound the web-view callback")
-    web_block = chat_controller[web_line_start:web_end]
-    weak_guard = "guard let self else {"
-    guarded_weak_guard = "guard let self, case nil = self.peekData else {"
-    if "case nil = self.peekData" not in web_block:
-        if web_block.count(weak_guard) != 1:
-            raise SystemExit("Could not safely locate web-view weak-self guard")
-        web_block = web_block.replace(weak_guard, guarded_weak_guard, 1)
-        chat_controller = chat_controller[:web_line_start] + web_block + chat_controller[web_end:]
-
-    # Keep only UI entry points that do not route through a central guarded method.
-    additional_read_only_anchors = [
-        (
-            """                openUrl: { [weak self] url in
-                    self?.openUrl(url, concealed: false, skipConcealedAlert: isLocation, message: nil)""",
-            """                openUrl: { [weak self] url in
-                    guard let self, case nil = self.peekData else { return }
-                    self.openUrl(url, concealed: false, skipConcealedAlert: isLocation, message: nil)""",
-        ),
-        (
-            """                openPeer: { [weak self] peer, navigation in
-                    self?.openPeer(peer: EnginePeer(peer), navigation: navigation, fromMessage: nil)""",
-            """                openPeer: { [weak self] peer, navigation in
-                    guard let self, case nil = self.peekData else { return }
-                    self.openPeer(peer: EnginePeer(peer), navigation: navigation, fromMessage: nil)""",
-        ),
-        (
-            """                callPeer: { [weak self] peerId, isVideo in
-                    self?.controllerInteraction?.callPeer(peerId, isVideo)""",
-            """                callPeer: { [weak self] peerId, isVideo in
-                    guard let self, case nil = self.peekData else { return }
-                    self.controllerInteraction?.callPeer(peerId, isVideo)""",
-        ),
-        (
-            """}, openPeer: { [weak self] peer, navigation, fromMessage, source in
-            var expandAvatar = false""",
-            """}, openPeer: { [weak self] peer, navigation, fromMessage, source in
-            guard let self, case nil = self.peekData else { return }
-            var expandAvatar = false""",
-        ),
-        (
-            """}, openMessageContextMenu: { [weak self] message, selectAll, node, frame, anyRecognizer, location in
-            guard let self, self.isNodeLoaded else {""",
-            """}, openMessageContextMenu: { [weak self] message, selectAll, node, frame, anyRecognizer, location in
-            guard let self, self.isNodeLoaded, case nil = self.peekData else {""",
-        ),
-        (
-            """}, openMessageReactionContextMenu: { [weak self] message, sourceView, gesture, value in
-            guard let self else {""",
-            """}, openMessageReactionContextMenu: { [weak self] message, sourceView, gesture, value in
-            guard let self, case nil = self.peekData else {""",
-        ),
-        (
-            """                openConferenceCall: { [weak self] message in
-                    self?.controllerInteraction?.openConferenceCall(message)""",
-            """                openConferenceCall: { [weak self] message in
-                    guard let self, case nil = self.peekData else { return }
-                    self.controllerInteraction?.openConferenceCall(message)""",
-        ),
-    ]
-    for old, new in additional_read_only_anchors:
-        count = chat_controller.count(old)
-        if count:
-            chat_controller = chat_controller.replace(old, new, 1)
-        elif new not in chat_controller:
-            raise SystemExit(f"Read-only preview UI anchor missing: {old.splitlines()[0]}")
-
-    # Central backstops: no link or username navigation from a peek controller.
-    open_url_signature = """    func openUrl(
-        _ url: String,
-        concealed: Bool,
-        forceExternal: Bool = false,
-        forceUpdate: Bool = false,
-        skipUrlAuth: Bool = false,
-        skipConcealedAlert: Bool = false,
-        message: Message? = nil,
-        allowInlineWebpageResolution: Bool = false,
-        progress: Promise<Bool>? = nil,
-        commit: @escaping () -> Void = {}
-    ) {"""
-    open_url_guard = open_url_signature + "\n        guard case nil = self.peekData else { return }"
-    if open_url_guard not in chat_controller:
-        if chat_controller.count(open_url_signature) != 1:
-            raise SystemExit("Could not uniquely scope ChatController.openUrl during peek")
-        chat_controller = chat_controller.replace(open_url_signature, open_url_guard, 1)
-    open_mention_signature = "    func openPeerMention(_ name: String, navigation: ChatControllerInteractionNavigateToPeer = .default, sourceMessageId: MessageId? = nil, progress: Promise<Bool>? = nil) {"
-    open_mention_guard = open_mention_signature + "\n        guard case nil = self.peekData else { return }"
-    if open_mention_guard not in chat_controller:
-        if chat_controller.count(open_mention_signature) != 1:
-            raise SystemExit("Could not uniquely scope ChatController.openPeerMention during peek")
-        chat_controller = chat_controller.replace(open_mention_signature, open_mention_guard, 1)
-    # Poll writes are denied at their requestSelect/requestAdd callbacks above.
-
-    for old, new in guarded_anchors:
-        count = chat_controller.count(old)
-        if count:
-            # Some Telegram revisions declare the same interaction callback in
-            # more than one construction path. Guard every matching path: the
-            # peekData check is a no-op for ordinary chats and must cover all
-            # read-only preview instances.
-            chat_controller = chat_controller.replace(old, new)
-        elif new not in chat_controller:
-            raise SystemExit(f"Read-only preview interaction anchor missing: {old.splitlines()[0]}")
+    # Read-only callback gates are installed in ChatControllerInteraction below.
 
     # Disable the avatar/profile and header More surfaces during a private peek.
     long_tap_old = 'if let strongSelf = self, let peerView = strongSelf.contentData?.state.peerView'
@@ -771,10 +589,110 @@ private extension DateFormatter {
         "Before context menu action"
     )
 
+# Keep preview-only interaction checks out of ChatController's giant initializer.
+# Each callback is wrapped independently inside ChatControllerInteraction so Swift
+# does not have to type-check many new guards as part of one enormous expression.
+if "canPerformPeekInteractions: @escaping () -> Bool = { true }" not in chat_controller_interaction:
+    chat_controller_interaction = replace_once(
+        chat_controller_interaction,
+        "        displayPollRestrictedToast: @escaping (EngineMessage.Id) -> Void,\n        automaticMediaDownloadSettings: MediaAutoDownloadSettings,",
+        "        displayPollRestrictedToast: @escaping (EngineMessage.Id) -> Void,\n        canPerformPeekInteractions: @escaping () -> Bool = { true },\n        automaticMediaDownloadSettings: MediaAutoDownloadSettings,",
+        "private preview interaction permission parameter"
+    )
+
+callback_wrappers = [
+    ("self.openPeer = openPeer", """self.openPeer = { peer, navigation, reference, source in
+            guard canPerformPeekInteractions() else { return }
+            openPeer(peer, navigation, reference, source)
+        }"""),
+    ("self.openPeerMention = openPeerMention", """self.openPeerMention = { name, progress in
+            guard canPerformPeekInteractions() else { return }
+            openPeerMention(name, progress)
+        }"""),
+    ("self.openMessageContextMenu = openMessageContextMenu", """self.openMessageContextMenu = { message, selectAll, node, frame, recognizer, location in
+            guard canPerformPeekInteractions() else { return }
+            openMessageContextMenu(message, selectAll, node, frame, recognizer, location)
+        }"""),
+    ("self.openMessageReactionContextMenu = openMessageReactionContextMenu", """self.openMessageReactionContextMenu = { message, sourceView, gesture, value in
+            guard canPerformPeekInteractions() else { return }
+            openMessageReactionContextMenu(message, sourceView, gesture, value)
+        }"""),
+    ("self.updateMessageReaction = updateMessageReaction", """self.updateMessageReaction = { message, reaction, isLarge, sourceView in
+            guard canPerformPeekInteractions() else { return }
+            updateMessageReaction(message, reaction, isLarge, sourceView)
+        }"""),
+    ("self.openMessageContextActions = openMessageContextActions", """self.openMessageContextActions = { message, node, frame, gesture in
+            guard canPerformPeekInteractions() else { return }
+            openMessageContextActions(message, node, frame, gesture)
+        }"""),
+    ("self.requestMessageActionCallback = requestMessageActionCallback", """self.requestMessageActionCallback = { message, data, isGame, requiresPassword, progress in
+            guard canPerformPeekInteractions() else { return }
+            requestMessageActionCallback(message, data, isGame, requiresPassword, progress)
+        }"""),
+    ("self.requestMessageActionUrlAuth = requestMessageActionUrlAuth", """self.requestMessageActionUrlAuth = { url, subject in
+            guard canPerformPeekInteractions() else { return }
+            requestMessageActionUrlAuth(url, subject)
+        }"""),
+    ("self.requestSelectMessagePollOptions = requestSelectMessagePollOptions", """self.requestSelectMessagePollOptions = { id, options in
+            guard canPerformPeekInteractions() else { return }
+            requestSelectMessagePollOptions(id, options)
+        }"""),
+    ("self.requestAddMessagePollOption = requestAddMessagePollOption", """self.requestAddMessagePollOption = { id, text, entities, identifier, mediaReference in
+            guard canPerformPeekInteractions() else { return }
+            requestAddMessagePollOption(id, text, entities, identifier, mediaReference)
+        }"""),
+    ("self.openJoinLink = openJoinLink", """self.openJoinLink = { hash in
+            guard canPerformPeekInteractions() else { return }
+            openJoinLink(hash)
+        }"""),
+    ("self.openWebView = openWebView", """self.openWebView = { buttonText, url, simple, source in
+            guard canPerformPeekInteractions() else { return }
+            openWebView(buttonText, url, simple, source)
+        }"""),
+    ("self.activateAdAction = activateAdAction", """self.activateAdAction = { messageId, progress, media, fullscreen in
+            guard canPerformPeekInteractions() else { return }
+            activateAdAction(messageId, progress, media, fullscreen)
+        }"""),
+    ("self.callPeer = callPeer", """self.callPeer = { peerId, isVideo in
+            guard canPerformPeekInteractions() else { return }
+            callPeer(peerId, isVideo)
+        }"""),
+    ("self.openConferenceCall = openConferenceCall", """self.openConferenceCall = { message in
+            guard canPerformPeekInteractions() else { return }
+            openConferenceCall(message)
+        }"""),
+]
+for old, new in callback_wrappers:
+    if new not in chat_controller_interaction:
+        chat_controller_interaction = replace_once(
+            chat_controller_interaction, old, new, "read-only callback wrapper"
+        )
+
+call_marker='}, displayPollRestrictedToast: { [weak self] messageId in\n            guard let self else {\n                return\n            }\n            self.displayPollRestrictedToast(messageId: messageId)\n        }, automaticMediaDownloadSettings:'
+call_replacement='''}, displayPollRestrictedToast: { [weak self] messageId in
+            guard let self else {
+                return
+            }
+            self.displayPollRestrictedToast(messageId: messageId)
+        }, canPerformPeekInteractions: { [weak self] in
+            guard let self else { return false }
+            return self.peekData == nil
+        }, automaticMediaDownloadSettings:'''
+if "canPerformPeekInteractions: { [weak self] in" not in chat_controller:
+    chat_controller = replace_once(chat_controller, call_marker, call_replacement, "private preview callback gate argument")
+
+if "canPerformPeekInteractions: @escaping () -> Bool = { true }" not in chat_controller_interaction:
+    raise SystemExit("Private preview callback gate parameter did not install")
+if chat_controller_interaction.count("guard canPerformPeekInteractions() else { return }") < 10:
+    raise SystemExit("Not all private preview callbacks were wrapped")
+
+CHAT_CONTROLLER_INTERACTION.write_text(chat_controller_interaction, encoding="utf-8")
+
 SETTINGS.write_text(settings, encoding="utf-8")
 SETTINGS_BUILD.write_text(build, encoding="utf-8")
 MENU.write_text(menu, encoding="utf-8")
 CHAT_CONTROLLER.write_text(chat_controller, encoding="utf-8")
+CHAT_CONTROLLER_INTERACTION.write_text(chat_controller_interaction, encoding="utf-8")
 print("PASS: manual Save and deleted-message capture remain from the AyuGram patch.")
 print("PASS: added Telegram-resolved private invite preview entry.")
 print("PASS: non-member channel chat composer and reactions are read-only.")
