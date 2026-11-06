@@ -138,20 +138,20 @@ gallery_callback_replacements = (
                                         var parameters: ChatSendMessageActionSheetController.SendParameters?
                                         if isCaptionAbove {""", "gallery media message sending"),
     ("""                    sendSticker: canSendMessagesToChat(self.presentationInterfaceState) ? { [weak self] file in
-                         let _ = self?.controllerInteraction?.sendSticker(file, false, false, nil, false, nil, nil, nil, [])
+                        let _ = self?.controllerInteraction?.sendSticker(file, false, false, nil, false, nil, nil, nil, [])
                     } : nil""", """                    sendSticker: canSendMessagesToChat(self.presentationInterfaceState) ? { [weak self] file in
-                         guard let self, case nil = self.peekData else { return }
-                         let _ = self.controllerInteraction?.sendSticker(file, false, false, nil, false, nil, nil, nil, [])
-                     } : nil""", "gallery sticker sending"),
+                        guard let self, case nil = self.peekData else { return }
+                        let _ = self.controllerInteraction?.sendSticker(file, false, false, nil, false, nil, nil, nil, [])
+                    } : nil""", "gallery sticker sending"),
     ("""                navigateToMessageContext: { [weak self] message in
-                     Task {
-                         guard let self else {
-                             return
-                         }""", """                navigateToMessageContext: { [weak self] message in
-                     Task {
-                         guard let self, case nil = self.peekData else {
-                             return
-                         }""", "gallery message-context navigation"),
+                    Task {
+                        guard let self else {
+                            return
+                        }""", """                navigateToMessageContext: { [weak self] message in
+                    Task {
+                        guard let self, case nil = self.peekData else {
+                            return
+                        }""", "gallery message-context navigation"),
 )
 
 for old, new, label in gallery_callback_replacements:
