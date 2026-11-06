@@ -460,62 +460,6 @@ jobs:
           )
           PY
 
-      - name: Prepare unsigned arm64 device IPA for iLoader
-        if: false # Keep device IPA disabled until all four feature validations pass.
-        working-directory: telegram-ios
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          # Device builds require rules_apple to see a profile artifact even when
-          # the final IPA is intentionally unsigned for PC-side iLoader signing.
-          profile_partial = Path("build-system/bazel-rules/rules_apple/apple/internal/partials/provisioning_profile.bzl")
-          if not profile_partial.is_file():
-              raise SystemExit(f"rules_apple provisioning partial not found: {profile_partial}")
-          source = profile_partial.read_text(encoding="utf-8")
-          old = '''    if not profile_artifact:
-                  fail(
-                      "\\n".join([
-                          "ERROR: In {}:".format(str(rule_label)),
-                          "Building for device, but no provisioning_profile attribute was set.",
-                      ]),
-                  )'''
-          new = '''    if not profile_artifact:
-                  # CI produces an unsigned IPA; iLoader will apply device signing.
-                  return struct(bundle_files = [])'''
-          if new not in source:
-              if old not in source:
-                  raise SystemExit("rules_apple provisioning partial changed; refusing an unsafe patch")
-              source = source.replace(old, new, 1)
-              profile_partial.write_text(source, encoding="utf-8")
-
-          make = Path("build-system/Make/Make.py")
-          source = make.read_text(encoding="utf-8")
-          lines = source.splitlines()
-          anchor = "bazel_command_line.set_custom_target(arguments.target)"
-          for index, line in enumerate(lines):
-              if line.strip() == anchor:
-                  indent = line[:len(line) - len(line.lstrip())]
-                  additions = [
-                      indent + "if arguments.configuration in ('debug_sim_arm64', 'release_sim_arm64', 'debug_arm64'):",
-                      indent + "    bazel_command_line.set_disable_provisioning_profiles()",
-                      indent + "if arguments.configuration == 'debug_arm64':",
-                      indent + "    # Leave device code signing to iLoader on the user's PC.",
-                      indent + "    bazel_command_line.common_args.append('--features=disable_legacy_signing')",
-                  ]
-                  if additions[0] not in lines[index + 1:index + 6]:
-                      lines[index + 1:index + 1] = additions
-                  break
-          else:
-              raise SystemExit("Make.py build hook anchor was not found")
-          make.write_text(chr(10).join(lines) + chr(10), encoding="utf-8")
-
-          patched = profile_partial.read_text(encoding="utf-8")
-          assert "return struct(bundle_files = [])" in patched
-          assert "disable_legacy_signing" in make.read_text(encoding="utf-8")
-          print("Configured device IPA packaging without Apple signing assets; iLoader will sign it.")
-          PY
-
       - name: Build Telegram for iOS Simulator
         working-directory: telegram-ios
         run: |
@@ -815,8 +759,64 @@ jobs:
 
           ls -lh ci-artifacts
 
+      - name: Prepare unsigned arm64 device IPA for iLoader
+        if: success() # Prepare only after every prior validation has passed.
+        working-directory: telegram-ios
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          # Device builds require rules_apple to see a profile artifact even when
+          # the final IPA is intentionally unsigned for PC-side iLoader signing.
+          profile_partial = Path("build-system/bazel-rules/rules_apple/apple/internal/partials/provisioning_profile.bzl")
+          if not profile_partial.is_file():
+              raise SystemExit(f"rules_apple provisioning partial not found: {profile_partial}")
+          source = profile_partial.read_text(encoding="utf-8")
+          old = '''    if not profile_artifact:
+                  fail(
+                      "\\n".join([
+                          "ERROR: In {}:".format(str(rule_label)),
+                          "Building for device, but no provisioning_profile attribute was set.",
+                      ]),
+                  )'''
+          new = '''    if not profile_artifact:
+                  # CI produces an unsigned IPA; iLoader will apply device signing.
+                  return struct(bundle_files = [])'''
+          if new not in source:
+              if old not in source:
+                  raise SystemExit("rules_apple provisioning partial changed; refusing an unsafe patch")
+              source = source.replace(old, new, 1)
+              profile_partial.write_text(source, encoding="utf-8")
+
+          make = Path("build-system/Make/Make.py")
+          source = make.read_text(encoding="utf-8")
+          lines = source.splitlines()
+          anchor = "bazel_command_line.set_custom_target(arguments.target)"
+          for index, line in enumerate(lines):
+              if line.strip() == anchor:
+                  indent = line[:len(line) - len(line.lstrip())]
+                  additions = [
+                      indent + "if arguments.configuration in ('debug_sim_arm64', 'release_sim_arm64', 'debug_arm64'):",
+                      indent + "    bazel_command_line.set_disable_provisioning_profiles()",
+                      indent + "if arguments.configuration == 'debug_arm64':",
+                      indent + "    # Leave device code signing to iLoader on the user's PC.",
+                      indent + "    bazel_command_line.common_args.append('--features=disable_legacy_signing')",
+                  ]
+                  if additions[0] not in lines[index + 1:index + 6]:
+                      lines[index + 1:index + 1] = additions
+                  break
+          else:
+              raise SystemExit("Make.py build hook anchor was not found")
+          make.write_text(chr(10).join(lines) + chr(10), encoding="utf-8")
+
+          patched = profile_partial.read_text(encoding="utf-8")
+          assert "return struct(bundle_files = [])" in patched
+          assert "disable_legacy_signing" in make.read_text(encoding="utf-8")
+          print("Configured device IPA packaging without Apple signing assets; iLoader will sign it.")
+          PY
+
       - name: Build and verify arm64 iPhone IPA
-        if: false # Keep device IPA disabled until all four feature validations pass.
+        if: success() # Build and upload only after validation and preparation succeed.
         working-directory: telegram-ios
         run: |
           set -euo pipefail
@@ -873,7 +873,7 @@ jobs:
           ls -lh ci-artifacts/AyuGram-iOS-Plus-device-arm64.ipa
 
       - name: Upload arm64 device IPA
-        if: false # Keep device IPA disabled until all four feature validations pass.
+        if: success() # Build and upload only after validation and preparation succeed.
         uses: actions/upload-artifact@v4
         with:
           name: AyuGram-iOS-Plus-device-arm64-${{ github.run_number }}
