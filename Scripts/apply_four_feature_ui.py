@@ -346,18 +346,24 @@ peek_start = chat_controller.index("if let peekData = self.peekData")
 peek_end = chat_controller.index("self.checksTooltipDisposable", peek_start)
 timeout_block = chat_controller[peek_start:peek_end]
 
-if "AyuGram read-only peek: suppress Join action" not in timeout_block:
-    join_action = "                        TextAlertAction(type: .genericAction, title: strongSelf.presentationData.strings.Conversation_PrivateChannelTimeLimitedAlertJoin, action: {"
-    cancel_action = "                        TextAlertAction(type: .defaultAction, title: strongSelf.presentationData.strings.Common_Cancel"
-    if timeout_block.count(join_action) != 1 or timeout_block.count(cancel_action) < 1:
-        raise SystemExit("Could not uniquely locate Telegram native peek timeout Join action")
-    action_start = timeout_block.index(join_action)
-    action_end = timeout_block.index(cancel_action, action_start)
-    timeout_block = (
-        timeout_block[:action_start]
-        + "                        // AyuGram read-only peek: suppress Join action.\n"
-        + timeout_block[action_end:]
+# Rebuild the native timeout alert's actions list from its Cancel action only.
+# This removes the complete nested Join closure (including joinChatInteractively),
+# rather than relying on indentation-sensitive matching of its first line.
+if "AyuGram read-only peek: suppress Join action" not in timeout_block or "Conversation_PrivateChannelTimeLimitedAlertJoin" in timeout_block:
+    actions_start = timeout_block.find("                    actions: [")
+    layout_start = timeout_block.find("                    actionLayout: .vertical", actions_start)
+    if actions_start < 0 or layout_start < 0 or timeout_block.count("                    actions: [") != 1:
+        raise SystemExit("Could not uniquely locate native peek timeout actions list")
+    actions = timeout_block[actions_start:layout_start]
+    cancel_start = actions.find("TextAlertAction(type: .defaultAction, title: strongSelf.presentationData.strings.Common_Cancel")
+    if cancel_start < 0 or actions.count("TextAlertAction(type: .defaultAction") != 1:
+        raise SystemExit("Could not uniquely locate native peek timeout Cancel action")
+    cancel_only = (
+        "                    // AyuGram read-only peek: suppress Join action.\\n"
+        "                    actions: [\\n"
+        + actions[cancel_start:]
     )
+    timeout_block = timeout_block[:actions_start] + cancel_only + timeout_block[layout_start:]
 
 # At Telegram's peek deadline, close the preview directly instead of leaving
 # the temporary ChatController open behind a Cancel-only expiration alert.
