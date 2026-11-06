@@ -634,12 +634,25 @@ elif gallery_before_guarded not in menu:
     raise SystemExit("Could not locate gallery Before action visibility guard")
 
 if "AyuGramOriginalMediaPreviewController" not in menu:
-    menu = replace_once(
-        menu,
-        "import Foundation\nimport UIKit\nimport TelegramCore\n",
-        "import Foundation\nimport UIKit\nimport QuickLook\nimport TelegramCore\n",
-        "original media QuickLook import"
-    )
+    # Add the preview controller only when the base AyuGram patch did not provide it.
+    # Import normalization is deliberately idempotent because Telegram revisions may
+    # already import QuickLook.
+    import_lines = menu.splitlines(keepends=True)
+    normalized_imports = []
+    quicklook_seen = False
+    for line in import_lines:
+        if line.strip() == "import QuickLook":
+            if quicklook_seen:
+                continue
+            quicklook_seen = True
+        normalized_imports.append(line)
+    if not quicklook_seen:
+        import_index = next(
+            (index + 1 for index, line in enumerate(normalized_imports) if line.strip() == "import UIKit"),
+            0
+        )
+        normalized_imports.insert(import_index, "import QuickLook\n")
+    menu = "".join(normalized_imports)
     menu = replace_once(
         menu,
         "private extension DateFormatter {\n",
@@ -678,7 +691,11 @@ private extension DateFormatter {
 ''',
         "original media preview controller"
     )
-    settings_before_action = r'''        if message.effectiveMedia.contains(where: { media in
+
+# Add the message-menu action independently of the preview-controller declaration.
+# The base patch already contains the controller and a separate gallery Before action,
+# so coupling this insertion to the class check silently omitted the message-menu item.
+settings_before_action = r'''        if message.effectiveMedia.contains(where: { media in
             if media is TelegramMediaImage { return true }
             if let file = media as? TelegramMediaFile { return file.isVideo }
             return false
@@ -711,12 +728,16 @@ private extension DateFormatter {
 
         // Always expose the full AyuGram History list from the message menu.
 '''
+message_before_marker = "Original media was not cached before the edit."
+if message_before_marker not in menu:
     menu = replace_once(
         menu,
         "        // Always expose the full AyuGram History list from the message menu.\n",
         settings_before_action,
-        "Before context menu action"
+        "Before message-menu action"
     )
+elif menu.count('ContextMenuActionItem(text: "Before"') < 2:
+    raise SystemExit("Before message-menu marker exists but its action is incomplete")
 
 if "AyuGramOriginalPreviewController" in menu or "AyuGramOriginalPreviewItem" in menu:
     raise SystemExit("Legacy unfiltered Before action remains in the message menu")
