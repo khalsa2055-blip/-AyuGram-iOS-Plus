@@ -340,25 +340,28 @@ if "//submodules/AsyncDisplayKit" not in build:
 # ordinary public channels and non-peek chats for every non-member account.
 # Keep Telegram's native peek timer and timeout alert, but remove its Join action.
 # The preview screen remains a native ChatController; expiry only dismisses the peek.
-if "AyuGram read-only peek: suppress Join action" not in chat_controller:
+# Scope timeout edits to the exact native ChatPeekTimeout block. A marker elsewhere
+# in ChatController must never suppress installation of the actual timeout guard.
+peek_start = chat_controller.index("if let peekData = self.peekData")
+peek_end = chat_controller.index("self.checksTooltipDisposable", peek_start)
+timeout_block = chat_controller[peek_start:peek_end]
+
+if "AyuGram read-only peek: suppress Join action" not in timeout_block:
     join_action = "                        TextAlertAction(type: .genericAction, title: strongSelf.presentationData.strings.Conversation_PrivateChannelTimeLimitedAlertJoin, action: {"
     cancel_action = "                        TextAlertAction(type: .defaultAction, title: strongSelf.presentationData.strings.Common_Cancel"
-    if chat_controller.count(join_action) != 1 or chat_controller.count(cancel_action) < 1:
+    if timeout_block.count(join_action) != 1 or timeout_block.count(cancel_action) < 1:
         raise SystemExit("Could not uniquely locate Telegram native peek timeout Join action")
-    start = chat_controller.index(join_action)
-    end = chat_controller.index(cancel_action, start)
-    chat_controller = (
-        chat_controller[:start]
-        + "                        // AyuGram read-only peek: suppress Join action.\n"
-        + chat_controller[end:]
+    action_start = timeout_block.index(join_action)
+    action_end = timeout_block.index(cancel_action, action_start)
+    timeout_block = (
+        timeout_block[:action_start]
+        + "                        // AyuGram read-only peek: suppress Join action.\\n"
+        + timeout_block[action_end:]
     )
 
 # At Telegram's peek deadline, close the preview directly instead of leaving
 # the temporary ChatController open behind a Cancel-only expiration alert.
-if "AyuGram read-only peek: dismiss at deadline" not in chat_controller:
-    peek_start = chat_controller.index("if let peekData = self.peekData")
-    peek_end = chat_controller.index("self.checksTooltipDisposable", peek_start)
-    timeout_block = chat_controller[peek_start:peek_end]
+if "AyuGram read-only peek: dismiss at deadline" not in timeout_block:
     alert_start = timeout_block.find("                strongSelf.present(textAlertController(")
     alert_end_marker = "                ), in: .window(.root))"
     alert_end = timeout_block.find(alert_end_marker, alert_start)
@@ -367,11 +370,16 @@ if "AyuGram read-only peek: dismiss at deadline" not in chat_controller:
     alert_end += len(alert_end_marker)
     timeout_block = (
         timeout_block[:alert_start]
-        + "                // AyuGram read-only peek: dismiss at deadline without Join.\n"
+        + "                // AyuGram read-only peek: dismiss at deadline without Join.\\n"
         + "                strongSelf.dismiss()"
         + timeout_block[alert_end:]
     )
-    chat_controller = chat_controller[:peek_start] + timeout_block + chat_controller[peek_end:]
+
+if "AyuGram read-only peek: suppress Join action" not in timeout_block:
+    raise SystemExit("Native peek timeout Join action was not suppressed in its own block")
+if "AyuGram read-only peek: dismiss at deadline" not in timeout_block:
+    raise SystemExit("Native peek timeout dismissal was not installed in its own block")
+chat_controller = chat_controller[:peek_start] + timeout_block + chat_controller[peek_end:]
 
 # Telegram's native send permission function checks channel bans, but not membership.
 # Scope a hard read-only gate to ChatController instances created with ChatPeekTimeout.
