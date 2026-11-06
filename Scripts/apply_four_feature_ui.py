@@ -359,8 +359,8 @@ if "AyuGram read-only peek: suppress Join action" not in timeout_block or "Conve
     if cancel_start < 0 or actions.count("TextAlertAction(type: .defaultAction") != 1:
         raise SystemExit("Could not uniquely locate native peek timeout Cancel action")
     cancel_only = (
-        "                    // AyuGram read-only peek: suppress Join action.\\n"
-        "                    actions: [\\n"
+        "                    // AyuGram read-only peek: suppress Join action.\n"
+        "                    actions: [\n"
         + actions[cancel_start:]
     )
     timeout_block = timeout_block[:actions_start] + cancel_only + timeout_block[layout_start:]
