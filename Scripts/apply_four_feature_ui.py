@@ -26,6 +26,139 @@ menu = MENU.read_text(encoding="utf-8")
 chat_controller = CHAT_CONTROLLER.read_text(encoding="utf-8")
 chat_controller_interaction = CHAT_CONTROLLER_INTERACTION.read_text(encoding="utf-8")
 
+# Private invite previews may display media, but actions originating from the
+# media gallery must remain read-only. These callbacks bypass the regular
+# ChatControllerInteraction wrappers, so gate them at their source.
+gallery_callback_replacements = (
+    ("""                openUrl: { [weak self] url in
+                    self?.openUrl(url, concealed: false, skipConcealedAlert: isLocation, message: nil)
+                },""", """                openUrl: { [weak self] url in
+                    guard let self, case nil = self.peekData else { return }
+                    self.openUrl(url, concealed: false, skipConcealedAlert: isLocation, message: nil)
+                },""", "gallery inline URL navigation"),
+    ("""                openPeer: { [weak self] peer, navigation in
+                    self?.openPeer(peer: EnginePeer(peer), navigation: navigation, fromMessage: nil)
+                },""", """                openPeer: { [weak self] peer, navigation in
+                    guard let self, case nil = self.peekData else { return }
+                    self.openPeer(peer: EnginePeer(peer), navigation: navigation, fromMessage: nil)
+                },""", "gallery inline peer navigation"),
+    ("""                callPeer: { [weak self] peerId, isVideo in
+                    self?.controllerInteraction?.callPeer(peerId, isVideo)
+                },""", """                callPeer: { [weak self] peerId, isVideo in
+                    guard let self, case nil = self.peekData else { return }
+                    self.controllerInteraction?.callPeer(peerId, isVideo)
+                },""", "gallery inline calls"),
+    ("""                openConferenceCall: { [weak self] message in
+                    self?.controllerInteraction?.openConferenceCall(message)
+                },""", """                openConferenceCall: { [weak self] message in
+                    guard let self, case nil = self.peekData else { return }
+                    self.controllerInteraction?.openConferenceCall(message)
+                },""", "gallery conference calls"),
+    ("""                enqueueMessage: { [weak self] message in
+                    self?.sendMessages([message])
+                },""", """                enqueueMessage: { [weak self] message in
+                    guard let self, case nil = self.peekData else { return }
+                    self.sendMessages([message])
+                },""", "gallery message enqueue"),
+    ("""                    openUrl: { [weak self] url, concealed, forceExternal in
+                        if let self {
+                            self.openUrl(url, concealed: concealed, forceExternal: forceExternal, message: nil)
+                        }
+                    },""", """                    openUrl: { [weak self] url, concealed, forceExternal in
+                        guard let self, case nil = self.peekData else { return }
+                        self.openUrl(url, concealed: concealed, forceExternal: forceExternal, message: nil)
+                    },""", "gallery action URL navigation"),
+    ("""                    openUrlIn: { [weak self] url in
+                        if let self {
+                            self.openUrlIn(url)
+                        }
+                    },""", """                    openUrlIn: { [weak self] url in
+                        guard let self, case nil = self.peekData else { return }
+                        self.openUrlIn(url)
+                    },""", "gallery in-app URL navigation"),
+    ("""                    openPeerMention: { [weak self] mention in
+                        if let self {
+                            self.controllerInteraction?.openPeerMention(mention, nil)
+                        }
+                    },""", """                    openPeerMention: { [weak self] mention in
+                        guard let self, case nil = self.peekData else { return }
+                        self.controllerInteraction?.openPeerMention(mention, nil)
+                    },""", "gallery peer mentions"),
+    ("""                    openPeer: { [weak self] peer in
+                        if let self {
+                            self.controllerInteraction?.openPeer(peer, .default, nil, .default)
+                        }
+                    },""", """                    openPeer: { [weak self] peer in
+                        guard let self, case nil = self.peekData else { return }
+                        self.controllerInteraction?.openPeer(peer, .default, nil, .default)
+                    },""", "gallery peer navigation"),
+    ("""                    openHashtag: { [weak self] peerName, hashtag in
+                        if let self {
+                            self.controllerInteraction?.openHashtag(peerName, hashtag)
+                        }
+                    },""", """                    openHashtag: { [weak self] peerName, hashtag in
+                        guard let self, case nil = self.peekData else { return }
+                        self.controllerInteraction?.openHashtag(peerName, hashtag)
+                    },""", "gallery hashtag navigation"),
+    ("""                    openBotCommand: { [weak self] command in
+                        if let self {
+                            self.controllerInteraction?.sendBotCommand(nil, command)
+                        }
+                    },""", """                    openBotCommand: { [weak self] command in
+                        guard let self, case nil = self.peekData else { return }
+                        self.controllerInteraction?.sendBotCommand(nil, command)
+                    },""", "gallery bot commands"),
+    ("""                    openAd: { [weak self] messageId in
+                        if let self {
+                            self.controllerInteraction?.activateAdAction(messageId, nil, true, true)
+                        }
+                    },""", """                    openAd: { [weak self] messageId in
+                        guard let self, case nil = self.peekData else { return }
+                        self.controllerInteraction?.activateAdAction(messageId, nil, true, true)
+                    },""", "gallery ad actions"),
+    ("""                    addContact: { [weak self] phoneNumber in
+                        if let self {
+                            self.controllerInteraction?.addContact(phoneNumber)
+                        }
+                    },""", """                    addContact: { [weak self] phoneNumber in
+                        guard let self, case nil = self.peekData else { return }
+                        self.controllerInteraction?.addContact(phoneNumber)
+                    },""", "gallery add-contact action"),
+    ("""                    editMedia: { [weak self] messageId, snapshots, transitionCompletion in
+                        guard let self else {
+                            return
+                        }""", """                    editMedia: { [weak self] messageId, snapshots, transitionCompletion in
+                        guard let self, case nil = self.peekData else {
+                            return
+                        }""", "gallery media editing"),
+    ("""                                    if let self {
+                                        var parameters: ChatSendMessageActionSheetController.SendParameters?
+                                        if isCaptionAbove {""", """                                    if let self {
+                                        guard case nil = self.peekData else { return }
+                                        var parameters: ChatSendMessageActionSheetController.SendParameters?
+                                        if isCaptionAbove {""", "gallery media message sending"),
+    ("""                     sendSticker: canSendMessagesToChat(self.presentationInterfaceState) ? { [weak self] file in
+                         let _ = self?.controllerInteraction?.sendSticker(file, false, false, nil, false, nil, nil, nil, [])
+                     } : nil""", """                     sendSticker: canSendMessagesToChat(self.presentationInterfaceState) ? { [weak self] file in
+                         guard let self, case nil = self.peekData else { return }
+                         let _ = self.controllerInteraction?.sendSticker(file, false, false, nil, false, nil, nil, nil, [])
+                     } : nil""", "gallery sticker sending"),
+    ("""                 navigateToMessageContext: { [weak self] message in
+                     Task {
+                         guard let self else {
+                             return
+                         }""", """                 navigateToMessageContext: { [weak self] message in
+                     Task {
+                         guard let self, case nil = self.peekData else {
+                             return
+                         }""", "gallery message-context navigation"),
+)
+
+for old, new, label in gallery_callback_replacements:
+    if new not in chat_controller:
+        chat_controller = replace_once(chat_controller, old, new, label)
+
+
 # Give Swift's constraint solver the concrete interaction type before it checks
 # Telegram's large callback initializer; the read-only closures otherwise push
 # this expression over the type-checker complexity budget.
