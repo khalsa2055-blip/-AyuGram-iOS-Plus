@@ -366,18 +366,37 @@ jobs:
           assert "Conversation_PrivateChannelTimeLimitedAlertJoin" not in peek_timeout
           assert "joinChatInteractively" not in peek_timeout
           print("PASS: Telegram native peek timeout cannot join after expiry.")
+          chat_controller = Path("submodules/TelegramUI/Sources/ChatController.swift").read_text(encoding="utf-8")
+          assert "ayuGramCanSendMessagesInCurrentChat" in chat_controller, "Scoped preview message gate is missing"
+          assert "ayuGramCanSendReactionsInCurrentChat" in chat_controller, "Scoped preview reaction gate is missing"
+          assert chat_controller.count("ayuGramCanSendMessagesInCurrentChat()") >= 15, "Composer/sticker/file-send paths are not all gated"
+          assert chat_controller.count("ayuGramCanSendReactionsInCurrentChat()") >= 3, "Reaction entry points are not all gated"
+          assert chat_controller.count("canSendMessagesToChat(self.presentationInterfaceState)") == 1, "Native message permission must remain inside the scoped wrapper"
+          assert chat_controller.count("canSendReactionsToChat(self.presentationInterfaceState)") == 1, "Native reaction permission must remain inside the scoped wrapper"
+          assert "canSendMessagesToChat(strongSelf.presentationInterfaceState)" not in chat_controller, "An unscoped message gate remains"
+          assert "canSendReactionsToChat(strongSelf.presentationInterfaceState)" not in chat_controller, "An unscoped reaction gate remains"
+          send_start = chat_controller.index("private func ayuGramCanSendMessagesInCurrentChat()")
+          send_end = chat_controller.index("private func ayuGramCanSendReactionsInCurrentChat()", send_start)
+          send_wrapper = chat_controller[send_start:send_end]
+          assert "guard case nil = self.peekData" in send_wrapper and "return false" in send_wrapper, "Message wrapper does not deny peek mode"
+          assert "return canSendMessagesToChat(self.presentationInterfaceState)" in send_wrapper, "Native message permission is not preserved"
+          react_start = chat_controller.index("private func ayuGramCanSendReactionsInCurrentChat()")
+          react_end = chat_controller.index("func sendMessages(", react_start)
+          reaction_wrapper = chat_controller[react_start:react_end]
+          assert "guard case nil = self.peekData" in reaction_wrapper and "return false" in reaction_wrapper, "Reaction wrapper does not deny peek mode"
+          assert "return canSendReactionsToChat(self.presentationInterfaceState)" in reaction_wrapper, "Native reaction permission is not preserved"
           chat_state = Path("submodules/ChatPresentationInterfaceState/Sources/ChatPresentationInterfaceState.swift").read_text(encoding="utf-8")
           send_start = chat_state.index("public func canSendMessagesToChat")
           send_end = chat_state.index("public func canSendReactionsToChat", send_start)
           send_gate = chat_state[send_start:send_end]
-          assert "AyuGram read-only peek send gate" in send_gate
-          assert "case .member = channel.participationStatus" in send_gate
+          assert "canSendMessagesToPeer(EnginePeer(peer), ignoreDefault: canBypassRestrictions)" in send_gate, "Telegram native message permission was changed"
           react_start = chat_state.index("public func canSendReactionsToChat")
           react_end = chat_state.index("public func canJoinInaccessibleCommunityChat", react_start)
           reaction_gate = chat_state[react_start:react_end]
-          assert "AyuGram read-only peek reactions gate" in reaction_gate
-          assert "case .member = channel.participationStatus" in reaction_gate
-          print("PASS: Telegram composer and reactions are blocked for non-member peek viewers.")
+          assert "canSendReactionsToPeer(EnginePeer(peer), ignoreDefault: canBypassRestrictions)" in reaction_gate, "Telegram native reaction permission was changed"
+          assert "AyuGram read-only peek send gate" not in send_gate, "Do not add a global membership override"
+          assert "AyuGram read-only peek reactions gate" not in reaction_gate, "Do not add a global membership override"
+          print("PASS: peek mode is blocked by ChatController-scoped wrappers; Telegram native permissions remain unchanged.")
           print("NOTE: actual message visibility remains conditional on Telegram returning chatInvitePeek.")
           PY
 
