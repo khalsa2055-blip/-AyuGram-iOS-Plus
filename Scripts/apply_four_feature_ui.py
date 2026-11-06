@@ -716,6 +716,40 @@ if "ayuGramCanSendMessagesInCurrentChat" not in chat_controller:
             + chat_controller[after_guard:]
         )
 
+    # Snapshot the immutable peek mode before constructing Telegram's large
+    # ChatControllerInteraction closure expression. Capturing one Bool avoids
+    # repeating Optional pattern matching across dozens of callback closures,
+    # which can overwhelm Swift's type checker in this initializer.
+    interaction_start = chat_controller.find("let controllerInteraction = ChatControllerInteraction(")
+    if interaction_start < 0:
+        raise SystemExit("ChatControllerInteraction initializer not found for peek policy snapshot")
+    interaction_end_marker = "self.controllerInteraction = controllerInteraction"
+    interaction_end = chat_controller.find(interaction_end_marker, interaction_start)
+    if interaction_end < 0:
+        raise SystemExit("ChatControllerInteraction initializer end not found")
+    interaction_block = chat_controller[interaction_start:interaction_end]
+    if "let isPrivatePeek = self.peekData != nil" not in chat_controller[max(0, interaction_start - 100):interaction_start + 100]:
+        chat_controller = (
+            chat_controller[:interaction_start]
+            + "let isPrivatePeek = self.peekData != nil\n        "
+            + chat_controller[interaction_start:]
+        )
+        interaction_start = chat_controller.find("let controllerInteraction = ChatControllerInteraction(")
+        interaction_end = chat_controller.find(interaction_end_marker, interaction_start)
+        interaction_block = chat_controller[interaction_start:interaction_end]
+    interaction_block = re.sub(
+        r"case nil = (?:strongSelf|self)\.peekData",
+        "!isPrivatePeek",
+        interaction_block,
+    )
+    if "case nil = strongSelf.peekData" in interaction_block or "case nil = self.peekData" in interaction_block:
+        raise SystemExit("A callback still performs an inline peekData pattern match")
+    chat_controller = (
+        chat_controller[:interaction_start]
+        + interaction_block
+        + chat_controller[interaction_end:]
+    )
+
     # Disable the avatar/profile and header More surfaces during a private peek.
     long_tap_old = 'if let strongSelf = self, let peerView = strongSelf.contentData?.state.peerView'
     long_tap_new = 'if let strongSelf = self, case nil = strongSelf.peekData, let peerView = strongSelf.contentData?.state.peerView'
