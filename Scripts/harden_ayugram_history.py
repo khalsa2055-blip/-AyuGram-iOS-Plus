@@ -483,6 +483,71 @@ if "ayuGramHistoryScreen(context: context, dialogID: message.id.peerId.toInt64()
     raise SystemExit("Per-dialog History context-menu routing is missing")
 
 
+# Capture only completed local resources before strict archival. Telegram photo messages
+# expose multiple representations; requiring every representation to be cached made a
+# single missing thumbnail/size discard an otherwise available original. Prefer the
+# largest complete photo representation, and include files only when fully local.
+delete_source = root / "submodules/TelegramCore/Sources/TelegramEngine/Messages/DeleteMessages.swift"
+state_utils = root / "submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift"
+capture_pattern = re.compile(
+    r"(?m)^(?P<indent> *)if let image = media as\? TelegramMediaImage \{\n"
+    r"(?P=indent)    for representation in image\.representations\.sorted\(by: \{\n"
+    r"(?P=indent)        Int64\(\$0\.dimensions\.width\) \* Int64\(\$0\.dimensions\.height\)\n"
+    r"(?P=indent)            > Int64\(\$1\.dimensions\.width\) \* Int64\(\$1\.dimensions\.height\)\n"
+    r"(?P=indent)    \}\) \{\n"
+    r"(?P=indent)        resources\.append\(AyuMediaResourceInfo\(id: representation\.resource\.id\.stringRepresentation, mimeType: \"image/jpeg\"\)\)\n"
+    r"(?P=indent)    \}\n"
+    r"(?P=indent)\} else if let file = media as\? TelegramMediaFile \{\n"
+    r"(?P=indent)    resources\.append\(AyuMediaResourceInfo\(id: file\.resource\.id\.stringRepresentation, mimeType: file\.mimeType\)\)\n"
+    r"(?P=indent)\}"
+)
+def prefer_completed_resources(source_text, label):
+    def replacement(match):
+        indent = match.group("indent")
+        lines = [
+            f"{indent}if let image = media as? TelegramMediaImage {{",
+            f"{indent}    let availableRepresentation = image.representations.sorted(by: {{",
+            f"{indent}        Int64($0.dimensions.width) * Int64($0.dimensions.height)",
+            f"{indent}            > Int64($1.dimensions.width) * Int64($1.dimensions.height)",
+            f"{indent}    }}).first(where: {{ mediaBox.completedResourcePath($0.resource) != nil }})",
+            f"{indent}    if let representation = availableRepresentation {{",
+            f'{indent}        resources.append(AyuMediaResourceInfo(id: representation.resource.id.stringRepresentation, mimeType: "image/jpeg"))',
+            f"{indent}    }}",
+            f"{indent}}} else if let file = media as? TelegramMediaFile {{",
+            f"{indent}    if mediaBox.completedResourcePath(file.resource) != nil {{",
+            f"{indent}        resources.append(AyuMediaResourceInfo(id: file.resource.id.stringRepresentation, mimeType: file.mimeType))",
+            f"{indent}    }}",
+            f"{indent}}}"
+        ]
+        return "\n".join(lines)
+    updated, count = capture_pattern.subn(replacement, source_text)
+    if count == 0:
+        required = (
+            "first(where: { mediaBox.completedResourcePath($0.resource) != nil })",
+            "if mediaBox.completedResourcePath(file.resource) != nil {"
+        )
+        if all(token in source_text for token in required):
+            return source_text
+        raise SystemExit(f"Could not update completed-media selection in {label}")
+    if count != 1:
+        raise SystemExit(f"Expected one media selection block in {label}, found {count}")
+    return updated
+
+for capture_path in (delete_source, state_utils):
+    if not capture_path.exists():
+        raise SystemExit(f"Missing Telegram media capture source: {capture_path}")
+    source_text = capture_path.read_text(encoding="utf-8")
+    source_text = prefer_completed_resources(source_text, str(capture_path))
+    for required in (
+        "first(where: { mediaBox.completedResourcePath($0.resource) != nil })",
+        "if mediaBox.completedResourcePath(file.resource) != nil {"
+    ):
+        if required not in source_text:
+            raise SystemExit(f"Completed local media fallback missing in {capture_path}: {required}")
+    capture_path.write_text(source_text, encoding="utf-8")
+
+print("Verified deleted/edit capture selects the largest complete local photo or complete file before archival.")
+
 # Server-delivered deletion updates are replayed through AccountStateManagementUtils,
 # not only the user's local delete button. Pass the account ID there too, otherwise
 # _internal_deleteMessages receives nil and silently skips automatic History capture.
