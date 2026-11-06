@@ -472,6 +472,32 @@ context_menu = root / "submodules/TelegramUI/Sources/ChatInterfaceStateContextMe
 if not context_menu.exists():
     raise SystemExit(f"Missing AyuGram message context menu source: {context_menu}")
 context_menu_text = context_menu.read_text()
+
+# Remove the original unconditional Before entry from the base AyuGram patch.
+# apply_four_feature_ui.py adds one guarded action for edited photo/video only;
+# leaving both implementations here created duplicate actions and exposed Before
+# for messages that had never been edited.
+legacy_before_action_pattern = re.compile(
+    r"(?ms)^        if !message\.containsSecretMedia && !isCopyProtected \{\n.*?^        \}\n"
+)
+context_menu_text, legacy_action_count = legacy_before_action_pattern.subn("", context_menu_text)
+legacy_preview_pattern = re.compile(
+    r"(?ms)^private final class AyuGramOriginalPreviewItem: NSObject, QLPreviewItem \{\n.*?^private struct MessageContextMenuData \{\n"
+)
+context_menu_text, legacy_preview_count = legacy_preview_pattern.subn(
+    "private struct MessageContextMenuData {\n",
+    context_menu_text
+)
+if legacy_action_count != legacy_preview_count or legacy_action_count > 1:
+    raise SystemExit(
+        f"Legacy Before cleanup mismatch: actions={legacy_action_count}, previews={legacy_preview_count}"
+    )
+if legacy_preview_count == 1:
+    if context_menu_text.count("import QuickLook\n") != 1:
+        raise SystemExit("Legacy Before controller QuickLook import anchor is not unique")
+    context_menu_text = context_menu_text.replace("import QuickLook\n", "", 1)
+if "AyuGramOriginalPreviewController" in context_menu_text or "AyuGramOriginalPreviewItem" in context_menu_text:
+    raise SystemExit("Unfiltered legacy Before preview controller remains")
 if "ayuGramHistoryScreen(context: context" not in context_menu_text:
     raise SystemExit("AyuGram History context-menu action is missing")
 context_menu_text = context_menu_text.replace(

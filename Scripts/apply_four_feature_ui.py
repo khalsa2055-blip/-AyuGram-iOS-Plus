@@ -683,7 +683,7 @@ private extension DateFormatter {
             if let file = media as? TelegramMediaFile { return file.isVideo }
             return false
         }), message.attributes.contains(where: { $0 is EditedMessageAttribute }) {
-            actions.append(.action(ContextMenuActionItem(text: "قبل", icon: { theme in
+            actions.append(.action(ContextMenuActionItem(text: "Before", icon: { theme in
                 return generateTintedImage(image: UIImage(systemName: "clock.arrow.circlepath"), color: theme.actionSheet.primaryTextColor)
             }, action: { c, _ in
                 c?.dismiss(completion: {
@@ -717,6 +717,13 @@ private extension DateFormatter {
         settings_before_action,
         "Before context menu action"
     )
+
+if "AyuGramOriginalPreviewController" in menu or "AyuGramOriginalPreviewItem" in menu:
+    raise SystemExit("Legacy unfiltered Before action remains in the message menu")
+if 'ContextMenuActionItem(text: "قبل"' in menu:
+    raise SystemExit("Duplicate Arabic Before action remains")
+if menu.count('ContextMenuActionItem(text: "Before"') != 2:
+    raise SystemExit("Expected one guarded Before action for messages and one for gallery")
 
 # Keep preview-only interaction checks out of ChatController's giant initializer.
 # Each callback is wrapped independently inside ChatControllerInteraction so Swift
