@@ -24,6 +24,19 @@ build = SETTINGS_BUILD.read_text(encoding="utf-8")
 menu = MENU.read_text(encoding="utf-8")
 chat_controller = CHAT_CONTROLLER.read_text(encoding="utf-8")
 
+# Give Swift's constraint solver the concrete interaction type before it checks
+# Telegram's large callback initializer; the read-only closures otherwise push
+# this expression over the type-checker complexity budget.
+interaction_initializer = "let controllerInteraction = ChatControllerInteraction("
+typed_interaction_initializer = "let controllerInteraction: ChatControllerInteraction = ChatControllerInteraction("
+if typed_interaction_initializer not in chat_controller:
+    chat_controller = replace_once(
+        chat_controller,
+        interaction_initializer,
+        typed_interaction_initializer,
+        "ChatControllerInteraction explicit type"
+    )
+
 if "AyuGramPrivateInvitePreviewController" not in settings:
     settings = replace_once(
         settings,
