@@ -457,10 +457,30 @@ jobs:
           PY
 
 
-      - name: Backport iOS 27 scene lifecycle
+      - name: Backport iOS 27 scene lifecycle and Xcode 27 Swift capture fix
         working-directory: telegram-ios
         run: |
           python3 "$GITHUB_WORKSPACE/Scripts/apply_ios27_scene_lifecycle.py"
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("submodules/TelegramUI/Components/SubcodecAnimationCacheImpl/Sources/SubcodecAnimationCacheImpl.swift")
+          source = path.read_text(encoding="utf-8")
+          old = """        let disposable = MetaDisposable()
+          self.impl.with { impl in
+              disposable.set(impl.get(sourceId: sourceId, size: size, fetch: fetch, updateResult: { [weak self] result in"""
+          new = """        let disposable = MetaDisposable()
+          let implementation = self.impl
+          implementation.with { impl in
+              disposable.set(impl.get(sourceId: sourceId, size: size, fetch: fetch, updateResult: { [weak self] result in"""
+          if source.count(old) != 1:
+              raise SystemExit("Expected exactly one SubcodecAnimationCacheImpl capture site; source changed, refusing unsafe patch")
+          source = source.replace(old, new, 1)
+          if "let implementation = self.impl" not in source:
+              raise SystemExit("Xcode 27 Swift capture fix did not apply")
+          path.write_text(source, encoding="utf-8")
+          print("Applied guarded Xcode 27 weak-capture compatibility fix.")
+          PY
           git diff --check
 
       - name: Create simulator build configuration
