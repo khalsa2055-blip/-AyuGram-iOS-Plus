@@ -362,7 +362,7 @@ jobs:
 
           if len(pending) == 1 and not already:
               i = pending[0]
-              lines[i] = lines[i].replace("queue.async {", "queue.async { [self]", 1)
+              lines[i] = lines[i].replace("queue.async {", "queue.async { [self] in", 1)
               source = "".join(lines)
               path.write_text(source, encoding="utf-8")
               print("Applied explicit [self] to the unique holder-registration queue closure.")
