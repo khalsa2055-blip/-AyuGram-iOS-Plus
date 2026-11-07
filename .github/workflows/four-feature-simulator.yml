@@ -127,7 +127,6 @@ jobs:
         run: |
           python3 - <<'PY'
           import json
-          import re
           import subprocess
           from pathlib import Path
 
@@ -145,7 +144,7 @@ jobs:
 
           original_xcode = v["xcode"]
           v["xcode"] = active_xcode
-          path.write_text(json.dumps(v, indent=2) + "\\n", encoding="utf-8")
+          path.write_text(json.dumps(v, indent=2), encoding="utf-8")
           print("Pinned Telegram baseline:", v["app"])
           print("Upstream metadata Xcode:", original_xcode)
           print("Temporary build metadata aligned to active Xcode:", active_xcode)
@@ -157,7 +156,6 @@ jobs:
           cd telegram-ios
           python3 - <<'PY'
           from pathlib import Path
-          import re
 
           patch = Path("ayugram-1.3.0.patch").read_text(encoding="utf-8")
           sections = re.split(r"(?m)^diff --git ", patch)
@@ -257,7 +255,6 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import re
 
           build = Path("Telegram/BUILD")
           source = build.read_text(encoding="utf-8")
