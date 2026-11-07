@@ -481,6 +481,34 @@ jobs:
                   )
           print("Verified both plain implicit-capture fixes; existing weak captures were preserved.")
           PY
+          # Xcode 27 diagnoses a weak nested capture when the enclosing add
+          # closure already captures the same viewContext strongly. Give the
+          # nested weak capture an explicit value binding without changing lifetime.
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("submodules/ComponentFlow/Source/Base/CombinedComponent.swift")
+          source = path.read_text(encoding="utf-8")
+          old = "erasedState._updated = { [weak viewContext] transition, isLocal in"
+          new = "erasedState._updated = { [weak viewContext = viewContext] transition, isLocal in"
+          old_count = source.count(old)
+          new_count = source.count(new)
+
+          if old_count == 1 and new_count == 0:
+              source = source.replace(old, new, 1)
+              path.write_text(source, encoding="utf-8")
+              print("Applied explicit weak viewContext capture in CombinedComponent.")
+          elif old_count == 0 and new_count == 1:
+              print("CombinedComponent weak viewContext capture already fixed.")
+          else:
+              raise SystemExit(
+                  f"Unsafe CombinedComponent capture patch: old={old_count}, fixed={new_count}"
+              )
+
+          verified = path.read_text(encoding="utf-8")
+          if verified.count(new) != 1:
+              raise SystemExit("CombinedComponent explicit weak capture verification failed.")
+          PY
           git diff --check
       - name: Create simulator build configuration
         working-directory: telegram-ios
