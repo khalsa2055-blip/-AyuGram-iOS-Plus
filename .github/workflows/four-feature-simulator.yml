@@ -328,14 +328,14 @@ jobs:
           path = Path("submodules/TelegramUI/Components/SubcodecAnimationCacheImpl/Sources/SubcodecAnimationCacheImpl.swift")
           source = path.read_text(encoding="utf-8")
           old = "        let disposable = MetaDisposable()\n        self.impl.with { impl in\n            disposable.set(impl.get(sourceId: sourceId, size: size, fetch: fetch, updateResult: { [weak self] result in"
-          new = "        let disposable = MetaDisposable()\n        let implementation = self.impl\n        implementation.with { impl in\n            disposable.set(impl.get(sourceId: sourceId, size: size, fetch: fetch, updateResult: { [weak self] result in"
+          new = "        let disposable = MetaDisposable()\n        let implementation = self.impl\n        implementation.with { [weak self] impl in\n            disposable.set(impl.get(sourceId: sourceId, size: size, fetch: fetch, updateResult: { [weak self] result in"
           if source.count(old) != 1:
               raise SystemExit(f"Expected exactly one fetchIfNeeded weak-capture block; found {source.count(old)}")
           source = source.replace(old, new, 1)
           method_start = source.index("    public func fetchIfNeeded(")
           method = source[method_start:]
-          if "self.impl.with" in method or "let implementation = self.impl" not in method:
-              raise SystemExit("Xcode 27 fetchIfNeeded capture fix did not apply cleanly")
+          if "self.impl.with" in method or "let implementation = self.impl" not in method or "implementation.with { [weak self] impl in" not in method:
+              raise SystemExit("Xcode 27 fetchIfNeeded weak outer capture fix did not apply cleanly")
           path.write_text(source, encoding="utf-8")
           print("Applied Xcode 27 capture fix specifically to fetchIfNeeded.")
           PY
