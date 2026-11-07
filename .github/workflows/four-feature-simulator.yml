@@ -451,12 +451,13 @@ jobs:
               ("submodules/InvisibleInkDustNode/Sources/MediaDustNode.swift", 1),
           ]
           anchor = "Queue.mainQueue().after(0.1 * UIView.animationDurationFactor()) {"
-          replacement = "Queue.mainQueue().after(0.1 * UIView.animationDurationFactor()) { [self] in"
+          original_line = anchor + "\\n"
+          replacement = anchor + " [self] in"
 
           for relative_path, expected in patches:
               path = Path(relative_path)
               source = path.read_text(encoding="utf-8")
-              old_count = source.count(anchor)
+              old_count = source.count(original_line)
               new_count = source.count(replacement)
 
               if old_count == expected and new_count == 0:
@@ -473,7 +474,7 @@ jobs:
 
           for relative_path, expected in patches:
               source = Path(relative_path).read_text(encoding="utf-8")
-              if source.count(anchor) != 0 or source.count(replacement) != expected:
+              if source.count(original_line) != 0 or source.count(replacement) != expected:
                   raise SystemExit(
                       f"InvisibleInk capture verification failed for {relative_path}; "
                       f"expected exactly {expected} explicit captures"
