@@ -645,6 +645,32 @@ jobs:
               raise SystemExit(f"Expected 25 Xcode 27 nested weak captures, verified {total}")
           print(f"PASS: explicitly rebound all {total} nested weak captures without strengthening their ownership.")
           PY
+          # Xcode 27 also diagnoses the CameraOutput timer's weak recorder
+          # capture because the enclosing Signal closure retains it strongly.
+          # Keep weak ownership and make the binding explicit.
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("submodules/Camera/Sources/CameraOutput.swift")
+          source = path.read_text(encoding="utf-8")
+          old = "completion: { [weak videoRecorder] in"
+          new = "completion: { [weak videoRecorder = videoRecorder] in"
+          old_count = source.count(old)
+          new_count = source.count(new)
+          if old_count == 1 and new_count == 0:
+              source = source.replace(old, new, 1)
+          elif old_count == 0 and new_count == 1:
+              pass
+          else:
+              raise SystemExit(
+                  f"Unsafe CameraOutput Xcode 27 capture patch: old={old_count}, fixed={new_count}"
+              )
+          path.write_text(source, encoding="utf-8")
+          verified = path.read_text(encoding="utf-8")
+          if verified.count(new) != 1 or old in verified:
+              raise SystemExit("CameraOutput weak videoRecorder capture verification failed")
+          print("PASS: CameraOutput timer retains weak videoRecorder ownership.")
+          PY
           git diff --check
       - name: Create simulator build configuration
         working-directory: telegram-ios
