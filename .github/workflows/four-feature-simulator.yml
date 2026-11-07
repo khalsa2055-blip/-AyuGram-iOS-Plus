@@ -327,15 +327,17 @@ jobs:
           from pathlib import Path
           path = Path("submodules/TelegramUI/Components/SubcodecAnimationCacheImpl/Sources/SubcodecAnimationCacheImpl.swift")
           source = path.read_text(encoding="utf-8")
-          old = "            self.impl.with { impl in"
-          new = "            let implementation = self.impl\n            implementation.with { impl in"
-          if old not in source:
-              raise SystemExit("Expected Xcode 27 weak-capture site was not found; refusing unsafe patch")
+          old = "        let disposable = MetaDisposable()\n        self.impl.with { impl in\n            disposable.set(impl.get(sourceId: sourceId, size: size, fetch: fetch, updateResult: { [weak self] result in"
+          new = "        let disposable = MetaDisposable()\n        let implementation = self.impl\n        implementation.with { impl in\n            disposable.set(impl.get(sourceId: sourceId, size: size, fetch: fetch, updateResult: { [weak self] result in"
+          if source.count(old) != 1:
+              raise SystemExit(f"Expected exactly one fetchIfNeeded weak-capture block; found {source.count(old)}")
           source = source.replace(old, new, 1)
-          if "            let implementation = self.impl" not in source:
-              raise SystemExit("Xcode 27 Swift capture fix did not apply")
+          method_start = source.index("    public func fetchIfNeeded(")
+          method = source[method_start:]
+          if "self.impl.with" in method or "let implementation = self.impl" not in method:
+              raise SystemExit("Xcode 27 fetchIfNeeded capture fix did not apply cleanly")
           path.write_text(source, encoding="utf-8")
-          print("Applied guarded Xcode 27 Swift capture fix.")
+          print("Applied Xcode 27 capture fix specifically to fetchIfNeeded.")
           PY
           git diff --check
       - name: Create simulator build configuration
