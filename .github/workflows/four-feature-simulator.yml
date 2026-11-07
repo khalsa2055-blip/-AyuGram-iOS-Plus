@@ -2,6 +2,12 @@ name: AyuGram iOS Plus — Four Feature Simulator Validation
 
 on:
   workflow_dispatch:
+    inputs:
+      build_device_ipa:
+        description: "Build the unsigned arm64 iPhone IPA for iLoader after simulator validation"
+        required: true
+        default: false
+        type: boolean
   push:
     branches:
       - feature/four-feature-integration
@@ -680,7 +686,7 @@ jobs:
           ls -lh ci-artifacts
 
       - name: Prepare unsigned arm64 device IPA for iLoader
-        if: success() # Prepare only after every prior validation has passed.
+        if: success() && github.event_name == 'workflow_dispatch' && inputs.build_device_ipa # Require explicit manual opt-in.
         working-directory: telegram-ios
         run: |
           python3 - <<'PY'
@@ -736,7 +742,7 @@ jobs:
           PY
 
       - name: Build and verify arm64 iPhone IPA
-        if: success() # Build and upload only after validation and preparation succeed.
+        if: success() && github.event_name == 'workflow_dispatch' && inputs.build_device_ipa # Require explicit manual opt-in.
         working-directory: telegram-ios
         run: |
           set -euo pipefail
@@ -794,7 +800,7 @@ jobs:
           ls -lh ci-artifacts/AyuGram-iOS-Plus-device-arm64.ipa
 
       - name: Upload arm64 device IPA
-        if: success() # Build and upload only after validation and preparation succeed.
+        if: success() && github.event_name == 'workflow_dispatch' && inputs.build_device_ipa # Require explicit manual opt-in.
         uses: actions/upload-artifact@v4
         with:
           name: AyuGram-iOS-Plus-device-arm64-${{ github.run_number }}
