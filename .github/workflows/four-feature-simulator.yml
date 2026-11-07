@@ -345,26 +345,43 @@ jobs:
           # existing strong ownership explicit; behavior and lifetime are unchanged.
           python3 - <<'PY'
           from pathlib import Path
+
           path = Path("submodules/TelegramAudio/Sources/ManagedAudioSession.swift")
           source = path.read_text(encoding="utf-8")
-          import re
-          pattern = r"(?m)^(\\s*)queue\\.async \\{\\s*\\n(\\s*)self\\.holders\\.append\\(HolderRecord"
-          matches = list(re.finditer(pattern, source))
-          if len(matches) == 1:
-              match = matches[0]
-              start = match.start()
-              line_end = source.find("\\n", start)
-              line = source[start:line_end]
-              if "[self]" not in line:
-                  source = source[:start] + line.replace("queue.async {", "queue.async { [self]", 1) + source[line_end:]
-          elif len(matches) == 0 and re.search(r"(?m)^\\s*queue\\.async \\{ \\[self\\] in\\s*\\n\\s*self\\.holders\\.append\\(HolderRecord", source):
+          lines = source.splitlines(keepends=True)
+
+          def is_holder_registration(index):
+              return (
+                  lines[index].strip() in ("queue.async {", "queue.async { [self] in")
+                  and index + 1 < len(lines)
+                  and lines[index + 1].lstrip().startswith("self.holders.append(HolderRecord")
+              )
+
+          pending = [i for i in range(len(lines) - 1) if lines[i].strip() == "queue.async {" and is_holder_registration(i)]
+          already = [i for i in range(len(lines) - 1) if lines[i].strip() == "queue.async { [self] in" and is_holder_registration(i)]
+
+          if len(pending) == 1 and not already:
+              i = pending[0]
+              lines[i] = lines[i].replace("queue.async {", "queue.async { [self]", 1)
+              source = "".join(lines)
+              path.write_text(source, encoding="utf-8")
+              print("Applied explicit [self] to the unique holder-registration queue closure.")
+          elif not pending and len(already) == 1:
               print("ManagedAudioSession explicit strong capture already applied.")
           else:
-              raise SystemExit(f"Expected one holder-registration queue closure; found {len(matches)}")
-          if not re.search(r"(?m)^\\s*queue\\.async \\{ \\[self\\] in\\s*\\n\\s*self\\.holders\\.append\\(HolderRecord", source):
-              raise SystemExit("ManagedAudioSession Xcode 27 capture fix did not apply.")
-          path.write_text(source, encoding="utf-8")
-          print("Applied explicit [self] to the holder-registration queue closure.")
+              raise SystemExit(
+                  f"Expected exactly one holder-registration closure; "
+                  f"found pending={len(pending)}, already-fixed={len(already)}"
+              )
+
+          verified = path.read_text(encoding="utf-8").splitlines()
+          verified_matches = [
+              i for i in range(len(verified) - 1)
+              if verified[i].strip() == "queue.async { [self] in"
+              and verified[i + 1].lstrip().startswith("self.holders.append(HolderRecord")
+          ]
+          if len(verified_matches) != 1:
+              raise SystemExit("ManagedAudioSession Xcode 27 explicit-capture verification failed.")
           PY
           git diff --check
       - name: Create simulator build configuration
