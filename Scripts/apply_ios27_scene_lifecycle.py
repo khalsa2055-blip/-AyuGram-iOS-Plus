@@ -49,29 +49,43 @@ scene_manifest = """    <key>UIApplicationSceneManifest</key>
     </dict>
 """
 source = read(BUILD)
-source = replace_once(source, '    <key>UIBackgroundModes</key>', scene_manifest + '    <key>UIBackgroundModes</key>', "app scene manifest")
+manifest_count = source.count("<key>UIApplicationSceneManifest</key>")
+if manifest_count == 0:
+    source = replace_once(source, '    <key>UIBackgroundModes</key>', scene_manifest + '    <key>UIBackgroundModes</key>', "app scene manifest")
+elif manifest_count != 1 or "<string>SceneDelegate</string>" not in source:
+    raise SystemExit("Existing UIApplicationSceneManifest is unexpected; refusing to overwrite it")
 write(BUILD, source)
 
 # 2) Stop the legacy root controller from overwriting UIKit's SceneDelegate.
 source = read(NATIVE_WINDOW)
-source = replace_once(
-    source,
-    "private final class WindowRootViewController: UIViewController, UIWindowSceneDelegate",
-    "private final class WindowRootViewController: UIViewController",
-    "remove accidental UIWindowSceneDelegate conformance from root controller",
-)
+legacy_conformance = "private final class WindowRootViewController: UIViewController, UIWindowSceneDelegate"
+if legacy_conformance in source:
+    source = replace_once(
+        source,
+        legacy_conformance,
+        "private final class WindowRootViewController: UIViewController",
+        "remove accidental UIWindowSceneDelegate conformance from root controller",
+    )
+elif "private final class WindowRootViewController: UIViewController" not in source:
+    raise SystemExit("WindowRootViewController declaration is missing")
 delegate_assignment = """        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
             windowScene.delegate = self
         }
 """
-source = replace_once(source, delegate_assignment, "", "remove root-controller scene delegate replacement")
+if delegate_assignment in source:
+    source = replace_once(source, delegate_assignment, "", "remove root-controller scene delegate replacement")
+elif "windowScene.delegate = self" in source:
+    raise SystemExit("Unexpected scene delegate assignment remains in NativeWindowHostView")
 preferred_windowing = """    @available(iOS 26.0, *)
     func preferredWindowingControlStyle(for windowScene: UIWindowScene) -> UIWindowScene.WindowingControlStyle {
         return .minimal
     }
     
 """
-source = replace_once(source, preferred_windowing, "", "move preferred windowing style to SceneDelegate")
+if preferred_windowing in source:
+    source = replace_once(source, preferred_windowing, "", "move preferred windowing style to SceneDelegate")
+elif "func preferredWindowingControlStyle(for windowScene" in source:
+    raise SystemExit("Unexpected preferredWindowingControlStyle implementation remains")
 write(NATIVE_WINDOW, source)
 
 # 3) Window1 is created before a scene is attached. Refresh device metrics after
@@ -89,18 +103,21 @@ metrics_method = """    /// Re-derives device metrics after the app window has b
     }
 
 """
-source = replace_once(source, "    private var forceBadgeHidden = true", metrics_method + "    private var forceBadgeHidden = true", "add post-scene device metric refresh")
+if "public func updateDeviceMetrics()" not in source:
+    source = replace_once(source, "    private var forceBadgeHidden = true", metrics_method + "    private var forceBadgeHidden = true", "add post-scene device metric refresh")
+elif source.count("public func updateDeviceMetrics()") != 1:
+    raise SystemExit("Unexpected duplicate updateDeviceMetrics method")
 write(WINDOW_CONTENT, source)
 
 # 4) The scene is absent until UIKit connects it. This legacy status-bar query
 #    must therefore be optional while didFinishLaunching is still running.
 source = read(LEGACY_CONTROLLER)
-source = replace_once(
-    source,
-    "window!?.windowScene!.statusBarManager?.statusBarFrame",
-    "window!?.windowScene?.statusBarManager?.statusBarFrame",
-    "make LegacyController status-bar lookup safe before scene attachment",
-)
+force_unwrap = "window!?.windowScene!.statusBarManager?.statusBarFrame"
+safe_lookup = "window!?.windowScene?.statusBarManager?.statusBarFrame"
+if force_unwrap in source:
+    source = replace_once(source, force_unwrap, safe_lookup, "make LegacyController status-bar lookup safe before scene attachment")
+elif safe_lookup not in source:
+    raise SystemExit("LegacyController status-bar lookup is in an unexpected state")
 write(LEGACY_CONTROLLER, source)
 
 # 5) Add a thin SceneDelegate. Only the primary application scene forwards
@@ -174,9 +191,11 @@ scene_delegate_source = """import UIKit
 }
 """
 if SCENE_DELEGATE.exists():
-    raise SystemExit("SceneDelegate.swift already exists; refusing to overwrite an existing implementation")
-SCENE_DELEGATE.parent.mkdir(parents=True, exist_ok=True)
-write(SCENE_DELEGATE, scene_delegate_source)
+    if read(SCENE_DELEGATE) != scene_delegate_source:
+        raise SystemExit("A different SceneDelegate.swift already exists; refusing to overwrite it")
+else:
+    SCENE_DELEGATE.parent.mkdir(parents=True, exist_ok=True)
+    write(SCENE_DELEGATE, scene_delegate_source)
 
 # 6) Migrate the AppDelegate's window/lifecycle entry points to the new delegate.
 source = read(APP_DELEGATE)
@@ -198,12 +217,20 @@ source = replace_once(
     "        let statusBarHost = ApplicationStatusBarHost(scene: window.windowScene)\n        self.statusBarHost = statusBarHost\n        self.mainWindow = Window1(hostView: hostView, statusBarHost: statusBarHost)",
     "retain ApplicationStatusBarHost instance",
 )
-source = replace_once(
-    source,
-    "\n        self.window?.makeKeyAndVisible()\n        \n        var hasActiveCalls:",
-    "\n        var hasActiveCalls:",
-    "defer showing main window until its scene is attached",
-)
+lines = source.splitlines()
+visibility_matches = []
+for index, line in enumerate(lines):
+    if line.strip() != "self.window?.makeKeyAndVisible()":
+        continue
+    following = index + 1
+    while following < len(lines) and not lines[following].strip():
+        following += 1
+    if following < len(lines) and lines[following].strip().startswith("var hasActiveCalls:"):
+        visibility_matches.append(index)
+if len(visibility_matches) != 1:
+    raise SystemExit(f"Expected one pre-scene main-window visibility line, found {len(visibility_matches)}")
+del lines[visibility_matches[0]]
+source = "\n".join(lines) + "\n"
 source = replace_once(
     source,
     '            window.makeKeyAndVisible()\n\n            NSLog("[DeleteAccount] starting',
