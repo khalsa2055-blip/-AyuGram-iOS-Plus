@@ -579,6 +579,72 @@ jobs:
               print(f"Verified {len(line_patches)} weak capture rebinding(s): {relative_path}")
           print("Verified all 19 Postbox Xcode 27 capture fixes.")
           PY
+          # Xcode 27 reports nested weak captures when an enclosing TelegramCore
+          # closure already captures the same value strongly. Rebind only the
+          # compiler-reported capture items explicitly; they remain weak.
+          python3 - <<'PY'
+          from pathlib import Path
+
+          patches = {
+              "submodules/TelegramCore/Sources/Account/Account.swift": [
+                  ("postbox.mediaBox.fetchResource = { [weak postbox] resource", "postbox.mediaBox.fetchResource = { [weak postbox = postbox] resource", 1),
+              ],
+              "submodules/TelegramCore/Sources/Network/MultipartUpload.swift": [
+                  ("startStrict(next: { [weak self] data in", "startStrict(next: { [weak self = self] data in", 1),
+                  ("let onFloodWaitError: (String) -> Void = { [weak network] error in", "let onFloodWaitError: (String) -> Void = { [weak network = network] error in", 1),
+              ],
+              "submodules/TelegramCore/Sources/Network/Download.swift": [
+                  ("ActionDisposable { [weak requestService] in", "ActionDisposable { [weak requestService = requestService] in", 1),
+              ],
+              "submodules/TelegramCore/Sources/Network/Network.swift": [
+                  ("ActionDisposable { [weak requestService] in", "ActionDisposable { [weak requestService = requestService] in", 2),
+              ],
+              "submodules/TelegramCore/Sources/State/AccountStateManager.swift": [
+                  ("self.updateServiceDisposable.set(self.updateService!.pipe.signal().start(next: { [weak self] groups in",
+                   "self.updateServiceDisposable.set(self.updateService!.pipe.signal().start(next: { [weak self = self] groups in", 1),
+              ],
+              "submodules/TelegramCore/Sources/State/AccountViewTracker.swift": [
+                  ("start(completed: { [weak self] in", "start(completed: { [weak self = self] in", 3),
+                  ("|> afterDisposed { [weak self] in", "|> afterDisposed { [weak self = self] in", 10),
+                  ("start(next: { [weak self] updatedStates in", "start(next: { [weak self = self] updatedStates in", 1),
+                  ("start(next: { [weak self] supplementalStatus, cachedStatus in",
+                   "start(next: { [weak self = self] supplementalStatus, cachedStatus in", 2),
+              ],
+              "submodules/TelegramCore/Sources/State/ChatHistoryPreloadManager.swift": [
+                  ("deliverOn(self.queue)).start(next: { [weak self] next in",
+                   "deliverOn(self.queue)).start(next: { [weak self = self] next in", 1),
+              ],
+              "submodules/TelegramCore/Sources/State/PendingMessageManager.swift": [
+                  ("deliverOn(self.queue)).start(next: { [weak self] peerIdsWithDeliveredMessages in",
+                   "deliverOn(self.queue)).start(next: { [weak self = self] peerIdsWithDeliveredMessages in", 1),
+              ],
+          }
+
+          total = 0
+          for relative_path, replacements in patches.items():
+              file_path = Path(relative_path)
+              source = file_path.read_text(encoding="utf-8")
+              for old, new, expected in replacements:
+                  old_count = source.count(old)
+                  new_count = source.count(new)
+                  if old_count == expected and new_count == 0:
+                      source = source.replace(old, new)
+                  elif old_count == 0 and new_count == expected:
+                      pass
+                  else:
+                      raise SystemExit(
+                          f"Unsafe Xcode 27 nested weak-capture patch in {relative_path}: "
+                          f"expected={expected}, old={old_count}, already_fixed={new_count}"
+                      )
+                  if source.count(new) < expected or old in source:
+                      raise SystemExit(f"Weak-capture verification failed in {relative_path}: {new}")
+                  total += expected
+              file_path.write_text(source, encoding="utf-8")
+              print(f"Verified nested weak captures: {relative_path}")
+          if total != 25:
+              raise SystemExit(f"Expected 25 Xcode 27 nested weak captures, verified {total}")
+          print(f"PASS: explicitly rebound all {total} nested weak captures without strengthening their ownership.")
+          PY
           git diff --check
       - name: Create simulator build configuration
         working-directory: telegram-ios
