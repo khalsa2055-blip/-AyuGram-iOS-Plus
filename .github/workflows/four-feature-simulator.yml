@@ -441,31 +441,31 @@ jobs:
           PY
 
           # Xcode 27 diagnoses nested weak captures when the enclosing animation
-          # closures implicitly retain self. Make the pre-existing strong capture
-          # explicit in every matching closure, while preserving weak inner callbacks.
+          # closures implicitly retain self. Patch only plain implicit-capture
+          # closures; preserve neighboring closures that already use [weak self].
           python3 - <<'PY'
           from pathlib import Path
 
           patches = [
-              ("submodules/InvisibleInkDustNode/Sources/InvisibleInkDustNode.swift", 2),
+              ("submodules/InvisibleInkDustNode/Sources/InvisibleInkDustNode.swift", 1),
               ("submodules/InvisibleInkDustNode/Sources/MediaDustNode.swift", 1),
           ]
           anchor = "Queue.mainQueue().after(0.1 * UIView.animationDurationFactor()) {"
-          original_line = anchor + "\n"
-          replacement = anchor + " [self] in"
+          original_line = anchor + "\\n"
+          replacement_line = anchor + " [self] in\\n"
 
           for relative_path, expected in patches:
               path = Path(relative_path)
               source = path.read_text(encoding="utf-8")
               old_count = source.count(original_line)
-              new_count = source.count(replacement)
+              new_count = source.count(replacement_line)
 
               if old_count == expected and new_count == 0:
-                  source = source.replace(anchor, replacement)
+                  source = source.replace(original_line, replacement_line)
                   path.write_text(source, encoding="utf-8")
-                  print(f"Applied explicit outer captures ({expected}): {relative_path}")
+                  print(f"Applied explicit outer capture ({expected}): {relative_path}")
               elif old_count == 0 and new_count == expected:
-                  print(f"Explicit outer captures already applied ({expected}): {relative_path}")
+                  print(f"Explicit outer capture already applied ({expected}): {relative_path}")
               else:
                   raise SystemExit(
                       f"Unsafe InvisibleInk capture patch for {relative_path}: "
@@ -474,12 +474,12 @@ jobs:
 
           for relative_path, expected in patches:
               source = Path(relative_path).read_text(encoding="utf-8")
-              if source.count(original_line) != 0 or source.count(replacement) != expected:
+              if source.count(original_line) != 0 or source.count(replacement_line) != expected:
                   raise SystemExit(
                       f"InvisibleInk capture verification failed for {relative_path}; "
-                      f"expected exactly {expected} explicit captures"
+                      f"expected exactly {expected} explicit plain-closure captures"
                   )
-          print("Verified all three InvisibleInk/MediaDust outer capture fixes.")
+          print("Verified both plain implicit-capture fixes; existing weak captures were preserved.")
           PY
           git diff --check
       - name: Create simulator build configuration
