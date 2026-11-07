@@ -3,7 +3,7 @@
 from pathlib import Path
 import re
 
-ROOT = Path("telegram-ios")
+ROOT = Path("telegram-ios") if Path("telegram-ios").is_dir() else Path(".")
 SETTINGS = ROOT / "submodules/TelegramUI/Components/AyuGramSettingsScreen/Sources/AyuGramSettingsScreen.swift"
 SETTINGS_BUILD = ROOT / "submodules/TelegramUI/Components/AyuGramSettingsScreen/BUILD"
 MENU = ROOT / "submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift"
