@@ -371,9 +371,11 @@ jobs:
           cat >> .bazelrc <<'BAZELRC'
           build --//Telegram:disableProvisioningProfiles
           build --//Telegram:disableExtensions
-          # Xcode 27 libc++ emits a platform-deprecation warning for legacy
-          # deployment targets; keep it visible but do not fail C++ compilation.
-          build --cxxopt=-Wno-error
+          # Xcode 27 libc++ reports legacy deployment-target support through
+          # Clang's -W#warnings diagnostic. Keep that warning visible but prevent
+          # the target's general -Werror from promoting this one diagnostic.
+          # All other warning groups remain errors.
+          build --cxxopt=-Wno-error=#warnings
           BAZELRC
 
           echo "Simulator build (single cached attempt)"
