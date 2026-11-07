@@ -671,6 +671,42 @@ jobs:
               raise SystemExit("CameraOutput weak videoRecorder capture verification failed")
           print("PASS: CameraOutput timer retains weak videoRecorder ownership.")
           PY
+          # Xcode 27 diagnoses two nested weak-self timer closures because
+          # their enclosing delayed closures implicitly retain self. Rebind
+          # weak self explicitly at the timer boundary; ownership stays weak.
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("submodules/SolidRoundedButtonNode/Sources/SolidRoundedButtonNode.swift")
+          source = path.read_text(encoding="utf-8")
+          old = """Queue.mainQueue().after(1.25) {
+                                  self.animationNode?.play()
+
+                                  let timer = SwiftSignalKit.Timer(timeout: self.animationLoopTime, repeat: true, completion: { [weak self] in
+                                      self?.animationNode?.play()
+                                  }, queue: Queue.mainQueue())"""
+          new = """Queue.mainQueue().after(1.25) {
+                                  self.animationNode?.play()
+
+                                  let timer = SwiftSignalKit.Timer(timeout: self.animationLoopTime, repeat: true, completion: { [weak self = self] in
+                                      self?.animationNode?.play()
+                                  }, queue: Queue.mainQueue())"""
+          old_count = source.count(old)
+          new_count = source.count(new)
+          if old_count == 2 and new_count == 0:
+              source = source.replace(old, new)
+          elif old_count == 0 and new_count == 2:
+              pass
+          else:
+              raise SystemExit(
+                  f"Unsafe SolidRoundedButtonNode capture patch: old={old_count}, fixed={new_count}"
+              )
+          path.write_text(source, encoding="utf-8")
+          verified = path.read_text(encoding="utf-8")
+          if verified.count(new) != 2 or old in verified:
+              raise SystemExit("SolidRoundedButtonNode weak self capture verification failed")
+          print("PASS: both delayed animation timers retain weak self ownership.")
+          PY
           git diff --check
       - name: Create simulator build configuration
         working-directory: telegram-ios
