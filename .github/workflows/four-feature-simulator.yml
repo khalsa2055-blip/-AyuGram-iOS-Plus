@@ -322,13 +322,11 @@ jobs:
           path = Path("submodules/TelegramUI/Components/SubcodecAnimationCacheImpl/Sources/SubcodecAnimationCacheImpl.swift")
           source = path.read_text(encoding="utf-8")
           old = "            self.impl.with { impl in"
-          new = "            let implementation = self.impl\\n            implementation.with { impl in"
+          new = "            let implementation = self.impl\n            implementation.with { impl in"
           if old not in source:
               raise SystemExit("Expected Xcode 27 weak-capture site was not found; refusing unsafe patch")
           source = source.replace(old, new, 1)
           if "            let implementation = self.impl" not in source:
-              raise SystemExit("Xcode 27 Swift capture fix did not apply")
-          if "let implementation = self.impl" not in source:
               raise SystemExit("Xcode 27 Swift capture fix did not apply")
           path.write_text(source, encoding="utf-8")
           print("Applied guarded Xcode 27 Swift capture fix.")
