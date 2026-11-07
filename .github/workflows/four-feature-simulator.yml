@@ -339,6 +339,30 @@ jobs:
           path.write_text(source, encoding="utf-8")
           print("Applied Xcode 27 capture fix specifically to fetchIfNeeded.")
           PY
+
+          # Xcode 27 diagnoses nested weak captures when the enclosing
+          # DispatchQueue closure implicitly captures self strongly. Make that
+          # existing strong ownership explicit; behavior and lifetime are unchanged.
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("submodules/TelegramAudio/Sources/ManagedAudioSession.swift")
+          source = path.read_text(encoding="utf-8")
+          old = "        queue.async {\\n            self.holders.append(HolderRecord"
+          new = "        queue.async { [self] in\\n            self.holders.append(HolderRecord"
+          if source.count(old) == 1:
+              source = source.replace(old, new, 1)
+          elif source.count(new) == 1:
+              print("ManagedAudioSession explicit strong capture already applied.")
+          else:
+              raise SystemExit(
+                  "Expected the single ManagedAudioSession holder-registration queue closure; "
+                  f"found old={source.count(old)}, new={source.count(new)}"
+              )
+          if new not in source:
+              raise SystemExit("ManagedAudioSession Xcode 27 capture fix did not apply.")
+          path.write_text(source, encoding="utf-8")
+          print("Applied explicit [self] to the existing strong queue capture in ManagedAudioSession.")
+          PY
           git diff --check
       - name: Create simulator build configuration
         working-directory: telegram-ios
