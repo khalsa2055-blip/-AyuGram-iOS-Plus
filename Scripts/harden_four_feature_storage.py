@@ -3,7 +3,8 @@
 from pathlib import Path
 import re
 
-base = Path("telegram-ios/submodules/AyuGramIOS/Sources")
+project_root = Path("telegram-ios") if Path("telegram-ios").is_dir() else Path(".")
+base = project_root / "submodules/AyuGramIOS/Sources"
 archive = base / "AyuGramMediaArchive.swift"
 capture = base / "AyuGramCaptureService.swift"
 if not archive.is_file():
