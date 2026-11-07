@@ -222,13 +222,13 @@ visibility_matches = []
 for index, line in enumerate(lines):
     if line.strip() != "self.window?.makeKeyAndVisible()":
         continue
-    following = index + 1
-    while following < len(lines) and not lines[following].strip():
-        following += 1
-    if following < len(lines) and lines[following].strip().startswith("var hasActiveCalls:"):
+    before = "\n".join(lines[max(0, index - 24):index])
+    after = "\n".join(lines[index + 1:min(len(lines), index + 24)])
+    # Match the launch-time call by nearby setup, not one exact line layout.
+    if "GlobalExperimentalSettings.enableFeed = false" in before and "hasActiveCalls" in after:
         visibility_matches.append(index)
 if len(visibility_matches) != 1:
-    raise SystemExit(f"Expected one pre-scene main-window visibility line, found {len(visibility_matches)}")
+    raise SystemExit("defer showing main window until its scene is attached: expected one launch-time visibility call, found " + str(len(visibility_matches)))
 del lines[visibility_matches[0]]
 source = "\n".join(lines) + "\n"
 source = replace_once(
