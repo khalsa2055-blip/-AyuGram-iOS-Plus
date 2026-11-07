@@ -9,6 +9,7 @@ on:
       - "Scripts/harden_ayugram_history.py"
       - "Scripts/harden_four_feature_storage.py"
       - "Scripts/apply_four_feature_ui.py"
+      - "Scripts/apply_ios27_scene_lifecycle.py"
       - "Experiments/PrivateInviteLinkInspector/**"
       - ".github/workflows/four-feature-compatibility.yml"
       - ".github/workflows/four-feature-simulator.yml"
@@ -170,6 +171,18 @@ jobs:
 
       - name: Apply private preview and Before UI
         run: python3 Scripts/apply_four_feature_ui.py
+
+      - name: Backport and parse iOS 27 Scene lifecycle
+        working-directory: telegram-ios
+        run: |
+          set -euo pipefail
+          python3 "$GITHUB_WORKSPACE/Scripts/apply_ios27_scene_lifecycle.py"
+          xcrun swiftc -frontend -parse submodules/TelegramUI/Sources/SceneDelegate.swift
+          xcrun swiftc -frontend -parse submodules/TelegramUI/Sources/AppDelegate.swift
+          xcrun swiftc -frontend -parse submodules/Display/Source/NativeWindowHostView.swift
+          xcrun swiftc -frontend -parse submodules/Display/Source/WindowContent.swift
+          xcrun swiftc -frontend -parse submodules/LegacyUI/Sources/LegacyController.swift
+          echo "PASS: iOS 27 scene-lifecycle sources parse on the pinned baseline."
 
       - name: Parse modified Swift sources without building the app
         run: |
