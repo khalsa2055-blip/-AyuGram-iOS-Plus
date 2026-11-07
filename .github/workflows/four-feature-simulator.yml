@@ -439,6 +439,46 @@ jobs:
                   )
           print("Verified four Display capture fixes.")
           PY
+
+          # Xcode 27 also diagnoses nested weak captures inside the two
+          # InvisibleInkDustNode animation closures. The outer closures already
+          # retain self strongly; make that ownership explicit without changing
+          # the nested weak completion handlers or animation behavior.
+          python3 - <<'PY'
+          from pathlib import Path
+
+          patches = [
+              "submodules/InvisibleInkDustNode/Sources/InvisibleInkDustNode.swift",
+              "submodules/InvisibleInkDustNode/Sources/MediaDustNode.swift",
+          ]
+          anchor = "Queue.mainQueue().after(0.1 * UIView.animationDurationFactor()) {"
+          replacement = "Queue.mainQueue().after(0.1 * UIView.animationDurationFactor()) { [self] in"
+
+          for relative_path in patches:
+              path = Path(relative_path)
+              source = path.read_text(encoding="utf-8")
+              old_count = source.count(anchor)
+              new_count = source.count(replacement)
+              if old_count == 1 and new_count == 0:
+                  source = source.replace(anchor, replacement, 1)
+                  path.write_text(source, encoding="utf-8")
+                  print(f"Applied Xcode 27 explicit outer capture: {relative_path}")
+              elif old_count == 0 and new_count == 1:
+                  print(f"Xcode 27 explicit outer capture already applied: {relative_path}")
+              else:
+                  raise SystemExit(
+                      f"Unsafe InvisibleInkDustNode patch for {relative_path}: "
+                      f"old={old_count}, already_fixed={new_count}"
+                  )
+
+          for relative_path in patches:
+              source = Path(relative_path).read_text(encoding="utf-8")
+              if source.count(replacement) != 1:
+                  raise SystemExit(
+                      f"Xcode 27 capture verification failed for {relative_path}"
+                  )
+          print("Verified both InvisibleInkDustNode capture fixes.")
+          PY
           git diff --check
       - name: Create simulator build configuration
         working-directory: telegram-ios
