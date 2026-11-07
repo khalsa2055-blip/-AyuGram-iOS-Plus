@@ -136,10 +136,10 @@ jobs:
           assert v["app"] == "12.9.2", v
 
           xcode_output = subprocess.check_output(["xcodebuild", "-version"], text=True)
-          match = re.search(r"(?m)^Xcode ([0-9]+(?:\\.[0-9]+)*)$", xcode_output)
-          if not match:
+          xcode_line = next((line for line in xcode_output.splitlines() if line.startswith("Xcode ")), None)
+          if not xcode_line:
               raise SystemExit("Could not read the active Xcode version: " + xcode_output)
-          active_xcode = match.group(1)
+          active_xcode = xcode_line.split()[1]
           if int(active_xcode.split(".")[0]) < 27:
               raise SystemExit("The iOS 27 scene regression requires Xcode 27 or later, got " + active_xcode)
 
