@@ -509,6 +509,67 @@ jobs:
           if verified.count(new) != 1:
               raise SystemExit("CombinedComponent explicit weak capture verification failed.")
           PY
+          # Xcode 27's ImplicitStrongCapture diagnostic also applies to nested
+          # weak captures in Postbox. Explicitly rebind only the compiler-reported
+          # capture items; their weak ownership and cancellation behavior stay intact.
+          python3 - <<'PY'
+          from pathlib import Path
+
+          patches = {
+              "submodules/Postbox/Sources/MediaBox.swift": [
+                  (428, "[weak statusContext]", "[weak statusContext = statusContext]"),
+                  (437, "[weak statusContext]", "[weak statusContext = statusContext]"),
+                  (918, "[weak self,", "[weak self = self,"),
+                  (1076, "[weak self,", "[weak self = self,"),
+                  (1259, "[weak self,", "[weak self = self,"),
+              ],
+              "submodules/Postbox/Sources/Postbox.swift": [
+                  (3757, "[weak self]", "[weak self = self]"),
+                  (3779, "[weak self]", "[weak self = self]"),
+                  (3904, "[weak self]", "[weak self = self]"),
+                  (3926, "[weak self]", "[weak self = self]"),
+                  (3958, "[weak self]", "[weak self = self]"),
+                  (3994, "[weak self]", "[weak self = self]"),
+                  (4082, "[weak self]", "[weak self = self]"),
+                  (4105, "[weak self]", "[weak self = self]"),
+                  (4127, "[weak self]", "[weak self = self]"),
+                  (4178, "[weak self]", "[weak self = self]"),
+                  (4200, "[weak self]", "[weak self = self]"),
+                  (4226, "[weak self]", "[weak self = self]"),
+                  (4324, "[weak self]", "[weak self = self]"),
+                  (4608, "[weak self]", "[weak self = self]"),
+              ],
+          }
+
+          for relative_path, line_patches in patches.items():
+              path = Path(relative_path)
+              lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+              for line_number, old, new in line_patches:
+                  index = line_number - 1
+                  if index >= len(lines):
+                      raise SystemExit(f"{relative_path}:{line_number} is outside the file")
+                  line = lines[index]
+                  if line.count(old) == 1 and new not in line:
+                      lines[index] = line.replace(old, new, 1)
+                  elif line.count(new) == 1 and old not in line:
+                      pass
+                  else:
+                      raise SystemExit(
+                          f"Unsafe capture patch at {relative_path}:{line_number}: "
+                          f"expected exactly one of old/new anchor"
+                      )
+
+              path.write_text("".join(lines), encoding="utf-8")
+              verified = path.read_text(encoding="utf-8").splitlines()
+              for line_number, old, new in line_patches:
+                  line = verified[line_number - 1]
+                  if line.count(new) != 1 or old in line:
+                      raise SystemExit(
+                          f"Capture verification failed at {relative_path}:{line_number}"
+                      )
+              print(f"Verified {len(line_patches)} weak capture rebinding(s): {relative_path}")
+          print("Verified all 19 Postbox Xcode 27 capture fixes.")
+          PY
           git diff --check
       - name: Create simulator build configuration
         working-directory: telegram-ios
