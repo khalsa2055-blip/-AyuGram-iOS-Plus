@@ -347,21 +347,24 @@ jobs:
           from pathlib import Path
           path = Path("submodules/TelegramAudio/Sources/ManagedAudioSession.swift")
           source = path.read_text(encoding="utf-8")
-          old = "        queue.async {\\n            self.holders.append(HolderRecord"
-          new = "        queue.async { [self] in\\n            self.holders.append(HolderRecord"
-          if source.count(old) == 1:
-              source = source.replace(old, new, 1)
-          elif source.count(new) == 1:
+          import re
+          pattern = r"(?m)^(\\s*)queue\\.async \\{\\s*\\n(\\s*)self\\.holders\\.append\\(HolderRecord"
+          matches = list(re.finditer(pattern, source))
+          if len(matches) == 1:
+              match = matches[0]
+              start = match.start()
+              line_end = source.find("\\n", start)
+              line = source[start:line_end]
+              if "[self]" not in line:
+                  source = source[:start] + line.replace("queue.async {", "queue.async { [self]", 1) + source[line_end:]
+          elif len(matches) == 0 and re.search(r"(?m)^\\s*queue\\.async \\{ \\[self\\] in\\s*\\n\\s*self\\.holders\\.append\\(HolderRecord", source):
               print("ManagedAudioSession explicit strong capture already applied.")
           else:
-              raise SystemExit(
-                  "Expected the single ManagedAudioSession holder-registration queue closure; "
-                  f"found old={source.count(old)}, new={source.count(new)}"
-              )
-          if new not in source:
+              raise SystemExit(f"Expected one holder-registration queue closure; found {len(matches)}")
+          if not re.search(r"(?m)^\\s*queue\\.async \\{ \\[self\\] in\\s*\\n\\s*self\\.holders\\.append\\(HolderRecord", source):
               raise SystemExit("ManagedAudioSession Xcode 27 capture fix did not apply.")
           path.write_text(source, encoding="utf-8")
-          print("Applied explicit [self] to the existing strong queue capture in ManagedAudioSession.")
+          print("Applied explicit [self] to the holder-registration queue closure.")
           PY
           git diff --check
       - name: Create simulator build configuration
