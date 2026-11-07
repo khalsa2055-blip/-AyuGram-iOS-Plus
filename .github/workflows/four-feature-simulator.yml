@@ -796,9 +796,9 @@ jobs:
               if line.strip() == anchor:
                   indent = line[:len(line) - len(line.lstrip())]
                   additions = [
-                      indent + "if arguments.configuration in ('debug_sim_arm64', 'release_sim_arm64', 'debug_arm64'):",
+                      indent + "if arguments.configuration in ('debug_sim_arm64', 'release_sim_arm64', 'debug_arm64', 'release_arm64'):",
                       indent + "    bazel_command_line.set_disable_provisioning_profiles()",
-                      indent + "if arguments.configuration == 'debug_arm64':",
+                      indent + "if arguments.configuration in ('debug_arm64', 'release_arm64'):",
                       indent + "    # Leave device code signing to iLoader on the user's PC.",
                       indent + "    bazel_command_line.common_args.append('--features=disable_legacy_signing')",
                   ]
@@ -827,8 +827,8 @@ jobs:
             build \
             --configurationPath=build-system/ayugram-ci-configuration.json \
             --xcodeManagedCodesigning \
-            --buildNumber=200082 \
-            --configuration=debug_arm64
+            --buildNumber=200083 \
+            --configuration=release_arm64
 
           ipa="bazel-bin/Telegram/Swiftgram.ipa"
           if [ ! -f "$ipa" ]; then
