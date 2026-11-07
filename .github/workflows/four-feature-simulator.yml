@@ -451,8 +451,8 @@ jobs:
               ("submodules/InvisibleInkDustNode/Sources/MediaDustNode.swift", 1),
           ]
           anchor = "Queue.mainQueue().after(0.1 * UIView.animationDurationFactor()) {"
-          original_line = anchor + "\\n"
-          replacement_line = anchor + " [self] in\\n"
+          original_line = anchor + chr(10)
+          replacement_line = anchor + " [self] in" + chr(10)
 
           for relative_path, expected in patches:
               path = Path(relative_path)
