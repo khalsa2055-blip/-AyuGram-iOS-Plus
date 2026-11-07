@@ -122,15 +122,28 @@ jobs:
           git -C submodules/rlottie/rlottie checkout --detach 67f103bc8b625f2a4a9e94f1d8c7bd84c5a08d1d
           echo "rlottie revision: $(git -C submodules/rlottie/rlottie rev-parse HEAD)"
 
-      - name: Check Telegram baseline
+      - name: Check Telegram baseline and align temporary Xcode metadata
         working-directory: telegram-ios
         run: |
           python3 - <<'PY'
           import json
-          with open("versions.json", encoding="utf-8") as f:
-              v = json.load(f)
+          import subprocess
+          from pathlib import Path
+
+          path = Path("versions.json")
+          v = json.loads(path.read_text(encoding="utf-8"))
           assert v["app"] == "12.9.2", v
-          print("Pinned Telegram baseline:", v["app"], "upstream Xcode metadata:", v["xcode"], "macOS:", v["macos"])
+          xcode_output = subprocess.check_output(["xcodebuild", "-version"], text=True)
+          xcode_line = next((line for line in xcode_output.splitlines() if line.startswith("Xcode ")), None)
+          if not xcode_line:
+              raise SystemExit("Could not read the active Xcode version: " + xcode_output)
+          active_xcode = xcode_line.split()[1]
+          if int(active_xcode.split(".")[0]) < 27:
+              raise SystemExit("The iOS 27 scene regression requires Xcode 27 or later, got " + active_xcode)
+          original_xcode = v["xcode"]
+          v["xcode"] = active_xcode
+          path.write_text(json.dumps(v, indent=2), encoding="utf-8")
+          print("Pinned Telegram baseline:", v["app"], "original Xcode metadata:", original_xcode, "runner Xcode:", active_xcode)
           PY
 
       - name: Validate and apply AyuGram patch
@@ -139,6 +152,7 @@ jobs:
           cd telegram-ios
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           patch = Path("ayugram-1.3.0.patch").read_text(encoding="utf-8")
           sections = re.split(r"(?m)^diff --git ", patch)
@@ -238,6 +252,7 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           build = Path("Telegram/BUILD")
           source = build.read_text(encoding="utf-8")
