@@ -431,8 +431,12 @@ jobs:
 
           for relative_path, old, new in patches:
               source = Path(relative_path).read_text(encoding="utf-8")
-              if new not in source or old in source:
-                  raise SystemExit(f"Xcode 27 capture patch verification failed: {relative_path}")
+              new_count = source.count(new)
+              if new_count != 1:
+                  raise SystemExit(
+                      f"Xcode 27 capture patch verification failed: "
+                      f"{relative_path} expected one patched anchor, found {new_count}"
+                  )
           print("Verified four Display capture fixes.")
           PY
           git diff --check
