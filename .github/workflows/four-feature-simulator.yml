@@ -247,6 +247,15 @@ jobs:
               print("  ", path)
           PY
 
+          # Apply the same History model/UI/storage hardening used by the
+          # compatibility workflow before compiling AyuGramIOS. The base patch
+          # intentionally carries the portable model; these passes add sender
+          # and deletion-time metadata consumed by the media archive.
+          python3 ../Scripts/harden_ayugram_history.py
+          python3 ../Scripts/harden_four_feature_storage.py
+          python3 ../Scripts/apply_four_feature_ui.py
+          python3 ../Scripts/apply_ios27_scene_lifecycle.py
+
           # Comprehensive AyuGram runtime smoke-test hook (UI + feature verification).
           python3 ../Scripts/inject_ayugram_history_test.py
           python3 "$GITHUB_WORKSPACE/.github/history-menu-smoke.py"
