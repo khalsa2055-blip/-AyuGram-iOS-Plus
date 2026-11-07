@@ -122,15 +122,33 @@ jobs:
           git -C submodules/rlottie/rlottie checkout --detach 67f103bc8b625f2a4a9e94f1d8c7bd84c5a08d1d
           echo "rlottie revision: $(git -C submodules/rlottie/rlottie rev-parse HEAD)"
 
-      - name: Check Telegram baseline
+      - name: Check Telegram baseline and align temporary Xcode metadata
         working-directory: telegram-ios
         run: |
           python3 - <<'PY'
           import json
-          with open("versions.json", encoding="utf-8") as f:
-              v = json.load(f)
+          import re
+          import subprocess
+          from pathlib import Path
+
+          path = Path("versions.json")
+          v = json.loads(path.read_text(encoding="utf-8"))
           assert v["app"] == "12.9.2", v
-          print("Pinned Telegram baseline:", v["app"], "original upstream Xcode:", v["xcode"], "macOS:", v["macos"])
+
+          xcode_output = subprocess.check_output(["xcodebuild", "-version"], text=True)
+          match = re.search(r"(?m)^Xcode ([0-9]+(?:\\.[0-9]+)*)$", xcode_output)
+          if not match:
+              raise SystemExit("Could not read the active Xcode version: " + xcode_output)
+          active_xcode = match.group(1)
+          if int(active_xcode.split(".")[0]) < 27:
+              raise SystemExit("The iOS 27 scene regression requires Xcode 27 or later, got " + active_xcode)
+
+          original_xcode = v["xcode"]
+          v["xcode"] = active_xcode
+          path.write_text(json.dumps(v, indent=2) + "\\n", encoding="utf-8")
+          print("Pinned Telegram baseline:", v["app"])
+          print("Upstream metadata Xcode:", original_xcode)
+          print("Temporary build metadata aligned to active Xcode:", active_xcode)
           PY
 
       - name: Validate and apply AyuGram patch
