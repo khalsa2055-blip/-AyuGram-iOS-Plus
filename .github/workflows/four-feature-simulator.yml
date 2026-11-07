@@ -729,6 +729,34 @@ jobs:
               raise SystemExit("TelegramVoip weak callSessionManager verification failed")
           print("PASS: both TelegramVoip callbacks retain weak callSessionManager ownership.")
           PY
+          # Xcode 27 diagnoses nested weak-self callbacks inside this outer
+          # mapToSignal closure. Make its existing strong self capture explicit;
+          # the inner beforeCompleted/beforeNext captures remain weak.
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("submodules/TemporaryCachedPeerDataManager/Sources/PeerChannelMemberCategoriesContextsManager.swift")
+          source = path.read_text(encoding="utf-8")
+          old = "|> mapToSignal { peer -> Signal<Void, NoError> in"
+          new = "|> mapToSignal { [self] peer -> Signal<Void, NoError> in"
+          old_count = source.count(old)
+          new_count = source.count(new)
+          if old_count == 1 and new_count == 0:
+              source = source.replace(old, new, 1)
+          elif old_count == 0 and new_count == 1:
+              pass
+          else:
+              raise SystemExit(
+                  f"Unsafe TemporaryCachedPeerDataManager patch: old={old_count}, fixed={new_count}"
+              )
+          path.write_text(source, encoding="utf-8")
+          verified = path.read_text(encoding="utf-8")
+          if verified.count(new) != 1 or old in verified:
+              raise SystemExit("TemporaryCachedPeerDataManager explicit capture verification failed")
+          if verified.count("[weak self]") < 2:
+              raise SystemExit("Expected nested weak-self callbacks were altered unexpectedly")
+          print("PASS: explicit outer [self] capture; nested weak-self callbacks preserved.")
+          PY
           git diff --check
       - name: Create simulator build configuration
         working-directory: telegram-ios
