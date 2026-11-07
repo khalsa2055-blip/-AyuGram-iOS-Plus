@@ -671,41 +671,37 @@ jobs:
               raise SystemExit("CameraOutput weak videoRecorder capture verification failed")
           print("PASS: CameraOutput timer retains weak videoRecorder ownership.")
           PY
-          # Xcode 27 diagnoses two nested weak-self timer closures because
-          # their enclosing delayed closures implicitly retain self. Rebind
-          # weak self explicitly at the timer boundary; ownership stays weak.
+          # Xcode 27 diagnoses the two weak-self timers nested inside delayed
+          # animation closures. Rebind weak self explicitly at those boundaries.
+          # Restrict the edit to the two closures inside after(1.25); unrelated
+          # timer closures in this file remain unchanged.
           python3 - <<'PY'
           from pathlib import Path
 
           path = Path("submodules/SolidRoundedButtonNode/Sources/SolidRoundedButtonNode.swift")
           source = path.read_text(encoding="utf-8")
-          old = """Queue.mainQueue().after(1.25) {
-                                  self.animationNode?.play()
-
-                                  let timer = SwiftSignalKit.Timer(timeout: self.animationLoopTime, repeat: true, completion: { [weak self] in
-                                      self?.animationNode?.play()
-                                  }, queue: Queue.mainQueue())"""
-          new = """Queue.mainQueue().after(1.25) {
-                                  self.animationNode?.play()
-
-                                  let timer = SwiftSignalKit.Timer(timeout: self.animationLoopTime, repeat: true, completion: { [weak self = self] in
-                                      self?.animationNode?.play()
-                                  }, queue: Queue.mainQueue())"""
-          old_count = source.count(old)
-          new_count = source.count(new)
-          if old_count == 2 and new_count == 0:
-              source = source.replace(old, new)
-          elif old_count == 0 and new_count == 2:
+          lines = source.splitlines()
+          old = "let timer = SwiftSignalKit.Timer(timeout: self.animationLoopTime, repeat: true, completion: { [weak self] in"
+          new = "let timer = SwiftSignalKit.Timer(timeout: self.animationLoopTime, repeat: true, completion: { [weak self = self] in"
+          targets = []
+          for index, line in enumerate(lines):
+              if old in line:
+                  surrounding = "\n".join(lines[max(0, index - 3):index])
+                  if "Queue.mainQueue().after(1.25) {" in surrounding:
+                      targets.append(index)
+          if len(targets) == 2:
+              for index in targets:
+                  lines[index] = lines[index].replace(old, new, 1)
+          elif len(targets) == 0 and source.count(new) == 2:
               pass
           else:
-              raise SystemExit(
-                  f"Unsafe SolidRoundedButtonNode capture patch: old={old_count}, fixed={new_count}"
-              )
-          path.write_text(source, encoding="utf-8")
+              raise SystemExit(f"Unsafe SolidRoundedButtonNode patch: targeted weak timers={len(targets)}, fixed={source.count(new)}")
+          updated = "\n".join(lines) + "\n"
+          path.write_text(updated, encoding="utf-8")
           verified = path.read_text(encoding="utf-8")
-          if verified.count(new) != 2 or old in verified:
-              raise SystemExit("SolidRoundedButtonNode weak self capture verification failed")
-          print("PASS: both delayed animation timers retain weak self ownership.")
+          assert verified.count(new) == 2, "Expected exactly two explicitly rebound weak timer captures"
+          assert verified.count(old) == 2, "The two unrelated weak timer captures must remain unchanged"
+          print("PASS: only the two delayed animation timers explicitly rebind weak self.")
           PY
           git diff --check
       - name: Create simulator build configuration
