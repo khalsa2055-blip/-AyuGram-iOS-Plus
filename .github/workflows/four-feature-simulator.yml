@@ -371,6 +371,9 @@ jobs:
           cat >> .bazelrc <<'BAZELRC'
           build --//Telegram:disableProvisioningProfiles
           build --//Telegram:disableExtensions
+          # Xcode 27 libc++ emits a platform-deprecation warning for legacy
+          # deployment targets; keep it visible but do not fail C++ compilation.
+          build --cxxopt=-Wno-error
           BAZELRC
 
           echo "Simulator build (single cached attempt)"
