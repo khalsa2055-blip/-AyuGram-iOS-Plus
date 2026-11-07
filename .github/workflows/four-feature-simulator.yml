@@ -27,7 +27,7 @@ jobs:
   build-simulator:
     # Full simulator/device packaging is manual-only; source checks must never start IPA packaging on push.
     # Telegram-iOS baseline builds sim_arm64; use Apple Silicon runner so Simulator can install it directly.
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 360
 
     steps:
@@ -38,17 +38,25 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/telegram-bazel-cache
-          key: ${{ runner.os }}-telegram-bazel-eb5ae67a32c6-${{ hashFiles('patches/**') }}
+          key: ${{ runner.os }}-telegram-bazel-eb5ae67a32c6-xcode27-${{ hashFiles('patches/**') }}
           restore-keys: |
             ${{ runner.os }}-telegram-bazel-eb5ae67a32c6-
 
-      - name: Select Xcode 26.2 when available
+      - name: Select Xcode 27 and verify iOS 27 runtime
         run: |
-          if [ -d "/Applications/Xcode_26.2.app" ]; then
-            sudo xcode-select -s "/Applications/Xcode_26.2.app/Contents/Developer"
-          fi
           xcodebuild -version
           xcode-select -p
+          SDK_VERSION="$(xcrun --sdk iphoneos --show-sdk-version)"
+          echo "iOS SDK version: $SDK_VERSION"
+          case "$SDK_VERSION" in
+            27.*) ;;
+            *) echo "Expected an iOS 27 SDK, got $SDK_VERSION" >&2; exit 1 ;;
+          esac
+          xcrun simctl list runtimes | tee "$RUNNER_TEMP/simulator-runtimes.txt"
+          grep -q "iOS 27" "$RUNNER_TEMP/simulator-runtimes.txt" || {
+            echo "An iOS 27 Simulator runtime is required for the launch regression test." >&2
+            exit 1
+          }
           if ! xcrun --find metal >/dev/null 2>&1; then
             echo "Metal toolchain missing; downloading it..."
             xcodebuild -downloadComponent MetalToolchain
@@ -122,8 +130,7 @@ jobs:
           with open("versions.json", encoding="utf-8") as f:
               v = json.load(f)
           assert v["app"] == "12.9.2", v
-          assert v["xcode"] == "26.2", v
-          print("Baseline:", v["app"], "Xcode:", v["xcode"], "macOS:", v["macos"])
+          print("Pinned Telegram baseline:", v["app"], "original upstream Xcode:", v["xcode"], "macOS:", v["macos"])
           PY
 
       - name: Validate and apply AyuGram patch
@@ -437,6 +444,12 @@ jobs:
           PY
 
 
+      - name: Backport iOS 27 scene lifecycle
+        working-directory: telegram-ios
+        run: |
+          python3 "$GITHUB_WORKSPACE/Scripts/apply_ios27_scene_lifecycle.py"
+          git diff --check
+
       - name: Create simulator build configuration
         working-directory: telegram-ios
         env:
@@ -485,7 +498,7 @@ jobs:
             build \
             --configurationPath=build-system/ayugram-ci-configuration.json \
             --xcodeManagedCodesigning \
-            --buildNumber=200081 \
+            --buildNumber=200084 \
             --configuration=debug_sim_arm64
 
       - name: Smoke-test app in iPhone Simulator
@@ -493,20 +506,34 @@ jobs:
         run: |
           set -euo pipefail
 
-          test -d /Applications/Xcode_26.2.app || true
+          # Always exercise the app on an iOS 27 iPhone Simulator. A previously booted
+          # iOS 26 simulator must not silently turn this into an older lifecycle test.
+          DEVICE_UDID="$(python3 - <<'PY'
+          import json
+          import subprocess
+          import sys
 
-          if xcrun simctl list devices available | grep -q "Booted"; then
-            DEVICE_UDID=$(xcrun simctl list devices available | awk -F '[()]' '/Booted/{print $2; exit}')
-          else
-            DEVICE_UDID=$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/{print $2; exit}')
-            if [ -z "$DEVICE_UDID" ]; then
-              echo "No available iPhone Simulator device found." >&2
-              xcrun simctl list devices available
-              exit 1
-            fi
-            xcrun simctl boot "$DEVICE_UDID" || true
-            xcrun simctl bootstatus "$DEVICE_UDID" -b
-          fi
+          data = json.loads(subprocess.check_output(
+              ["xcrun", "simctl", "list", "devices", "available", "--json"],
+              text=True
+          ))
+          candidates = []
+          for runtime, devices in data.get("devices", {}).items():
+              if "iOS-27" not in runtime:
+                  continue
+              for device in devices:
+                  if device.get("isAvailable") and device.get("name", "").startswith("iPhone"):
+                      candidates.append((runtime, device.get("name", ""), device["udid"]))
+          if not candidates:
+              sys.exit("No available iOS 27 iPhone Simulator was found.")
+          candidates.sort()
+          print(candidates[-1][2])
+          PY
+          )"
+          test -n "$DEVICE_UDID"
+          xcrun simctl boot "$DEVICE_UDID" || true
+          xcrun simctl bootstatus "$DEVICE_UDID" -b
+          xcrun simctl list devices | grep "$DEVICE_UDID"
 
           ipa="bazel-bin/Telegram/Swiftgram.ipa"
           if [ ! -f "$ipa" ]; then
@@ -532,6 +559,12 @@ jobs:
           assert info.get("UIFileSharingEnabled") is True, info.get("UIFileSharingEnabled")
           assert info.get("LSSupportsOpeningDocumentsInPlace") is True, info.get("LSSupportsOpeningDocumentsInPlace")
           print("Final app Documents/Files flags: enabled")
+          manifest = info.get("UIApplicationSceneManifest")
+          assert isinstance(manifest, dict), "Missing UIApplicationSceneManifest"
+          assert manifest.get("UIApplicationSupportsMultipleScenes") is False
+          role = manifest.get("UISceneConfigurations", {}).get("UIWindowSceneSessionRoleApplication", [])
+          assert any(item.get("UISceneDelegateClassName") == "SceneDelegate" for item in role), role
+          print("iOS 27 scene manifest points to SceneDelegate.")
           PY
 
 
@@ -827,7 +860,7 @@ jobs:
             build \
             --configurationPath=build-system/ayugram-ci-configuration.json \
             --xcodeManagedCodesigning \
-            --buildNumber=200083 \
+            --buildNumber=200084 \
             --configuration=release_arm64
 
           ipa="bazel-bin/Telegram/Swiftgram.ipa"
