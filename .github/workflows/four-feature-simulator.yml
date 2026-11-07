@@ -703,6 +703,32 @@ jobs:
           assert verified.count(old) == 2, "The two unrelated weak timer captures must remain unchanged"
           print("PASS: only the two delayed animation timers explicitly rebind weak self.")
           PY
+          # Xcode 27 diagnoses two nested weak references in TelegramVoip when
+          # the enclosing signaling callback also captures callSessionManager.
+          # Explicitly rebind the existing weak references; do not strengthen them.
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("submodules/TelegramVoip/Sources/OngoingCallContext.swift")
+          source = path.read_text(encoding="utf-8")
+          old = "[weak callSessionManager]"
+          new = "[weak callSessionManager = callSessionManager]"
+          old_count = source.count(old)
+          new_count = source.count(new)
+          if old_count == 2 and new_count == 0:
+              source = source.replace(old, new)
+          elif old_count == 0 and new_count == 2:
+              pass
+          else:
+              raise SystemExit(
+                  f"Unsafe TelegramVoip capture patch: old={old_count}, fixed={new_count}"
+              )
+          path.write_text(source, encoding="utf-8")
+          verified = path.read_text(encoding="utf-8")
+          if verified.count(new) != 2 or old in verified:
+              raise SystemExit("TelegramVoip weak callSessionManager verification failed")
+          print("PASS: both TelegramVoip callbacks retain weak callSessionManager ownership.")
+          PY
           git diff --check
       - name: Create simulator build configuration
         working-directory: telegram-ios
