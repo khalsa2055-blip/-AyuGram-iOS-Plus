@@ -440,44 +440,45 @@ jobs:
           print("Verified four Display capture fixes.")
           PY
 
-          # Xcode 27 also diagnoses nested weak captures inside the two
-          # InvisibleInkDustNode animation closures. The outer closures already
-          # retain self strongly; make that ownership explicit without changing
-          # the nested weak completion handlers or animation behavior.
+          # Xcode 27 diagnoses nested weak captures when the enclosing animation
+          # closures implicitly retain self. Make the pre-existing strong capture
+          # explicit in every matching closure, while preserving weak inner callbacks.
           python3 - <<'PY'
           from pathlib import Path
 
           patches = [
-              "submodules/InvisibleInkDustNode/Sources/InvisibleInkDustNode.swift",
-              "submodules/InvisibleInkDustNode/Sources/MediaDustNode.swift",
+              ("submodules/InvisibleInkDustNode/Sources/InvisibleInkDustNode.swift", 2),
+              ("submodules/InvisibleInkDustNode/Sources/MediaDustNode.swift", 1),
           ]
           anchor = "Queue.mainQueue().after(0.1 * UIView.animationDurationFactor()) {"
           replacement = "Queue.mainQueue().after(0.1 * UIView.animationDurationFactor()) { [self] in"
 
-          for relative_path in patches:
+          for relative_path, expected in patches:
               path = Path(relative_path)
               source = path.read_text(encoding="utf-8")
               old_count = source.count(anchor)
               new_count = source.count(replacement)
-              if old_count == 1 and new_count == 0:
-                  source = source.replace(anchor, replacement, 1)
+
+              if old_count == expected and new_count == 0:
+                  source = source.replace(anchor, replacement)
                   path.write_text(source, encoding="utf-8")
-                  print(f"Applied Xcode 27 explicit outer capture: {relative_path}")
-              elif old_count == 0 and new_count == 1:
-                  print(f"Xcode 27 explicit outer capture already applied: {relative_path}")
+                  print(f"Applied explicit outer captures ({expected}): {relative_path}")
+              elif old_count == 0 and new_count == expected:
+                  print(f"Explicit outer captures already applied ({expected}): {relative_path}")
               else:
                   raise SystemExit(
-                      f"Unsafe InvisibleInkDustNode patch for {relative_path}: "
-                      f"old={old_count}, already_fixed={new_count}"
+                      f"Unsafe InvisibleInk capture patch for {relative_path}: "
+                      f"expected={expected}, old={old_count}, already_fixed={new_count}"
                   )
 
-          for relative_path in patches:
+          for relative_path, expected in patches:
               source = Path(relative_path).read_text(encoding="utf-8")
-              if source.count(replacement) != 1:
+              if source.count(anchor) != 0 or source.count(replacement) != expected:
                   raise SystemExit(
-                      f"Xcode 27 capture verification failed for {relative_path}"
+                      f"InvisibleInk capture verification failed for {relative_path}; "
+                      f"expected exactly {expected} explicit captures"
                   )
-          print("Verified both InvisibleInkDustNode capture fixes.")
+          print("Verified all three InvisibleInk/MediaDust outer capture fixes.")
           PY
           git diff --check
       - name: Create simulator build configuration
