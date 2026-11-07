@@ -383,6 +383,58 @@ jobs:
           if len(verified_matches) != 1:
               raise SystemExit("ManagedAudioSession Xcode 27 explicit-capture verification failed.")
           PY
+          # Xcode 27 flags nested weak captures when the surrounding closure
+          # implicitly captures the same object strongly. Make only those existing
+          # strong captures explicit; this preserves the existing ownership behavior.
+          python3 - <<'PY'
+          from pathlib import Path
+
+          patches = [
+              (
+                  "submodules/Display/Source/GlobalOverlayPresentationContext.swift",
+                  "self.presentationDisposables.add(controllerReady.start(next: { [weak self] _ in",
+                  "self.presentationDisposables.add(controllerReady.start(next: { [weak self, controller] _ in",
+              ),
+              (
+                  "submodules/Display/Source/ListView.swift",
+                  "        state.fixScrollPosition(itemsCount)\n        \n        let actions = {",
+                  "        state.fixScrollPosition(itemsCount)\n        \n        let actions = { [self] in",
+              ),
+              (
+                  "submodules/Display/Source/ListViewTransactionQueue.swift",
+                  "        Queue.mainQueue().async {\n            self.transactionCompleted()",
+                  "        Queue.mainQueue().async { [self] in\n            self.transactionCompleted()",
+              ),
+              (
+                  "submodules/Display/Source/PresentationContext.swift",
+                  "            }).start(next: { [weak self] _ in",
+                  "            }).start(next: { [weak self, controller] _ in",
+              ),
+          ]
+
+          for relative_path, old, new in patches:
+              file_path = Path(relative_path)
+              source = file_path.read_text(encoding="utf-8")
+              old_count = source.count(old)
+              new_count = source.count(new)
+              if old_count == 1 and new_count == 0:
+                  source = source.replace(old, new, 1)
+                  file_path.write_text(source, encoding="utf-8")
+                  print(f"Applied Xcode 27 capture fix: {relative_path}")
+              elif old_count == 0 and new_count == 1:
+                  print(f"Xcode 27 capture fix already applied: {relative_path}")
+              else:
+                  raise SystemExit(
+                      f"Unsafe Xcode 27 capture patch for {relative_path}: "
+                      f"old={old_count}, already_fixed={new_count}"
+                  )
+
+          for relative_path, old, new in patches:
+              source = Path(relative_path).read_text(encoding="utf-8")
+              if new not in source or old in source:
+                  raise SystemExit(f"Xcode 27 capture patch verification failed: {relative_path}")
+          print("Verified four Display capture fixes.")
+          PY
           git diff --check
       - name: Create simulator build configuration
         working-directory: telegram-ios
