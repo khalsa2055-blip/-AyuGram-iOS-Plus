@@ -1301,6 +1301,71 @@ jobs:
 
           patches = [
               (
+                  "submodules/InviteLinksUI/Sources/AdditionalLinkItem.swift",
+                  "        return { item, params, neighbors, firstWithHeader, last in",
+                  "        return { [self] item, params, neighbors, firstWithHeader, last in",
+              ),
+              (
+                  "submodules/InviteLinksUI/Sources/InviteLinkHeaderItem.swift",
+                  "        return { item, params, neighbors in",
+                  "        return { [self] item, params, neighbors in",
+              ),
+              (
+                  "submodules/InviteLinksUI/Sources/InviteLinkInviteHeaderItem.swift",
+                  "        return { item, params, neighbors in",
+                  "        return { [self] item, params, neighbors in",
+              ),
+              (
+                  "submodules/InviteLinksUI/Sources/InviteLinkInviteManageItem.swift",
+                  "        return { item, params, neighbors in",
+                  "        return { [self] item, params, neighbors in",
+              ),
+              (
+                  "submodules/InviteLinksUI/Sources/ItemListFolderInviteLinkItem.swift",
+                  "        return { item, params, neighbors in",
+                  "        return { [self] item, params, neighbors in",
+              ),
+              (
+                  "submodules/InviteLinksUI/Sources/ItemListFolderInviteLinkListItem.swift",
+                  "        return { item, params, neighbors, firstWithHeader, last in",
+                  "        return { [self] item, params, neighbors, firstWithHeader, last in",
+              ),
+              (
+                  "submodules/InviteLinksUI/Sources/ItemListInviteLinkDateLimitItem.swift",
+                  "        return { item, params, neighbors in",
+                  "        return { [self] item, params, neighbors in",
+              ),
+              (
+                  "submodules/InviteLinksUI/Sources/ItemListInviteLinkItem.swift",
+                  "        return { item, params, neighbors, firstWithHeader, last in",
+                  "        return { [self] item, params, neighbors, firstWithHeader, last in",
+              ),
+              (
+                  "submodules/InviteLinksUI/Sources/ItemListInviteLinkUsageLimitItem.swift",
+                  "        return { item, params, neighbors in",
+                  "        return { [self] item, params, neighbors in",
+              ),
+              (
+                  "submodules/InviteLinksUI/Sources/ItemListInviteRequestItem.swift",
+                  "        return { item, params, neighbors, firstWithHeader, last in",
+                  "        return { [self] item, params, neighbors, firstWithHeader, last in",
+              ),
+              (
+                  "submodules/InviteLinksUI/Sources/ItemListPermanentInviteLinkItem.swift",
+                  "        return { item, params, neighbors in",
+                  "        return { [self] item, params, neighbors in",
+              ),
+              (
+                  "submodules/TelegramUI/Components/Chat/ChatQrCodeScreen/Sources/ChatQrCodeScreen.swift",
+                  "        if let animatedStickerNode = self.animatedStickerNode {\n            Queue.mainQueue().after(0.1) {",
+                  "        if let animatedStickerNode = self.animatedStickerNode {\n            Queue.mainQueue().after(0.1) { [animatedStickerNode, self] in",
+              ),
+              (
+                  "submodules/TelegramUI/Components/Chat/ChatQrCodeScreen/Sources/ChatQrCodeScreen.swift",
+                  "            Queue.mainQueue().after(themeCrossfadeDelay) {",
+                  "            Queue.mainQueue().after(themeCrossfadeDelay) { [self] in",
+              ),
+              (
                   "submodules/QrCodeUI/Sources/QrCodeScanScreen.swift",
                   "openPeer: { [weak self] peer, navigation in",
                   "openPeer: { [weak self, navigationController] peer, navigation in",
