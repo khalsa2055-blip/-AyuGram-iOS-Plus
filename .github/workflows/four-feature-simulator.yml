@@ -1516,32 +1516,42 @@ jobs:
                   raise SystemExit(f"Verification failed: {filename}")
 
           path = Path("submodules/TelegramCallsUI/Sources/VideoChatScreen.swift")
-          source = path.read_text(encoding="utf-8")
-          old = (
-              "if let inputMediaNode {\\n"
-              "                            Queue.mainQueue().after(0.2) {\\n"
-              "                                inputMediaNode.layer.animateAlpha"
-          )
-          new = (
-              "if let inputMediaNode {\\n"
-              "                            Queue.mainQueue().after(0.2) { [inputMediaNode] in\\n"
-              "                                inputMediaNode.layer.animateAlpha"
-          )
-          old_count = source.count(old)
-          new_count = source.count(new)
-          if old_count == 2 and new_count == 0:
-              source = source.replace(old, new)
-              path.write_text(source, encoding="utf-8")
+          lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+
+          pending = []
+          fixed = []
+          for index in range(len(lines) - 1):
+              current = lines[index].strip()
+              following = lines[index + 1].lstrip()
+              if current == "Queue.mainQueue().after(0.2) {" and following.startswith("inputMediaNode.layer.animateAlpha"):
+                  pending.append(index)
+              elif current == "Queue.mainQueue().after(0.2) { [inputMediaNode] in" and following.startswith("inputMediaNode.layer.animateAlpha"):
+                  fixed.append(index)
+
+          if len(pending) == 2 and not fixed:
+              for index in pending:
+                  lines[index] = lines[index].replace(
+                      "Queue.mainQueue().after(0.2) {",
+                      "Queue.mainQueue().after(0.2) { [inputMediaNode] in",
+                      1
+                  )
+              path.write_text("".join(lines), encoding="utf-8")
               print("Applied both VideoChatScreen input-media captures.")
-          elif old_count == 0 and new_count == 2:
+          elif not pending and len(fixed) == 2:
               print("Both VideoChatScreen input-media captures already fixed.")
           else:
               raise SystemExit(
                   "Unsafe VideoChatScreen patch: "
-                  f"original={old_count}, fixed={new_count}"
+                  f"original={len(pending)}, fixed={len(fixed)}"
               )
-          verified = path.read_text(encoding="utf-8")
-          if verified.count(new) != 2 or old in verified:
+
+          verified_lines = path.read_text(encoding="utf-8").splitlines()
+          verified = [
+              index for index in range(len(verified_lines) - 1)
+              if verified_lines[index].strip() == "Queue.mainQueue().after(0.2) { [inputMediaNode] in"
+              and verified_lines[index + 1].lstrip().startswith("inputMediaNode.layer.animateAlpha")
+          ]
+          if len(verified) != 2:
               raise SystemExit("VideoChatScreen capture verification failed.")
 
           print("PASS: Telegram Calls weak-capture compatibility fixes verified.")
