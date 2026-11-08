@@ -28,6 +28,14 @@ jobs:
       - name: Checkout project
         uses: actions/checkout@v5
 
+      - name: Restore Bazel repository cache
+        uses: actions/cache@v4
+        with:
+          path: ~/telegram-bazel-repository-cache
+          key: ${{ runner.os }}-telegram-bazel-repository-eb5ae67a32c6-v1
+          restore-keys: |
+            ${{ runner.os }}-telegram-bazel-repository-eb5ae67a32c6-
+
       - name: Select Telegram-required Xcode and verify iOS SDK
         run: |
           set -euo pipefail
@@ -279,7 +287,7 @@ jobs:
           attempt=1
           while true; do
             set +e
-            USE_BAZEL_VERSION=8.4.2 bazelisk build --jobs=4 --config=macos --apple_platform_type=ios --ios_multi_cpus=arm64 --platforms=//:ios_arm64 --features=-treat_warnings_as_errors --per_file_copt='^submodules/.*[.](m|mm)$@-Wno-error=deprecated-declarations' --verbose_failures //submodules/TelegramUI/Components/AyuGramSettingsScreen:AyuGramSettingsScreen //submodules/ChatPresentationInterfaceState:ChatPresentationInterfaceState //submodules/TelegramUI:TelegramUI //submodules/TelegramUI/Components/Chat/ChatMessageDateAndStatusNode:ChatMessageDateAndStatusNode 2>&1 | tee "$RUNNER_TEMP/compatibility-bazel-build.log"
+            USE_BAZEL_VERSION=8.4.2 bazelisk build --repository_cache="$HOME/telegram-bazel-repository-cache" --jobs=4 --config=macos --apple_platform_type=ios --ios_multi_cpus=arm64 --platforms=//:ios_arm64 --features=-treat_warnings_as_errors --per_file_copt='^submodules/.*[.](m|mm)$@-Wno-error=deprecated-declarations' --verbose_failures //submodules/TelegramUI/Components/AyuGramSettingsScreen:AyuGramSettingsScreen //submodules/ChatPresentationInterfaceState:ChatPresentationInterfaceState //submodules/TelegramUI:TelegramUI //submodules/TelegramUI/Components/Chat/ChatMessageDateAndStatusNode:ChatMessageDateAndStatusNode 2>&1 | tee "$RUNNER_TEMP/compatibility-bazel-build.log"
             build_status=${PIPESTATUS[0]}
             set -e
             if [ "$build_status" -eq 0 ]; then
