@@ -1142,6 +1142,20 @@ jobs:
               ("submodules/TelegramUI/Components/Chat/ChatMessageTodoBubbleContentNode/Sources/ChatMessageTodoBubbleContentNode.swift", 1347, "self"),
               ("submodules/TelegramUI/Components/Chat/ChatMessageCommentFooterContentNode/Sources/ChatMessageCommentFooterContentNode.swift", 253, "self"),
               ("submodules/TelegramUI/Components/Chat/ChatMessageReactionsFooterContentNode/Sources/ChatMessageReactionsFooterContentNode.swift", 646, "self"),
+              # Newly reported by Simulator #188; all paths and exact capture lines
+              # are pinned to Telegram-iOS eb5ae67a32c6e8b936ca0e875f19f99251112f17.
+              ("submodules/PremiumUI/Sources/GiftOptionItem.swift", 332, "self"),
+              ("submodules/PremiumUI/Sources/IncreaseLimitHeaderItem.swift", 159, "self"),
+              ("submodules/PremiumUI/Sources/PremiumBoostLevelsScreen.swift", 1107, "self"),
+              ("submodules/PremiumUI/Sources/PremiumGiftScreen.swift", 631, "controller"),
+              ("submodules/PremiumUI/Sources/PremiumIntroScreen.swift", 2193, "state"),
+              ("submodules/PremiumUI/Sources/PremiumIntroScreen.swift", 2386, "state"),
+              ("submodules/PremiumUI/Sources/PremiumIntroScreen.swift", 2590, "state"),
+              ("submodules/PremiumUI/Sources/PremiumIntroScreen.swift", 2727, "state"),
+              ("submodules/PremiumUI/Sources/PremiumIntroScreen.swift", 2928, "controller"),
+              ("submodules/PremiumUI/Sources/SubscriptionsCountItem.swift", 188, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageFileBubbleContentNode/Sources/ChatMessageFileBubbleContentNode.swift", 189, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageInstantVideoBubbleContentNode/Sources/ChatMessageInstantVideoBubbleContentNode.swift", 313, "self"),
           ]
 
           grouped = {}
@@ -1179,9 +1193,9 @@ jobs:
                       raise SystemExit(f"Verification failed at {relative_path}:{line_number} ({name})")
               print(f"Verified {len(entries)} Xcode 27 capture fixes: {relative_path}")
 
-          if sum(len(entries) for entries in grouped.values()) != 36:
-              raise SystemExit("Expected exactly 36 additional Simulator #184 capture fixes")
-          print("PASS: all 36 compiler-reported weak captures were explicitly rebound.")
+          if sum(len(entries) for entries in grouped.values()) != 48:
+              raise SystemExit("Expected exactly 48 pinned Xcode 27 weak-capture fixes (36 prior + 12 from Simulator #188)")
+          print("PASS: all 48 compiler-reported weak captures were explicitly rebound.")
           PY
           git diff --check
       - name: Create simulator build configuration
