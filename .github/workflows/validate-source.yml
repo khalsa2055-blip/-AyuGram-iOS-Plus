@@ -68,7 +68,10 @@ jobs:
   build-and-launch-ios-simulator:
     name: Build and launch iOS Simulator
     needs: validate-upstream
-    if: ${{ github.ref == 'refs/heads/feature/four-feature-integration' }}
+    # The dedicated four-feature simulator workflow builds the pinned baseline.
+    # Keep this legacy Swiftgram-master build manual-only to avoid a second,
+    # different upstream build racing the authoritative validation.
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feature/four-feature-integration' }}
     runs-on: xcode-27
     permissions:
       contents: read
