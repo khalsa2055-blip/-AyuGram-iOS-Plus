@@ -812,6 +812,39 @@ jobs:
               raise SystemExit("InAppPurchaseManager weak self capture verification failed")
           print("PASS: StoreKit error callback explicitly rebinds weak self.")
           PY
+          # Xcode 27 also flags two nested weak-self closures in MediaPlayer.
+          # Rebind only those weak captures explicitly; keep weak ownership.
+          python3 - <<'PY'
+          from pathlib import Path
+
+          patches = {
+              Path("submodules/MediaPlayer/Sources/FFMpegMediaFrameSource.swift"): (
+                  "self.performWithContext { [weak self] context in",
+                  "self.performWithContext { [weak self = self] context in",
+              ),
+              Path("submodules/MediaPlayer/Sources/VideoPlayerProxy.swift"): (
+                  "context.updateVideoInHierarchy = { [weak self] value in",
+                  "context.updateVideoInHierarchy = { [weak self = self] value in",
+              ),
+          }
+          for path, (old, new) in patches.items():
+              source = path.read_text(encoding="utf-8")
+              old_count = source.count(old)
+              new_count = source.count(new)
+              if old_count == 1 and new_count == 0:
+                  source = source.replace(old, new, 1)
+              elif old_count == 0 and new_count == 1:
+                  pass
+              else:
+                  raise SystemExit(
+                      f"Unsafe MediaPlayer patch in {path}: old={old_count}, fixed={new_count}"
+                  )
+              path.write_text(source, encoding="utf-8")
+              verified = path.read_text(encoding="utf-8")
+              if verified.count(new) != 1 or old in verified:
+                  raise SystemExit(f"MediaPlayer weak capture verification failed: {path}")
+              print(f"PASS: {path} retains weak self ownership.")
+          PY
           git diff --check
       - name: Create simulator build configuration
         working-directory: telegram-ios
