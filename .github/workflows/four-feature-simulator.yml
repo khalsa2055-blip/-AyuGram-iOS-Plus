@@ -1207,6 +1207,44 @@ jobs:
           print("PASS: all 54 compiler-reported weak captures were explicitly rebound.")
           PY
           git diff --check
+      - name: Apply Xcode 27 DrawingView weak-capture compatibility fix
+        working-directory: telegram-ios
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("submodules/DrawingUI/Sources/DrawingView.swift")
+          source = path.read_text(encoding="utf-8")
+          old = (
+              "        Queue.mainQueue().justDispatch {\n"
+              "            snapshotView.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.2, removeOnCompletion: false, completion: { [weak snapshotView] _ in"
+          )
+          new = (
+              "        Queue.mainQueue().justDispatch { [snapshotView] in\n"
+              "            snapshotView.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.2, removeOnCompletion: false, completion: { [weak snapshotView = snapshotView] _ in"
+          )
+
+          old_count = source.count(old)
+          new_count = source.count(new)
+          if old_count == 1 and new_count == 0:
+              source = source.replace(old, new, 1)
+              path.write_text(source, encoding="utf-8")
+              print("Applied the exact Xcode 27 DrawingView capture fix.")
+          elif old_count == 0 and new_count == 1:
+              print("DrawingView Xcode 27 capture fix already applied.")
+          else:
+              raise SystemExit(
+                  f"Unsafe DrawingView patch: expected one original or fixed block; "
+                  f"original={old_count}, fixed={new_count}"
+              )
+
+          verified = path.read_text(encoding="utf-8")
+          if verified.count(new) != 1 or old in verified:
+              raise SystemExit("DrawingView Xcode 27 capture fix verification failed.")
+          print("PASS: outer strong capture and inner weak capture are explicit.")
+          PY
+          git diff --check
+
       - name: Create simulator build configuration
         working-directory: telegram-ios
         env:
