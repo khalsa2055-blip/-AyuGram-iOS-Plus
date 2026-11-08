@@ -823,11 +823,13 @@ jobs:
           # global one-occurrence assertion.
           ffmpeg_path = Path("submodules/MediaPlayer/Sources/FFMpegMediaFrameSource.swift")
           ffmpeg_source = ffmpeg_path.read_text(encoding="utf-8")
-          ffmpeg_old = """            disposable.set(ActionDisposable {
-                currentSemaphore.with({ $0 })?.with({ $0 })?.signal()
-            })
-
-            self.performWithContext { [weak self] context in"""
+          ffmpeg_old = (
+              "            disposable.set(ActionDisposable {\n"
+              "                currentSemaphore.with({ $0 })?.with({ $0 })?.signal()\n"
+              "            })\n"
+              "            \n"
+              "            self.performWithContext { [weak self] context in"
+          )
           ffmpeg_new = ffmpeg_old.replace(
               "self.performWithContext { [weak self] context in",
               "self.performWithContext { [weak self = self] context in",
