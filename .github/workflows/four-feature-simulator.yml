@@ -1158,20 +1158,29 @@ jobs:
                   old = f"[weak {name}]"
                   new = f"[weak {name} = {name}]"
                   line = lines[index]
+                  combined_old = f"weak {name},"
+                  combined_new = f"weak {name} = {name},"
                   if line.count(old) == 1 and new not in line:
                       lines[index] = line.replace(old, new, 1)
                   elif line.count(new) == 1 and old not in line:
                       pass
+                  elif line.count(combined_old) == 1 and combined_new not in line:
+                      lines[index] = line.replace(combined_old, combined_new, 1)
+                  elif line.count(combined_new) == 1 and combined_old not in line:
+                      pass
                   else:
                       raise SystemExit(
                           f"Unsafe #184 capture patch at {relative_path}:{line_number} "
-                          f"for {name}: old={line.count(old)}, fixed={line.count(new)}"
+                          f"for {name}: standalone={line.count(old)}/{line.count(new)}, "
+                          f"combined={line.count(combined_old)}/{line.count(combined_new)}"
                       )
               path.write_text("".join(lines), encoding="utf-8")
               verified = path.read_text(encoding="utf-8").splitlines()
               for line_number, name in entries:
                   line = verified[line_number - 1]
-                  if line.count(f"[weak {name} = {name}]") != 1 or f"[weak {name}]" in line:
+                  standalone_fixed = f"[weak {name} = {name}]"
+                  combined_fixed = f"weak {name} = {name},"
+                  if not (line.count(standalone_fixed) == 1 or line.count(combined_fixed) == 1):
                       raise SystemExit(f"Verification failed at {relative_path}:{line_number} ({name})")
               print(f"Verified {len(entries)} Xcode 27 capture fixes: {relative_path}")
 
