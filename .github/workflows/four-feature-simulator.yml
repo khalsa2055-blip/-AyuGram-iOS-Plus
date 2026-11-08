@@ -1245,6 +1245,54 @@ jobs:
           PY
           git diff --check
 
+      - name: Apply remaining Xcode 27 nested weak-capture compatibility fixes
+        working-directory: telegram-ios
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          patches = [
+              (
+                  "submodules/TelegramUI/Components/AvatarEditorScreen/Sources/AvatarEditorScreen.swift",
+                  "                Queue.mainQueue().async {\n                    guard let image else {",
+                  "                Queue.mainQueue().async { [controller] in\n                    guard let image else {",
+              ),
+              (
+                  "submodules/LegacyMediaPickerUI/Sources/LegacyAttachmentMenu.swift",
+                  "                    let process: (Bool) -> Void = { convert in",
+                  "                    let process: (Bool) -> Void = { [carouselItem, controller] convert in",
+              ),
+              (
+                  "submodules/LegacyMediaPickerUI/Sources/LegacyPaintStickersContext.swift",
+                  "            self.queue.async {\n                var image: CIImage?",
+                  "            self.queue.async { [self] in\n                var image: CIImage?",
+              ),
+          ]
+
+          for filename, old, new in patches:
+              path = Path(filename)
+              source = path.read_text(encoding="utf-8")
+              old_count = source.count(old)
+              new_count = source.count(new)
+              if old_count == 1 and new_count == 0:
+                  source = source.replace(old, new, 1)
+                  path.write_text(source, encoding="utf-8")
+                  print(f"Applied explicit outer capture: {filename}")
+              elif old_count == 0 and new_count == 1:
+                  print(f"Already fixed: {filename}")
+              else:
+                  raise SystemExit(
+                      f"Unsafe Xcode 27 capture patch for {filename}: "
+                      f"original={old_count}, fixed={new_count}"
+                  )
+              verified = path.read_text(encoding="utf-8")
+              if verified.count(new) != 1 or old in verified:
+                  raise SystemExit(f"Verification failed: {filename}")
+
+          print("PASS: all three failing outer closures now declare explicit strong captures.")
+          PY
+          git diff --check
+
       - name: Create simulator build configuration
         working-directory: telegram-ios
         env:
