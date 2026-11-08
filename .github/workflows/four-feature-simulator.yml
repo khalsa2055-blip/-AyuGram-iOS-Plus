@@ -43,8 +43,10 @@ jobs:
       - name: Restore Bazel build cache
         uses: actions/cache@v4
         with:
-          path: ~/telegram-bazel-cache
-          key: ${{ runner.os }}-telegram-bazel-eb5ae67a32c6-xcode27-${{ hashFiles('patches/**') }}
+          path: |
+            ~/telegram-bazel-cache
+            ~/.cache/bazel/repository
+          key: ${{ runner.os }}-telegram-bazel-eb5ae67a32c6-xcode27-repository-v1-${{ hashFiles('patches/**') }}
           restore-keys: |
             ${{ runner.os }}-telegram-bazel-eb5ae67a32c6-
 
@@ -1249,6 +1251,7 @@ jobs:
           # the target's general -Werror from promoting this one diagnostic.
           # All other warning groups remain errors.
           build --cxxopt='-Wno-error=#warnings'
+          build --repository_cache=$HOME/telegram-bazel-cache/repository
           BAZELRC
 
           # GitHub release downloads occasionally return transient HTTP 504s.
