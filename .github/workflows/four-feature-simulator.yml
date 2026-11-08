@@ -906,6 +906,41 @@ jobs:
                   )
           print("PASS: both animateIn callbacks preserve weak self ownership.")
           PY
+
+          # Xcode 27 diagnoses nested weak captures in AvatarNode's delayed
+          # animation callback because the outer delayed closure captures both
+          # nodes strongly. Explicitly rebind them weakly in the completion
+          # closure, preserving the original lifetime semantics.
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("submodules/AvatarNode/Sources/AvatarNode.swift")
+          source = path.read_text(encoding="utf-8")
+          patches = [
+              (
+                  "animationNode.completion = { [weak animationNode, weak animationBackgroundNode] in",
+                  "animationNode.completion = { [weak animationNode = animationNode, weak animationBackgroundNode = animationBackgroundNode] in",
+              ),
+          ]
+          for old, new in patches:
+              old_count = source.count(old)
+              new_count = source.count(new)
+              if old_count == 1 and new_count == 0:
+                  source = source.replace(old, new, 1)
+              elif old_count == 0 and new_count == 1:
+                  pass
+              else:
+                  raise SystemExit(
+                      "Unsafe AvatarNode weak-capture patch: "
+                      f"old={old_count}, fixed={new_count}"
+                  )
+          path.write_text(source, encoding="utf-8")
+          verified = path.read_text(encoding="utf-8")
+          for old, new in patches:
+              if verified.count(new) != 1 or old in verified:
+                  raise SystemExit("AvatarNode weak-capture verification failed.")
+          print("PASS: AvatarNode completion explicitly rebinds both nodes weakly.")
+          PY
           git diff --check
       - name: Create simulator build configuration
         working-directory: telegram-ios
