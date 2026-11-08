@@ -1157,8 +1157,8 @@ jobs:
                       raise SystemExit(f"{relative_path}:{line_number} is outside the pinned source")
                   import re
                   line = lines[index]
-                  old_pattern = rf"(?<![A-Za-z0-9_])weak\\s+{re.escape(name)}(?=\\s*[,\\]])"
-                  fixed_pattern = rf"weak\\s+{re.escape(name)}\\s*=\\s*{re.escape(name)}(?=\\s*[,\\]])"
+                  old_pattern = rf"(?<![A-Za-z0-9_])weak\s+{re.escape(name)}(?=\s*[,\]])"
+                  fixed_pattern = rf"weak\s+{re.escape(name)}\s*=\s*{re.escape(name)}(?=\s*[,\]])"
                   old_count = len(re.findall(old_pattern, line))
                   fixed_count = len(re.findall(fixed_pattern, line))
                   if old_count == 1 and fixed_count == 0:
@@ -1174,7 +1174,7 @@ jobs:
               verified = path.read_text(encoding="utf-8").splitlines()
               for line_number, name in entries:
                   line = verified[line_number - 1]
-                  fixed_pattern = rf"weak\\s+{re.escape(name)}\\s*=\\s*{re.escape(name)}(?=\\s*[,\\]])"
+                  fixed_pattern = rf"weak\s+{re.escape(name)}\s*=\s*{re.escape(name)}(?=\s*[,\]])"
                   if len(re.findall(fixed_pattern, line)) != 1:
                       raise SystemExit(f"Verification failed at {relative_path}:{line_number} ({name})")
               print(f"Verified {len(entries)} Xcode 27 capture fixes: {relative_path}")
