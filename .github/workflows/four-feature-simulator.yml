@@ -1251,11 +1251,11 @@ jobs:
           # the target's general -Werror from promoting this one diagnostic.
           # All other warning groups remain errors.
           build --cxxopt='-Wno-error=#warnings'
-          build --repository_cache=$HOME/telegram-bazel-cache/repository
           BAZELRC
+          printf 'build --repository_cache=%s/telegram-bazel-cache/repository\\n' "$HOME" >> .bazelrc
 
-          # GitHub release downloads occasionally return transient HTTP 504s.
-          # Retry only that network failure; do not hide compiler or source errors.
+          # Retry transient GitHub release/proxy failures and read timeouts.
+          # Real compiler or source errors still fail immediately.
           attempt=1
           while true; do
             set +e
@@ -1272,13 +1272,13 @@ jobs:
             if [ "$build_status" -eq 0 ]; then
               break
             fi
-            if [ "$attempt" -ge 8 ] || ! grep -q "504 Gateway Time-out" "$RUNNER_TEMP/simulator-bazel-build.log"; then
+            if [ "$attempt" -ge 8 ] || ! grep -Eqi "504 Gateway Time-out|502 Bad Gateway|GET returned 502|Read timed out|Connection reset|timed out" "$RUNNER_TEMP/simulator-bazel-build.log"; then
               exit "$build_status"
             fi
             next_attempt=$((attempt + 1))
             delay=$((attempt * 20))
             if [ "$delay" -gt 120 ]; then delay=120; fi
-            echo "::warning::Transient GitHub 504 while fetching Bazel dependencies; retrying (attempt $next_attempt/8) after ${delay}s."
+            echo "::warning::Transient Bazel dependency network failure; retrying (attempt $next_attempt/8) after ${delay}s."
             attempt=$next_attempt
             sleep "$delay"
           done
