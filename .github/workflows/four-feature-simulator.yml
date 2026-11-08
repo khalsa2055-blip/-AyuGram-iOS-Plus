@@ -1099,6 +1099,86 @@ jobs:
               raise SystemExit("Expected exactly 18 additional Xcode 27 capture fixes")
           print("PASS: all 18 Simulator #183 compiler-reported captures were explicitly rebound.")
           PY
+          # Apply every additional Xcode 27 nested weak-capture diagnostic from Simulator #184.
+          # Rebind weak capture items explicitly; this preserves weak ownership and avoids
+          # broad source rewrites. Each edit is guarded by the compiler-reported line and token.
+          python3 - <<'PY'
+          from pathlib import Path
+
+          patches = [
+              ("submodules/TelegramUI/Components/Settings/QuickReactionSetupController/Sources/ItemListReactionItem.swift", 239, "self"),
+              ("submodules/TelegramUI/Components/Settings/QuickReactionSetupController/Sources/ReactionChatPreviewItem.swift", 358, "self"),
+              ("submodules/TelegramUI/Components/Settings/ThemeCarouselItem/Sources/ThemeCarouselItem.swift", 332, "animatedStickerNode"),
+              ("submodules/TelegramUI/Components/Settings/ThemeCarouselItem/Sources/ThemeCarouselItem.swift", 332, "self"),
+              ("submodules/TelegramUI/Components/Settings/ThemeCarouselItem/Sources/ThemeCarouselItem.swift", 786, "self"),
+              ("submodules/TelegramUI/Components/Settings/ThemeSettingsThemeItem/Sources/ThemeSettingsThemeItem.swift", 610, "self"),
+              ("submodules/TelegramUI/Components/AuthConfirmationScreen/Sources/AuthConfirmationScreen.swift", 277, "self"),
+              ("submodules/TelegramUI/Components/AuthConfirmationScreen/Sources/AuthConfirmationScreen.swift", 295, "self"),
+              ("submodules/HorizontalPeerItem/Sources/HorizontalPeerItem.swift", 232, "item"),
+              ("submodules/TelegramUI/Components/Chat/ChatRichTextEditorComposer/Sources/TableStructuralMenuAlignmentItem.swift", 179, "self"),
+              ("submodules/TranslateUI/Sources/LocalizationListItem.swift", 262, "self"),
+              ("submodules/TelegramUI/Components/ShareWithPeersScreen/Sources/ShareWithPeersScreen.swift", 3026, "controller"),
+              ("submodules/TelegramUI/Components/ShareWithPeersScreen/Sources/ShareWithPeersScreen.swift", 3026, "component"),
+              ("submodules/ItemListPeerItem/Sources/ItemListPeerItem.swift", 1309, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageInteractiveFileNode/Sources/ChatMessageInteractiveFileNode.swift", 615, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageInteractiveFileNode/Sources/ChatMessageInteractiveFileNode.swift", 1079, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageFactCheckBubbleContentNode/Sources/ChatMessageFactCheckBubbleContentNode.swift", 489, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageInteractiveInstantVideoNode/Sources/ChatMessageInteractiveInstantVideoNode.swift", 647, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageInteractiveInstantVideoNode/Sources/ChatMessageInteractiveInstantVideoNode.swift", 1717, "node"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageDisableCopyProtectionBubbleContentNode/Sources/ChatMessageDisableCopyProtectionBubbleContentNode.swift", 173, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageGiveawayBubbleContentNode/Sources/ChatMessageGiveawayBubbleContentNode.swift", 699, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageGiveawayBubbleContentNode/Sources/ChatMessageGiveawayBubbleContentNode.swift", 1056, "targetNode"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageGiftOfferBubbleContentNode/Sources/ChatMessageGiftOfferBubbleContentNode.swift", 202, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageWallpaperBubbleContentNode/Sources/ChatMessageWallpaperBubbleContentNode.swift", 329, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageGiftBubbleContentNode/Sources/ChatMessageGiftBubbleContentNode.swift", 991, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageUnsupportedBubbleContentNode/Sources/ChatMessageUnsupportedBubbleContentNode.swift", 62, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageRestrictedBubbleContentNode/Sources/ChatMessageRestrictedBubbleContentNode.swift", 174, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageBirthdateSuggestionContentNode/Sources/ChatMessageBirthdateSuggestionContentNode.swift", 207, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageTextBubbleContentNode/Sources/ChatMessageTextBubbleContentNode.swift", 815, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageCommunityChangedBubbleContentNode/Sources/ChatMessageCommunityChangedBubbleContentNode.swift", 170, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageCallBubbleContentNode/Sources/ChatMessageCallBubbleContentNode.swift", 294, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageContactBubbleContentNode/Sources/ChatMessageContactBubbleContentNode.swift", 405, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageMapBubbleContentNode/Sources/ChatMessageMapBubbleContentNode.swift", 339, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageTodoBubbleContentNode/Sources/ChatMessageTodoBubbleContentNode.swift", 1347, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageCommentFooterContentNode/Sources/ChatMessageCommentFooterContentNode.swift", 253, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageReactionsFooterContentNode/Sources/ChatMessageReactionsFooterContentNode.swift", 646, "self"),
+          ]
+
+          grouped = {}
+          for relative_path, line_number, name in patches:
+              grouped.setdefault(relative_path, []).append((line_number, name))
+
+          for relative_path, entries in grouped.items():
+              path = Path(relative_path)
+              lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+              for line_number, name in entries:
+                  index = line_number - 1
+                  if index >= len(lines):
+                      raise SystemExit(f"{relative_path}:{line_number} is outside the pinned source")
+                  old = f"[weak {name}]"
+                  new = f"[weak {name} = {name}]"
+                  line = lines[index]
+                  if line.count(old) == 1 and new not in line:
+                      lines[index] = line.replace(old, new, 1)
+                  elif line.count(new) == 1 and old not in line:
+                      pass
+                  else:
+                      raise SystemExit(
+                          f"Unsafe #184 capture patch at {relative_path}:{line_number} "
+                          f"for {name}: old={line.count(old)}, fixed={line.count(new)}"
+                      )
+              path.write_text("".join(lines), encoding="utf-8")
+              verified = path.read_text(encoding="utf-8").splitlines()
+              for line_number, name in entries:
+                  line = verified[line_number - 1]
+                  if line.count(f"[weak {name} = {name}]") != 1 or f"[weak {name}]" in line:
+                      raise SystemExit(f"Verification failed at {relative_path}:{line_number} ({name})")
+              print(f"Verified {len(entries)} Xcode 27 capture fixes: {relative_path}")
+
+          if sum(len(entries) for entries in grouped.values()) != 36:
+              raise SystemExit("Expected exactly 36 additional Simulator #184 capture fixes")
+          print("PASS: all 36 compiler-reported weak captures were explicitly rebound.")
+          PY
           git diff --check
       - name: Create simulator build configuration
         working-directory: telegram-ios
