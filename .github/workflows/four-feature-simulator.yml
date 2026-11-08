@@ -868,6 +868,43 @@ jobs:
           if proxy_verified.count(proxy_new) != 1 or proxy_old in proxy_verified:
               raise SystemExit("VideoPlayerProxy weak capture verification failed")
           print("PASS: VideoPlayerProxy update closure retains weak self ownership.")
+
+          # Xcode 27 diagnoses the two nested weak-self callbacks in
+          # AudioWaveformComponent.animateIn because the delayed outer
+          # closure implicitly captures self strongly. Rebind weakly at
+          # both nested callbacks without changing their ownership.
+          waveform_path = Path("submodules/TelegramUI/Components/AudioWaveformComponent/Sources/AudioWaveformComponent.swift")
+          waveform_source = waveform_path.read_text(encoding="utf-8")
+          waveform_patches = [
+              (
+                  "update: { [weak self] progress in",
+                  "update: { [weak self = self] progress in",
+              ),
+              (
+                  "completion: { [weak self] in",
+                  "completion: { [weak self = self] in",
+              ),
+          ]
+          for old, new in waveform_patches:
+              old_count = waveform_source.count(old)
+              new_count = waveform_source.count(new)
+              if old_count == 1 and new_count == 0:
+                  waveform_source = waveform_source.replace(old, new, 1)
+              elif old_count == 0 and new_count == 1:
+                  pass
+              else:
+                  raise SystemExit(
+                      "Unsafe AudioWaveformComponent weak-capture patch: "
+                      f"{old!r}, old={old_count}, fixed={new_count}"
+                  )
+          waveform_path.write_text(waveform_source, encoding="utf-8")
+          waveform_verified = waveform_path.read_text(encoding="utf-8")
+          for old, new in waveform_patches:
+              if waveform_verified.count(new) != 1 or old in waveform_verified:
+                  raise SystemExit(
+                      f"AudioWaveformComponent weak-capture verification failed: {new}"
+                  )
+          print("PASS: both animateIn callbacks preserve weak self ownership.")
           PY
           git diff --check
       - name: Create simulator build configuration
