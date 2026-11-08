@@ -971,6 +971,49 @@ jobs:
           print("PASS: MediaEditor Photos resultHandler explicitly rebinds weak self.")
           PY
 
+          # Xcode 27 reports the same nested weak-self ownership diagnostic
+          # across the ItemListUI async-layout closures. Patch only the exact
+          # source lines identified by the compiler; do not rewrite other
+          # weak captures or change the closures' ownership behavior.
+          python3 - <<'PY'
+          from pathlib import Path
+
+          targets = {
+              "submodules/ItemListUI/Sources/Items/ItemListActionItem.swift": 211,
+              "submodules/ItemListUI/Sources/Items/ItemListActivityTextItem.swift": 144,
+              "submodules/ItemListUI/Sources/Items/ItemListCheckboxItem.swift": 280,
+              "submodules/ItemListUI/Sources/Items/ItemListDisclosureItem.swift": 590,
+              "submodules/ItemListUI/Sources/Items/ItemListExpandableSwitchItem.swift": 384,
+              "submodules/ItemListUI/Sources/Items/ItemListInfoItem.swift": 321,
+              "submodules/ItemListUI/Sources/Items/ItemListMultilineInputItem.swift": 269,
+              "submodules/ItemListUI/Sources/Items/ItemListMultilineTextItem.swift": 220,
+              "submodules/ItemListUI/Sources/Items/ItemListPlaceholderItem.swift": 142,
+              "submodules/ItemListUI/Sources/Items/ItemListSectionHeaderItem.swift": 239,
+              "submodules/ItemListUI/Sources/Items/ItemListSingleLineInputItem.swift": 297,
+              "submodules/ItemListUI/Sources/Items/ItemListSwitchItem.swift": 376,
+              "submodules/ItemListUI/Sources/Items/ItemListTextWithLabelItem.swift": 223,
+          }
+          for filename, line_number in targets.items():
+              path = Path(filename)
+              lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+              line = lines[line_number - 1]
+              old = "[weak self]"
+              new = "[weak self = self]"
+              if line.count(new) == 1 and old not in line:
+                  continue
+              if line.count(old) != 1:
+                  raise SystemExit(
+                      f"Unsafe ItemListUI patch at {filename}:{line_number}: "
+                      f"old={line.count(old)}, fixed={line.count(new)}"
+                  )
+              lines[line_number - 1] = line.replace(old, new, 1)
+              path.write_text("".join(lines), encoding="utf-8")
+              verified = path.read_text(encoding="utf-8").splitlines()[line_number - 1]
+              if verified.count(new) != 1 or old in verified:
+                  raise SystemExit(f"ItemListUI verification failed: {filename}:{line_number}")
+          print(f"PASS: explicitly rebound weak self in {len(targets)} ItemListUI compiler-reported closures.")
+          PY
+
           # Continue compiling independent Bazel targets after a Swift module
           # error so one run reports the full set of currently reachable compile
           # failures instead of stopping at the first failing module.
