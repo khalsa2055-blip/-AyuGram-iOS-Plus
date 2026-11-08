@@ -1269,12 +1269,15 @@ jobs:
             if [ "$build_status" -eq 0 ]; then
               break
             fi
-            if [ "$attempt" -ge 3 ] || ! grep -q "504 Gateway Time-out" "$RUNNER_TEMP/simulator-bazel-build.log"; then
+            if [ "$attempt" -ge 8 ] || ! grep -q "504 Gateway Time-out" "$RUNNER_TEMP/simulator-bazel-build.log"; then
               exit "$build_status"
             fi
-            echo "::warning::Transient GitHub 504 while fetching Bazel dependencies; retrying (attempt $((attempt + 1))/3)."
-            attempt=$((attempt + 1))
-            sleep 20
+            next_attempt=$((attempt + 1))
+            delay=$((attempt * 20))
+            if [ "$delay" -gt 120 ]; then delay=120; fi
+            echo "::warning::Transient GitHub 504 while fetching Bazel dependencies; retrying (attempt $next_attempt/8) after ${delay}s."
+            attempt=$next_attempt
+            sleep "$delay"
           done
 
       - name: Smoke-test app in iPhone Simulator
