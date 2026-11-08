@@ -1734,8 +1734,8 @@ jobs:
               verified = path.read_text(encoding="utf-8")
               if verified.count(new) != 1:
                   raise SystemExit(f"Capture verification failed: {filename}")
-              if old in verified:
-                  raise SystemExit(f"Original capture pattern remains: {filename}")
+              if old in verified.replace(new, "", 1):
+                  raise SystemExit(f"Original capture pattern remains outside the patched line: {filename}")
 
           print("PASS: all newly exposed Xcode 27 nested captures are explicit.")
           PY
