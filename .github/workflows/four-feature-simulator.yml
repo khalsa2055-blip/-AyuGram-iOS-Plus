@@ -1603,6 +1603,59 @@ jobs:
           PY
           git diff --check
 
+      - name: Apply remaining Xcode 27 Attachment and list capture fixes
+        working-directory: telegram-ios
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          patches = [
+              (
+                  "submodules/AttachmentUI/Sources/AttachmentPanel.swift",
+                  " |> deliverOnMainQueue).startStandalone(next: { [weak self] peerView, effectItems, availableMessageEffects, hasPremium in",
+                  " |> deliverOnMainQueue).startStandalone(next: { [weak self, textInputPanelNode] peerView, effectItems, availableMessageEffects, hasPremium in",
+              ),
+              (
+                  "submodules/AttachmentUI/Sources/AttachmentPanel.swift",
+                  "        let action = {",
+                  "        let action = { [self, inputNodeSnapshotView] in",
+              ),
+              (
+                  "submodules/CallListUI/Sources/CallListHoleItem.swift",
+                  "        return { item, params, first, last in",
+                  "        return { [self] item, params, first, last in",
+              ),
+              (
+                  "submodules/TelegramUI/Components/ChatList/ChatListHeaderNoticeComponent/Sources/ChatListNoticeItem.swift",
+                  "        return { item, params, last in",
+                  "        return { [self] item, params, last in",
+              ),
+          ]
+
+          for filename, old, new in patches:
+              path = Path(filename)
+              source = path.read_text(encoding="utf-8")
+              old_count = source.count(old)
+              new_count = source.count(new)
+              if old_count == 1 and new_count == 0:
+                  source = source.replace(old, new, 1)
+                  path.write_text(source, encoding="utf-8")
+                  print(f"Applied explicit outer capture: {filename}")
+              elif old_count == 0 and new_count == 1:
+                  print(f"Already fixed: {filename}")
+              else:
+                  raise SystemExit(
+                      f"Unsafe Xcode 27 capture patch for {filename}: "
+                      f"original={old_count}, fixed={new_count}"
+                  )
+              verified = path.read_text(encoding="utf-8")
+              if verified.count(new) != 1 or old in verified.splitlines():
+                  raise SystemExit(f"Capture verification failed: {filename}")
+
+          print("PASS: AttachmentPanel, CallListHoleItem, and ChatListNoticeItem captures are explicit.")
+          PY
+          git diff --check
+
       - name: Create simulator build configuration
         working-directory: telegram-ios
         env:
