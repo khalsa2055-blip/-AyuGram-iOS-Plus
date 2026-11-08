@@ -1156,6 +1156,13 @@ jobs:
               ("submodules/PremiumUI/Sources/SubscriptionsCountItem.swift", 188, "self"),
               ("submodules/TelegramUI/Components/Chat/ChatMessageFileBubbleContentNode/Sources/ChatMessageFileBubbleContentNode.swift", 189, "self"),
               ("submodules/TelegramUI/Components/Chat/ChatMessageInstantVideoBubbleContentNode/Sources/ChatMessageInstantVideoBubbleContentNode.swift", 313, "self"),
+              # Newly reported by Simulator #189; verified against the pinned Telegram baseline.
+              ("submodules/FeaturedStickersScreen/Sources/StickerPaneSearchGlobaltem.swift", 355, "highlightNode"),
+              ("submodules/TelegramUI/Components/TranslateHeaderPanelComponent/Sources/ChatTranslationPanelNode.swift", 297, "self"),
+              ("submodules/TelegramUI/Components/TranslateHeaderPanelComponent/Sources/ChatTranslationPanelNode.swift", 376, "self"),
+              ("submodules/TelegramUI/Components/TranslateHeaderPanelComponent/Sources/ChatTranslationPanelNode.swift", 387, "self"),
+              ("submodules/TelegramUI/Components/TranslateHeaderPanelComponent/Sources/ChatTranslationPanelNode.swift", 413, "self"),
+              ("submodules/TelegramUI/Components/GroupStickerPackSetupController/Sources/GroupStickerPackCurrentItem.swift", 336, "self"),
           ]
 
           grouped = {}
@@ -1193,9 +1200,9 @@ jobs:
                       raise SystemExit(f"Verification failed at {relative_path}:{line_number} ({name})")
               print(f"Verified {len(entries)} Xcode 27 capture fixes: {relative_path}")
 
-          if sum(len(entries) for entries in grouped.values()) != 48:
-              raise SystemExit("Expected exactly 48 pinned Xcode 27 weak-capture fixes (36 prior + 12 from Simulator #188)")
-          print("PASS: all 48 compiler-reported weak captures were explicitly rebound.")
+          if sum(len(entries) for entries in grouped.values()) != 54:
+              raise SystemExit("Expected exactly 54 pinned Xcode 27 weak-capture fixes (48 prior + 6 from Simulator #189)")
+          print("PASS: all 54 compiler-reported weak captures were explicitly rebound.")
           PY
           git diff --check
       - name: Create simulator build configuration
