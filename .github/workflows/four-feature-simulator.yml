@@ -1155,32 +1155,27 @@ jobs:
                   index = line_number - 1
                   if index >= len(lines):
                       raise SystemExit(f"{relative_path}:{line_number} is outside the pinned source")
-                  old = f"[weak {name}]"
-                  new = f"[weak {name} = {name}]"
+                  import re
                   line = lines[index]
-                  combined_old = f"weak {name},"
-                  combined_new = f"weak {name} = {name},"
-                  if line.count(old) == 1 and new not in line:
-                      lines[index] = line.replace(old, new, 1)
-                  elif line.count(new) == 1 and old not in line:
-                      pass
-                  elif line.count(combined_old) == 1 and combined_new not in line:
-                      lines[index] = line.replace(combined_old, combined_new, 1)
-                  elif line.count(combined_new) == 1 and combined_old not in line:
+                  old_pattern = rf"(?<![A-Za-z0-9_])weak\\s+{re.escape(name)}(?=\\s*[,\\]])"
+                  fixed_pattern = rf"weak\\s+{re.escape(name)}\\s*=\\s*{re.escape(name)}(?=\\s*[,\\]])"
+                  old_count = len(re.findall(old_pattern, line))
+                  fixed_count = len(re.findall(fixed_pattern, line))
+                  if old_count == 1 and fixed_count == 0:
+                      lines[index] = re.sub(old_pattern, f"weak {name} = {name}", line, count=1)
+                  elif old_count == 0 and fixed_count == 1:
                       pass
                   else:
                       raise SystemExit(
                           f"Unsafe #184 capture patch at {relative_path}:{line_number} "
-                          f"for {name}: standalone={line.count(old)}/{line.count(new)}, "
-                          f"combined={line.count(combined_old)}/{line.count(combined_new)}"
+                          f"for {name}: old={old_count}, fixed={fixed_count}"
                       )
               path.write_text("".join(lines), encoding="utf-8")
               verified = path.read_text(encoding="utf-8").splitlines()
               for line_number, name in entries:
                   line = verified[line_number - 1]
-                  standalone_fixed = f"[weak {name} = {name}]"
-                  combined_fixed = f"weak {name} = {name},"
-                  if not (line.count(standalone_fixed) == 1 or line.count(combined_fixed) == 1):
+                  fixed_pattern = rf"weak\\s+{re.escape(name)}\\s*=\\s*{re.escape(name)}(?=\\s*[,\\]])"
+                  if len(re.findall(fixed_pattern, line)) != 1:
                       raise SystemExit(f"Verification failed at {relative_path}:{line_number} ({name})")
               print(f"Verified {len(entries)} Xcode 27 capture fixes: {relative_path}")
 
