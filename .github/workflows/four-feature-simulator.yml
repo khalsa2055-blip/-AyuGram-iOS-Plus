@@ -757,6 +757,35 @@ jobs:
               raise SystemExit("Expected nested weak-self callbacks were altered unexpectedly")
           print("PASS: explicit outer [self] capture; nested weak-self callbacks preserved.")
           PY
+          # Xcode 27 flags nested weak video-source observers when the enclosing
+          # Signal closure captures the same source strongly. Rebind weakly.
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("submodules/TelegramUI/Components/Calls/CallScreen/Sources/PrivateCallScreen.swift")
+          source = path.read_text(encoding="utf-8")
+          patches = [
+              ("[weak remoteVideo]", "[weak remoteVideo = remoteVideo]"),
+              ("[weak localVideo]", "[weak localVideo = localVideo]"),
+          ]
+          for old, new in patches:
+              old_count = source.count(old)
+              new_count = source.count(new)
+              if old_count == 1 and new_count == 0:
+                  source = source.replace(old, new, 1)
+              elif old_count == 0 and new_count == 1:
+                  pass
+              else:
+                  raise SystemExit(
+                      f"Unsafe PrivateCallScreen patch for {old}: old={old_count}, fixed={new_count}"
+                  )
+          path.write_text(source, encoding="utf-8")
+          verified = path.read_text(encoding="utf-8")
+          for old, new in patches:
+              if verified.count(new) != 1 or old in verified:
+                  raise SystemExit(f"PrivateCallScreen weak capture verification failed: {new}")
+          print("PASS: remoteVideo and localVideo observer captures remain weak.")
+          PY
           git diff --check
       - name: Create simulator build configuration
         working-directory: telegram-ios
