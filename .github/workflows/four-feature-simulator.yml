@@ -817,33 +817,55 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
-          patches = {
-              Path("submodules/MediaPlayer/Sources/FFMpegMediaFrameSource.swift"): (
-                  "self.performWithContext { [weak self] context in",
-                  "self.performWithContext { [weak self = self] context in",
-              ),
-              Path("submodules/MediaPlayer/Sources/VideoPlayerProxy.swift"): (
-                  "context.updateVideoInHierarchy = { [weak self] value in",
-                  "context.updateVideoInHierarchy = { [weak self = self] value in",
-              ),
-          }
-          for path, (old, new) in patches.items():
-              source = path.read_text(encoding="utf-8")
-              old_count = source.count(old)
-              new_count = source.count(new)
-              if old_count == 1 and new_count == 0:
-                  source = source.replace(old, new, 1)
-              elif old_count == 0 and new_count == 1:
-                  pass
-              else:
-                  raise SystemExit(
-                      f"Unsafe MediaPlayer patch in {path}: old={old_count}, fixed={new_count}"
-                  )
-              path.write_text(source, encoding="utf-8")
-              verified = path.read_text(encoding="utf-8")
-              if verified.count(new) != 1 or old in verified:
-                  raise SystemExit(f"MediaPlayer weak capture verification failed: {path}")
-              print(f"PASS: {path} retains weak self ownership.")
+          # FFMpegMediaFrameSource has two identical performWithContext weak
+          # captures. Xcode flags the second one inside the currentSemaphore
+          # disposal/seek path, so target that full context instead of a
+          # global one-occurrence assertion.
+          ffmpeg_path = Path("submodules/MediaPlayer/Sources/FFMpegMediaFrameSource.swift")
+          ffmpeg_source = ffmpeg_path.read_text(encoding="utf-8")
+          ffmpeg_old = """            disposable.set(ActionDisposable {
+                currentSemaphore.with({ $0 })?.with({ $0 })?.signal()
+            })
+
+            self.performWithContext { [weak self] context in"""
+          ffmpeg_new = ffmpeg_old.replace(
+              "self.performWithContext { [weak self] context in",
+              "self.performWithContext { [weak self = self] context in",
+          )
+          if ffmpeg_source.count(ffmpeg_old) == 1 and ffmpeg_source.count(ffmpeg_new) == 0:
+              ffmpeg_source = ffmpeg_source.replace(ffmpeg_old, ffmpeg_new, 1)
+          elif ffmpeg_source.count(ffmpeg_old) == 0 and ffmpeg_source.count(ffmpeg_new) == 1:
+              pass
+          else:
+              raise SystemExit(
+                  "Unsafe FFMpegMediaFrameSource currentSemaphore patch: "
+                  f"context_old={ffmpeg_source.count(ffmpeg_old)}, "
+                  f"context_fixed={ffmpeg_source.count(ffmpeg_new)}"
+              )
+          ffmpeg_path.write_text(ffmpeg_source, encoding="utf-8")
+          ffmpeg_verified = ffmpeg_path.read_text(encoding="utf-8")
+          if ffmpeg_verified.count(ffmpeg_new) != 1 or ffmpeg_old in ffmpeg_verified:
+              raise SystemExit("FFMpegMediaFrameSource currentSemaphore weak capture verification failed")
+          print("PASS: only the currentSemaphore FFMpeg weak capture is explicitly rebound.")
+
+          proxy_path = Path("submodules/MediaPlayer/Sources/VideoPlayerProxy.swift")
+          proxy_source = proxy_path.read_text(encoding="utf-8")
+          proxy_old = "context.updateVideoInHierarchy = { [weak self] value in"
+          proxy_new = "context.updateVideoInHierarchy = { [weak self = self] value in"
+          if proxy_source.count(proxy_old) == 1 and proxy_source.count(proxy_new) == 0:
+              proxy_source = proxy_source.replace(proxy_old, proxy_new, 1)
+          elif proxy_source.count(proxy_old) == 0 and proxy_source.count(proxy_new) == 1:
+              pass
+          else:
+              raise SystemExit(
+                  "Unsafe VideoPlayerProxy patch: "
+                  f"old={proxy_source.count(proxy_old)}, fixed={proxy_source.count(proxy_new)}"
+              )
+          proxy_path.write_text(proxy_source, encoding="utf-8")
+          proxy_verified = proxy_path.read_text(encoding="utf-8")
+          if proxy_verified.count(proxy_new) != 1 or proxy_old in proxy_verified:
+              raise SystemExit("VideoPlayerProxy weak capture verification failed")
+          print("PASS: VideoPlayerProxy update closure retains weak self ownership.")
           PY
           git diff --check
       - name: Create simulator build configuration
