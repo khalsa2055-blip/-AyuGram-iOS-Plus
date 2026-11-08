@@ -1451,6 +1451,103 @@ jobs:
           PY
           git diff --check
 
+      - name: Apply Telegram Calls Xcode 27 weak-capture compatibility fixes
+        working-directory: telegram-ios
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          patches = [
+              (
+                  "submodules/TelegramCallsUI/Sources/Components/MessageItemComponent.swift",
+                  "                    Queue.mainQueue().justDispatch {",
+                  "                    Queue.mainQueue().justDispatch { [self] in",
+              ),
+              (
+                  "submodules/TelegramCallsUI/Sources/GroupVideoNode.swift",
+                  "                Queue.mainQueue().after(0.3) {",
+                  "                Queue.mainQueue().after(0.3) { [snapshotView] in",
+              ),
+              (
+                  "submodules/TelegramCallsUI/Sources/VoiceChatActionItem.swift",
+                  "        return { item, params, first, last in",
+                  "        return { [self] item, params, first, last in",
+              ),
+              (
+                  "submodules/TelegramCallsUI/Sources/VoiceChatFullscreenParticipantItem.swift",
+                  "        return { item, params, first, last in",
+                  "        return { [self] item, params, first, last in",
+              ),
+              (
+                  "submodules/TelegramCallsUI/Sources/VoiceChatParticipantItem.swift",
+                  "        return { size, text, expanded in",
+                  "        return { [self] size, text, expanded in",
+              ),
+              (
+                  "submodules/TelegramCallsUI/Sources/VoiceChatParticipantItem.swift",
+                  "        return { item, params, first, last in",
+                  "        return { [self] item, params, first, last in",
+              ),
+              (
+                  "submodules/TelegramCallsUI/Sources/VoiceChatTileGridNode.swift",
+                  "        return { item, params in",
+                  "        return { [self] item, params in",
+              ),
+          ]
+
+          for filename, old, new in patches:
+              path = Path(filename)
+              source = path.read_text(encoding="utf-8")
+              old_count = source.count(old)
+              new_count = source.count(new)
+              if old_count == 1 and new_count == 0:
+                  source = source.replace(old, new, 1)
+                  path.write_text(source, encoding="utf-8")
+                  print(f"Applied explicit outer capture: {filename}")
+              elif old_count == 0 and new_count == 1:
+                  print(f"Already fixed: {filename}")
+              else:
+                  raise SystemExit(
+                      f"Unsafe Xcode 27 capture patch for {filename}: "
+                      f"original={old_count}, fixed={new_count}"
+                  )
+              verified = path.read_text(encoding="utf-8")
+              if verified.count(new) != 1 or old in verified.splitlines():
+                  raise SystemExit(f"Verification failed: {filename}")
+
+          path = Path("submodules/TelegramCallsUI/Sources/VideoChatScreen.swift")
+          source = path.read_text(encoding="utf-8")
+          old = (
+              "if let inputMediaNode {\\n"
+              "                            Queue.mainQueue().after(0.2) {\\n"
+              "                                inputMediaNode.layer.animateAlpha"
+          )
+          new = (
+              "if let inputMediaNode {\\n"
+              "                            Queue.mainQueue().after(0.2) { [inputMediaNode] in\\n"
+              "                                inputMediaNode.layer.animateAlpha"
+          )
+          old_count = source.count(old)
+          new_count = source.count(new)
+          if old_count == 2 and new_count == 0:
+              source = source.replace(old, new)
+              path.write_text(source, encoding="utf-8")
+              print("Applied both VideoChatScreen input-media captures.")
+          elif old_count == 0 and new_count == 2:
+              print("Both VideoChatScreen input-media captures already fixed.")
+          else:
+              raise SystemExit(
+                  "Unsafe VideoChatScreen patch: "
+                  f"original={old_count}, fixed={new_count}"
+              )
+          verified = path.read_text(encoding="utf-8")
+          if verified.count(new) != 2 or old in verified:
+              raise SystemExit("VideoChatScreen capture verification failed.")
+
+          print("PASS: Telegram Calls weak-capture compatibility fixes verified.")
+          PY
+          git diff --check
+
       - name: Create simulator build configuration
         working-directory: telegram-ios
         env:
