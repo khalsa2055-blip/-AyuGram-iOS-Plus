@@ -941,6 +941,64 @@ jobs:
                   raise SystemExit("AvatarNode weak-capture verification failed.")
           print("PASS: AvatarNode completion explicitly rebinds both nodes weakly.")
           PY
+
+          # Xcode 27 flags the nested weak-self callback used while loading a
+          # Photos video asset: the enclosing Signal closure implicitly captures
+          # self strongly. Rebind weakly at the result handler, preserving the
+          # callback's existing weak ownership and cancellation behavior.
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("submodules/TelegramUI/Components/MediaEditor/Sources/MediaEditor.swift")
+          source = path.read_text(encoding="utf-8")
+          old = "resultHandler: { [weak self] avAsset, _, _ in"
+          new = "resultHandler: { [weak self = self] avAsset, _, _ in"
+          old_count = source.count(old)
+          new_count = source.count(new)
+          if old_count == 1 and new_count == 0:
+              source = source.replace(old, new, 1)
+          elif old_count == 0 and new_count == 1:
+              pass
+          else:
+              raise SystemExit(
+                  "Unsafe MediaEditor weak-capture patch: "
+                  f"old={old_count}, fixed={new_count}"
+              )
+          path.write_text(source, encoding="utf-8")
+          verified = path.read_text(encoding="utf-8")
+          if verified.count(new) != 1 or old in verified:
+              raise SystemExit("MediaEditor weak-capture verification failed.")
+          print("PASS: MediaEditor Photos resultHandler explicitly rebinds weak self.")
+          PY
+
+          # Continue compiling independent Bazel targets after a Swift module
+          # error so one run reports the full set of currently reachable compile
+          # failures instead of stopping at the first failing module.
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("build-system/Make/Make.py")
+          source = path.read_text(encoding="utf-8")
+          anchor = "bazel_command_line.set_custom_target(arguments.target)"
+          addition = "bazel_command_line.common_args.append('--keep_going')"
+          if addition not in source:
+              lines = source.splitlines(keepends=True)
+              matches = [i for i, line in enumerate(lines) if line.strip() == anchor]
+              if len(matches) != 1:
+                  raise SystemExit(f"Expected one Bazel target setup anchor; found {len(matches)}")
+              i = matches[0]
+              indent = lines[i][:len(lines[i]) - len(lines[i].lstrip())]
+              lines[i + 1:i + 1] = [
+                  indent + "if arguments.configuration in ('debug_sim_arm64', 'release_sim_arm64'):\n",
+                  indent + "    " + addition + "\n",
+              ]
+              source = "".join(lines)
+              path.write_text(source, encoding="utf-8")
+          verified = path.read_text(encoding="utf-8")
+          if verified.count(addition) != 1 or "if arguments.configuration in ('debug_sim_arm64', 'release_sim_arm64'):" not in verified:
+              raise SystemExit("Bazel --keep_going configuration verification failed.")
+          print("PASS: simulator Bazel builds continue independent compile actions (--keep_going).")
+          PY
           git diff --check
       - name: Create simulator build configuration
         working-directory: telegram-ios
