@@ -1301,6 +1301,51 @@ jobs:
 
           patches = [
               (
+                  "submodules/QrCodeUI/Sources/QrCodeScanScreen.swift",
+                  "openPeer: { [weak self] peer, navigation in",
+                  "openPeer: { [weak self, navigationController] peer, navigation in",
+              ),
+              (
+                  "submodules/TelegramUI/Components/Gifts/GiftSetupScreen/Sources/ChatGiftPreviewItem.swift",
+                  "return { item, params, neighbors in",
+                  "return { [self] item, params, neighbors in",
+              ),
+              (
+                  "submodules/TelegramUI/Components/Gifts/GiftSetupScreen/Sources/GiftSetupScreen.swift",
+                  "startStandalone(next: { [weak self] options in",
+                  "startStandalone(next: { [weak self, starsContext] options in",
+              ),
+              (
+                  "submodules/TelegramUI/Components/Gifts/GiftSetupScreen/Sources/GiftSetupScreen.swift",
+                  "                            Queue.mainQueue().after(0.3) {\n                                inputMediaNode.layer.animateAlpha",
+                  "                            Queue.mainQueue().after(0.3) { [inputMediaNode] in\n                                inputMediaNode.layer.animateAlpha",
+              ),
+              (
+                  "submodules/TelegramUI/Components/Chat/ChatMessageStoryMentionContentNode/Sources/ChatMessageStoryMentionContentNode.swift",
+                  "return { item, layoutConstants, _, _, _, _ in",
+                  "return { [self] item, layoutConstants, _, _, _, _ in",
+              ),
+              (
+                  "submodules/TelegramUI/Components/Chat/ChatMessageProfilePhotoSuggestionContentNode/Sources/ChatMessageProfilePhotoSuggestionContentNode.swift",
+                  "return { item, layoutConstants, _, _, _, _ in",
+                  "return { [self] item, layoutConstants, _, _, _, _ in",
+              ),
+              (
+                  "submodules/TelegramUI/Components/Chat/ChatMessageActionBubbleContentNode/Sources/ChatMessageActionBubbleContentNode.swift",
+                  "return { item, layoutConstants, _, _, _, _ in",
+                  "return { [self] item, layoutConstants, _, _, _, _ in",
+              ),
+              (
+                  "submodules/PassportUI/Sources/SecureIdAuthControllerNode.swift",
+                  "let updatedValues: (SecureIdValueKey) -> ([SecureIdValueWithContext]) -> Void = { valueKey in",
+                  "let updatedValues: (SecureIdValueKey) -> ([SecureIdValueWithContext]) -> Void = { [self] valueKey in",
+              ),
+              (
+                  "submodules/TelegramUI/Components/Settings/WallpaperGalleryScreen/Sources/WallpaperGalleryItem.swift",
+                  "            Queue.mainQueue().after(0.1) {\n                self.brightnessNode.isHidden",
+                  "            Queue.mainQueue().after(0.1) { [self] in\n                self.brightnessNode.isHidden",
+              ),
+              (
                   "submodules/ImportStickerPackUI/Sources/ImportStickerPackController.swift",
                   "        Queue.mainQueue().after(0.1) {",
                   "        Queue.mainQueue().after(0.1) { [self] in",
