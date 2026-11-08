@@ -1251,15 +1251,31 @@ jobs:
           build --cxxopt='-Wno-error=#warnings'
           BAZELRC
 
-          echo "Simulator build (single cached attempt)"
-          USE_BAZEL_VERSION=8.4.2 python3 build-system/Make/Make.py \
-            --bazel="$(command -v bazelisk)" \
-            --cacheDir="$HOME/telegram-bazel-cache" \
-            build \
-            --configurationPath=build-system/ayugram-ci-configuration.json \
-            --xcodeManagedCodesigning \
-            --buildNumber=200084 \
-            --configuration=debug_sim_arm64
+          # GitHub release downloads occasionally return transient HTTP 504s.
+          # Retry only that network failure; do not hide compiler or source errors.
+          attempt=1
+          while true; do
+            set +e
+            USE_BAZEL_VERSION=8.4.2 python3 build-system/Make/Make.py \
+              --bazel="$(command -v bazelisk)" \
+              --cacheDir="$HOME/telegram-bazel-cache" \
+              build \
+              --configurationPath=build-system/ayugram-ci-configuration.json \
+              --xcodeManagedCodesigning \
+              --buildNumber=200084 \
+              --configuration=debug_sim_arm64 2>&1 | tee "$RUNNER_TEMP/simulator-bazel-build.log"
+            build_status=${PIPESTATUS[0]}
+            set -e
+            if [ "$build_status" -eq 0 ]; then
+              break
+            fi
+            if [ "$attempt" -ge 3 ] || ! grep -q "504 Gateway Time-out" "$RUNNER_TEMP/simulator-bazel-build.log"; then
+              exit "$build_status"
+            fi
+            echo "::warning::Transient GitHub 504 while fetching Bazel dependencies; retrying (attempt $((attempt + 1))/3)."
+            attempt=$((attempt + 1))
+            sleep 20
+          done
 
       - name: Smoke-test app in iPhone Simulator
         working-directory: telegram-ios
