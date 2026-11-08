@@ -1042,6 +1042,63 @@ jobs:
               raise SystemExit("Bazel --keep_going configuration verification failed.")
           print("PASS: simulator Bazel builds continue independent compile actions (--keep_going).")
           PY
+          # Apply the 18 additional Xcode 27 ImplicitStrongCapture fixes reported by Simulator #183.
+          # Each patch is tied to the pinned Telegram-iOS baseline line and exact weak capture;
+          # ownership remains weak, with an explicit binding to the existing outer value.
+          python3 - <<'PY'
+          from pathlib import Path
+
+          patches = [
+              ("submodules/TelegramUI/Components/ItemListDatePickerItem/Sources/ItemListDatePickerItem.swift", 186, "[weak self]", "[weak self = self]"),
+              ("submodules/TelegramUpdateUI/Sources/UpdateInfoItem.swift", 240, "[weak self]", "[weak self = self]"),
+              ("submodules/TelegramUI/Components/Stars/StarsTransferScreen/Sources/StarsTransferScreen.swift", 241, "[weak self]", "[weak self = self]"),
+              ("submodules/TelegramUI/Components/Stars/StarsTransferScreen/Sources/StarsTransferScreen.swift", 612, "[weak starsContext]", "[weak starsContext = starsContext]"),
+              ("submodules/ItemListPeerActionItem/Sources/ItemListPeerActionItem.swift", 272, "[weak self]", "[weak self = self]"),
+              ("submodules/ReactionSelectionNode/Sources/PremiumStarsNode.swift", 35, "[weak self]", "[weak self = self]"),
+              ("submodules/ReactionSelectionNode/Sources/ReactionContextNode.swift", 2942, "[weak self]", "[weak self = self]"),
+              ("submodules/ItemListStickerPackItem/Sources/ItemListStickerPackItem.swift", 551, "[weak self]", "[weak self = self]"),
+              ("submodules/ItemListVenueItem/Sources/ItemListVenueItem.swift", 274, "[weak self]", "[weak self = self]"),
+              ("submodules/TelegramUI/Components/Settings/PeerNameColorItem/Sources/PeerNameColorItem.swift", 424, "[weak self]", "[weak self = self]"),
+              ("submodules/BotPaymentsUI/Sources/BotCheckoutHeaderItem.swift", 213, "[weak self]", "[weak self = self]"),
+              ("submodules/BotPaymentsUI/Sources/BotCheckoutPriceItem.swift", 178, "[weak self]", "[weak self = self]"),
+              ("submodules/BotPaymentsUI/Sources/BotCheckoutTipItem.swift", 553, "[weak self]", "[weak self = self]"),
+              ("submodules/TelegramUI/Components/PeerInfo/MessagePriceItem/Sources/MessagePriceItem.swift", 343, "[weak self]", "[weak self = self]"),
+              ("submodules/ChatListFilterSettingsHeaderItem/Sources/ChatListFilterSettingsHeaderItem.swift", 152, "[weak self]", "[weak self = self]"),
+              ("submodules/ItemListAddressItem/Sources/ItemListAddressItem.swift", 220, "[weak self]", "[weak self = self]"),
+              ("submodules/TelegramUI/Components/PeerInfo/PeerCopyProtectionInfoScreen/Sources/PeerCopyProtectionInfoScreen.swift", 457, "[weak self]", "[weak self = self]"),
+              ("submodules/ItemListAvatarAndNameInfoItem/Sources/ItemListAvatarAndNameItem.swift", 617, "[weak self]", "[weak self = self]"),
+          ]
+
+          grouped = {}
+          for relative_path, line_number, old, new in patches:
+              grouped.setdefault(relative_path, []).append((line_number, old, new))
+
+          for relative_path, entries in grouped.items():
+              path = Path(relative_path)
+              lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+              for line_number, old, new in entries:
+                  index = line_number - 1
+                  if index >= len(lines):
+                      raise SystemExit(f"{relative_path}:{line_number} is outside the pinned baseline")
+                  line = lines[index]
+                  if line.count(old) == 1 and new not in line:
+                      lines[index] = line.replace(old, new, 1)
+                  elif line.count(new) == 1 and old not in line:
+                      pass
+                  else:
+                      raise SystemExit(f"Unsafe weak-capture patch at {relative_path}:{line_number}")
+              path.write_text("".join(lines), encoding="utf-8")
+              verified = path.read_text(encoding="utf-8").splitlines()
+              for line_number, old, new in entries:
+                  line = verified[line_number - 1]
+                  if line.count(new) != 1 or old in line:
+                      raise SystemExit(f"Verification failed at {relative_path}:{line_number}")
+              print(f"Verified {len(entries)} additional weak-capture fixes: {relative_path}")
+
+          if sum(len(entries) for entries in grouped.values()) != 18:
+              raise SystemExit("Expected exactly 18 additional Xcode 27 capture fixes")
+          print("PASS: all 18 Simulator #183 compiler-reported captures were explicitly rebound.")
+          PY
           git diff --check
       - name: Create simulator build configuration
         working-directory: telegram-ios
