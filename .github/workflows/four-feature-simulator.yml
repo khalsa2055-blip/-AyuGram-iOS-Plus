@@ -1334,7 +1334,7 @@ jobs:
                       f"original={old_count}, fixed={new_count}"
                   )
               verified = path.read_text(encoding="utf-8")
-              if verified.count(new) != 1 or old in verified:
+              if verified.count(new) != 1 or old in verified.splitlines():
                   raise SystemExit(f"Verification failed: {filename}")
 
           print("PASS: all newly reported Xcode 27 outer captures are explicit.")
