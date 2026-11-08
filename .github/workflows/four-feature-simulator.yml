@@ -1656,6 +1656,91 @@ jobs:
           PY
           git diff --check
 
+      - name: Apply newly exposed Xcode 27 nested capture fixes
+        working-directory: telegram-ios
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          patches = [
+              (
+                  "submodules/TelegramUI/Components/Contacts/NewContactScreen/Sources/PhoneInputItem.swift",
+                  "        return { item, params, neighbors in",
+                  "        return { [self] item, params, neighbors in",
+              ),
+              (
+                  "submodules/TelegramUI/Components/ChatThemeScreen/Sources/ChatThemeScreen.swift",
+                  "            Queue.mainQueue().after(0.1) {",
+                  "            Queue.mainQueue().after(0.1) { [animatedStickerNode, self] in",
+              ),
+              (
+                  "submodules/MediaPickerUI/Sources/LegacyMediaPickerGallery.swift",
+                  "                |> deliverOnMainQueue).start(next: { sendWhenOnlineAvailable in",
+                  "                |> deliverOnMainQueue).start(next: { [model] sendWhenOnlineAvailable in",
+              ),
+              (
+                  "submodules/MediaPickerUI/Sources/MediaGroupsAlbumGridItem.swift",
+                  "            return (nodeLayout, { [weak self] in\n                return (nil, { _ in",
+                  "            return (nodeLayout, { [weak self] in\n                return (nil, { [item] _ in",
+              ),
+              (
+                  "submodules/MediaPickerUI/Sources/MediaGroupsAlbumItem.swift",
+                  "        return { item, params, first, last in",
+                  "        return { [self] item, params, first, last in",
+              ),
+              (
+                  "submodules/MediaPickerUI/Sources/MediaPickerScreen.swift",
+                  "    controller.getSourceRect = getSourceRect\n    controller.requestController = { _, present in\n        let mediaPickerController = MediaPickerScreenImpl(",
+                  "    controller.getSourceRect = getSourceRect\n    controller.requestController = { [selectionContext] _, present in\n        let mediaPickerController = MediaPickerScreenImpl(",
+              ),
+              (
+                  "submodules/TelegramUI/Components/MediaEditorScreen/Sources/MediaEditorScreen.swift",
+                  "                transition.setFrame(view: inputMediaNode.view, frame: targetFrame, completion: { [weak inputMediaNode] _ in\n                    if let inputMediaNode {\n                        Queue.mainQueue().after(0.2) {",
+                  "                transition.setFrame(view: inputMediaNode.view, frame: targetFrame, completion: { [weak inputMediaNode] _ in\n                    if let inputMediaNode {\n                        Queue.mainQueue().after(0.2) { [inputMediaNode] in",
+              ),
+              (
+                  "submodules/TelegramUI/Components/MediaEditorScreen/Sources/MediaEditorScreen.swift",
+                  "            Queue.concurrentDefaultQueue().after(0.5, {",
+                  "            Queue.concurrentDefaultQueue().after(0.5, { [self] in",
+              ),
+              (
+                  "submodules/TelegramUI/Components/MediaEditorScreen/Sources/MediaEditorScreen.swift",
+                  "                Queue.mainQueue().after(0.3) {",
+                  "                Queue.mainQueue().after(0.3) { [self] in",
+              ),
+              (
+                  "submodules/TelegramUI/Components/MediaEditorScreen/Sources/MediaEditorStoryCompletion.swift",
+                  "        dispatchGroup.notify(queue: .main) {",
+                  "        dispatchGroup.notify(queue: .main) { [self] in",
+              ),
+          ]
+
+          for filename, old, new in patches:
+              path = Path(filename)
+              source = path.read_text(encoding="utf-8")
+              old_count = source.count(old)
+              new_count = source.count(new)
+              if old_count == 1 and new_count == 0:
+                  source = source.replace(old, new, 1)
+                  path.write_text(source, encoding="utf-8")
+                  print(f"Applied explicit outer capture: {filename}")
+              elif old_count == 0 and new_count == 1:
+                  print(f"Already fixed: {filename}")
+              else:
+                  raise SystemExit(
+                      f"Unsafe Xcode 27 capture patch for {filename}: "
+                      f"original={old_count}, fixed={new_count}"
+                  )
+              verified = path.read_text(encoding="utf-8")
+              if verified.count(new) != 1:
+                  raise SystemExit(f"Capture verification failed: {filename}")
+              if old in verified:
+                  raise SystemExit(f"Original capture pattern remains: {filename}")
+
+          print("PASS: all newly exposed Xcode 27 nested captures are explicit.")
+          PY
+          git diff --check
+
       - name: Create simulator build configuration
         working-directory: telegram-ios
         env:
