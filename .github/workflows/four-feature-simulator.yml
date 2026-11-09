@@ -2859,8 +2859,8 @@ jobs:
               std_at = source.find(std_flag, start, end)
               if std_at < 0:
                   raise SystemExit("Expected AsyncDisplayKit C++17 flag was not found.")
-              insert_at = source.find("\\n", std_at, end) + 1
-              source = source[:insert_at] + '        "-Wno-error=#warnings",\\n' + source[insert_at:]
+              insert_at = source.find("\n", std_at, end) + 1
+              source = source[:insert_at] + '        "-Wno-error=#warnings",\n' + source[insert_at:]
               path.write_text(source, encoding="utf-8")
               print("Demoted only libc++ #warning diagnostics in AsyncDisplayKit C++ compilation.")
           check = path.read_text(encoding="utf-8")
