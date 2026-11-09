@@ -13,6 +13,8 @@ SCENE_DELEGATE = ROOT / "submodules" / "TelegramUI" / "Sources" / "SceneDelegate
 NATIVE_WINDOW = ROOT / "submodules" / "Display" / "Source" / "NativeWindowHostView.swift"
 WINDOW_CONTENT = ROOT / "submodules" / "Display" / "Source" / "WindowContent.swift"
 LEGACY_CONTROLLER = ROOT / "submodules" / "LegacyUI" / "Sources" / "LegacyController.swift"
+UIKIT_NAVIGATION_HEADER = ROOT / "submodules" / "UIKitRuntimeUtils" / "Source" / "UIKitRuntimeUtils" / "UIViewController+Navigation.h"
+UIKIT_NAVIGATION_IMPL = ROOT / "submodules" / "UIKitRuntimeUtils" / "Source" / "UIKitRuntimeUtils" / "UIViewController+Navigation.m"
 
 def read(path: Path) -> str:
     if not path.is_file():
@@ -119,6 +121,83 @@ if force_unwrap in source:
 elif safe_lookup not in source:
     raise SystemExit("LegacyController status-bar lookup is in an unexpected state")
 write(LEGACY_CONTROLLER, source)
+
+# 4b) Backport the scene-aware keyboard lookup to the pinned Swiftgram baseline.
+#     The newer UIKitRuntimeUtils implementation obtains the keyboard window
+#     from the scene's keyboardSceneDelegate. The pinned baseline only exposes
+#     the no-argument getter, which calls the iOS 27-trapping legacy selector.
+header = read(UIKIT_NAVIGATION_HEADER)
+scene_keyboard_declaration = "- (UIWindow * _Nullable)internalGetKeyboardForScene:(UIWindowScene * _Nullable)scene;"
+if scene_keyboard_declaration not in header:
+    header = replace_once(
+        header,
+        "- (UIWindow * _Nullable)internalGetKeyboard;\n",
+        "- (UIWindow * _Nullable)internalGetKeyboard;\n" + scene_keyboard_declaration + "\n",
+        "declare scene-aware keyboard window lookup",
+    )
+elif header.count(scene_keyboard_declaration) != 1:
+    raise SystemExit("Unexpected duplicate internalGetKeyboardForScene declaration")
+write(UIKIT_NAVIGATION_HEADER, header)
+
+source = read(UIKIT_NAVIGATION_IMPL)
+keyboard_scene_protocols = """@protocol UIKeyboardSceneDelegateProtocol
+
+- (UIWindow * _Nullable)keyboardWindow;
+
+@end
+
+@protocol UIWindowSceneKeyboardProtocol
+
+- (id _Nullable)keyboardSceneDelegate;
+
+@end
+
+"""
+if "UIKeyboardSceneDelegateProtocol" not in source and "UIWindowSceneKeyboardProtocol" not in source:
+    source = replace_once(
+        source,
+        "@implementation UIApplication (Additions)",
+        keyboard_scene_protocols + "@implementation UIApplication (Additions)",
+        "declare private keyboard-scene delegate protocols",
+    )
+elif source.count("@protocol UIKeyboardSceneDelegateProtocol") != 1 or source.count("@protocol UIWindowSceneKeyboardProtocol") != 1:
+    raise SystemExit("Keyboard scene delegate protocol declarations are incomplete or duplicated")
+
+scene_keyboard_method = """- (UIWindow * _Nullable)internalGetKeyboardForScene:(UIWindowScene * _Nullable)scene {
+    if (scene == nil) {
+        return nil;
+    }
+    if (![scene respondsToSelector:@selector(keyboardSceneDelegate)]) {
+        return nil;
+    }
+
+    id keyboardSceneDelegate = [(id<UIWindowSceneKeyboardProtocol>)scene keyboardSceneDelegate];
+    if (![keyboardSceneDelegate respondsToSelector:@selector(keyboardWindow)]) {
+        return nil;
+    }
+
+    // nil until the keyboard has been created for this scene, or when keyboard UI is hosted out of process.
+    UIWindow *result = [(id<UIKeyboardSceneDelegateProtocol>)keyboardSceneDelegate keyboardWindow];
+    if (![result isKindOfClass:[UIWindow class]]) {
+        return nil;
+    }
+
+    return result;
+}
+
+"""
+if scene_keyboard_method not in source:
+    if "internalGetKeyboardForScene:" in source:
+        raise SystemExit("An unexpected internalGetKeyboardForScene implementation already exists")
+    source = replace_once(
+        source,
+        "\n@end\n\n@implementation UIView (Navigation)",
+        "\n\n" + scene_keyboard_method + "@end\n\n@implementation UIView (Navigation)",
+        "implement scene-aware keyboard window lookup",
+    )
+elif source.count("internalGetKeyboardForScene:") != 1:
+    raise SystemExit("Unexpected duplicate scene-aware keyboard window implementation")
+write(UIKIT_NAVIGATION_IMPL, source)
 
 # 5) Add a thin SceneDelegate. Only the primary application scene forwards
 #    app-wide lifecycle/URL/shortcut callbacks; external display scenes are ignored.
@@ -424,6 +503,12 @@ assert "window!?.windowScene!.statusBarManager" not in read(LEGACY_CONTROLLER)
 assert "public func updateDeviceMetrics()" in read(WINDOW_CONTENT)
 assert app_text.count("self.window?.makeKeyAndVisible()") == 2
 assert "SceneDelegate" in scene_text and "isPrimaryScene" in scene_text
+keyboard_header_text = read(UIKIT_NAVIGATION_HEADER)
+keyboard_impl_text = read(UIKIT_NAVIGATION_IMPL)
+assert keyboard_header_text.count("internalGetKeyboardForScene:") == 1
+assert keyboard_impl_text.count("internalGetKeyboardForScene:") == 1
+assert "UIWindowSceneKeyboardProtocol" in keyboard_impl_text
+assert "UIKeyboardSceneDelegateProtocol" in keyboard_impl_text
 assert (ROOT / "submodules" / "TelegramUI" / "BUILD").is_file()
 assert '\"Sources/**/*.swift\"' in read(ROOT / "submodules" / "TelegramUI" / "BUILD")
 
