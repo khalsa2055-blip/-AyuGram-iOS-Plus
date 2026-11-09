@@ -2571,9 +2571,29 @@ jobs:
           done
 
           if [ -z "$history_marker" ] || [ ! -f "$history_marker" ] || [ -z "$report" ] || [ ! -f "$report" ]; then
+            diagnostics_dir="ci-artifacts/smoke/diagnostics"
+            mkdir -p "$diagnostics_dir"
             xcrun simctl io "$DEVICE_UDID" screenshot --display=1 ci-artifacts/smoke/AyuGram-History-Test-Failed.png
-            echo "History-only harness did not render its message-bubble list." >&2
-            xcrun simctl spawn "$DEVICE_UDID" log show --last 2m --style compact --predicate '(process == "Swiftgram" OR process == "Telegram")' | tail -200 || true
+            printf '%s\n' "$launch_output" > "$diagnostics_dir/History-Launch-Result.txt"
+            {
+              echo "=== Simulator device ==="
+              xcrun simctl list devices | grep "$DEVICE_UDID" || true
+              echo "=== App info ==="
+              xcrun simctl appinfo "$DEVICE_UDID" "$bundle_id" || true
+              echo "=== Recent app / libdispatch log ==="
+              xcrun simctl spawn "$DEVICE_UDID" log show --last 5m --style compact --predicate '(process == "Swiftgram" OR process == "Telegram" OR eventMessage CONTAINS[c] "libdispatch" OR eventMessage CONTAINS[c] "crash")' | tail -1200 || true
+              echo "=== launchd process inventory ==="
+              xcrun simctl spawn "$DEVICE_UDID" launchctl list || true
+            } > "$diagnostics_dir/Simulator-Runtime-Diagnostics.txt" 2>&1
+            launch_pid=$(printf '%s\n' "$launch_output" | sed -n 's/.*: \([0-9][0-9]*\)$/\1/p' | tail -1)
+            if [ -n "$launch_pid" ]; then
+              xcrun simctl spawn "$DEVICE_UDID" launchctl procinfo "$launch_pid" > "$diagnostics_dir/History-Process-Info.txt" 2>&1 || true
+            fi
+            crash_reports="$HOME/Library/Logs/DiagnosticReports"
+            if [ -d "$crash_reports" ]; then
+              find "$crash_reports" -maxdepth 1 -type f \( -name 'Swiftgram*' -o -name 'Telegram*' \) -mmin -30 -print -exec cp -p {} "$diagnostics_dir/" \; || true
+            fi
+            echo "History-only harness did not render its message-bubble list; full simulator runtime diagnostics were saved." >&2
             exit 1
           fi
 
@@ -2815,6 +2835,7 @@ jobs:
             telegram-ios/ci-artifacts/smoke/AyuGram-History-*.png
             telegram-ios/ci-artifacts/smoke/AyuGram-Normal-Launch.png
             telegram-ios/ci-artifacts/smoke/AyuGram-Normal-Launch.log
+            telegram-ios/ci-artifacts/smoke/diagnostics/**
           if-no-files-found: warn
 
       - name: Upload simulator artifacts
