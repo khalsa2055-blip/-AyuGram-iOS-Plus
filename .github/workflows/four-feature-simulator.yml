@@ -2486,7 +2486,7 @@ jobs:
             exit "$normal_launch_rc"
           fi
           sleep 15
-          xcrun simctl io "$DEVICE_UDID" screenshot ci-artifacts/smoke/AyuGram-Normal-Launch.png
+          xcrun simctl io "$DEVICE_UDID" screenshot --display=1 ci-artifacts/smoke/AyuGram-Normal-Launch.png
           test -s ci-artifacts/smoke/AyuGram-Normal-Launch.png
           xcrun simctl spawn "$DEVICE_UDID" log show --last 30s --style compact --predicate '(process == "Swiftgram" OR process == "Telegram")' | tee ci-artifacts/smoke/AyuGram-Normal-Launch.log | tail -180
           xcrun simctl terminate "$DEVICE_UDID" "$bundle_id" >/dev/null 2>&1 || true
@@ -2571,13 +2571,13 @@ jobs:
           done
 
           if [ -z "$history_marker" ] || [ ! -f "$history_marker" ] || [ -z "$report" ] || [ ! -f "$report" ]; then
-            xcrun simctl io "$DEVICE_UDID" screenshot ci-artifacts/smoke/AyuGram-History-Test-Failed.png
+            xcrun simctl io "$DEVICE_UDID" screenshot --display=1 ci-artifacts/smoke/AyuGram-History-Test-Failed.png
             echo "History-only harness did not render its message-bubble list." >&2
             xcrun simctl spawn "$DEVICE_UDID" log show --last 2m --style compact --predicate '(process == "Swiftgram" OR process == "Telegram")' | tail -200 || true
             exit 1
           fi
 
-          xcrun simctl io "$DEVICE_UDID" screenshot ci-artifacts/smoke/AyuGram-History-List.png
+          xcrun simctl io "$DEVICE_UDID" screenshot --display=1 ci-artifacts/smoke/AyuGram-History-List.png
           test -s ci-artifacts/smoke/AyuGram-History-List.png
           cat > ci-artifacts/smoke/verify-history-screenshots.swift <<'SWIFT'
           import Foundation
