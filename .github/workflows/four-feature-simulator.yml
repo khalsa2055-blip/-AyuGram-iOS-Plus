@@ -2848,7 +2848,7 @@ jobs:
           # deployment targets below its current support floor. The pinned
           # Telegram baseline still targets iOS 13. Keep that deployment target,
           # and demote ONLY this diagnostic after existing per-rule -Werror flags.
-          option = re.compile(r'''(["'])-Werror\\1(,?)''')
+          option = re.compile(r'''(["'])-Werror["'](,?)''')
           patched_files = []
           patched_entries = 0
           roots = [Path("Telegram"), Path("submodules"), Path("third-party"), Path("build-system"), Path("Swiftgram")]
@@ -2878,7 +2878,7 @@ jobs:
                   pieces.append(source[cursor:match.start()])
                   quote, comma = match.group(1), match.group(2)
                   suffix = source[match.end():]
-                  already_added = re.match(r"""\\s*["']-Wno-error=#warnings["']""", suffix)
+                  already_added = re.match(r""" *["']-Wno-error=#warnings["']""", suffix)
                   if already_added:
                       pieces.append(match.group(0))
                   else:
@@ -2906,7 +2906,7 @@ jobs:
                   continue
               source = path.read_text(encoding="utf-8")
               for match in option.finditer(source):
-                  if not re.match(r"""\\s*["']-Wno-error=#warnings["']""", source[match.end():]):
+                  if not re.match(r""" *["']-Wno-error=#warnings["']""", source[match.end():]):
                       remaining.append(f"{path}: {source.count(chr(10), 0, match.start()) + 1}")
           if remaining:
               raise SystemExit("Unpatched -Werror options remain: " + ", ".join(remaining[:20]))
