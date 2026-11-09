@@ -520,6 +520,23 @@ jobs:
                   f"Unsafe CombinedComponent capture patch: old={old_count}, fixed={new_count}"
               )
 
+          helper = """private final class ChatMediaEmptyInputView: UIView, UIInputViewAudioFeedback {
+              var enableInputClicksWhenVisible: Bool {
+                  return true
+              }
+          }
+
+          """
+          anchor = "final class VideoNavigationControllerDropContentItem: NavigationControllerDropContentItem {"
+          if source.count(anchor) != 1:
+              raise SystemExit("Expected exactly one ChatControllerNode helper insertion anchor")
+          if helper not in source:
+              source = source.replace(anchor, helper + anchor, 1)
+              path.write_text(source, encoding="utf-8")
+              print("Added the locally named media input view with matching audio-click behavior.")
+          else:
+              print("ChatMediaEmptyInputView helper already exists.")
+
           verified = path.read_text(encoding="utf-8")
           if verified.count(new) != 1:
               raise SystemExit("CombinedComponent explicit weak capture verification failed.")
@@ -2288,7 +2305,7 @@ jobs:
           path = Path("submodules/TelegramUI/Sources/ChatControllerNode.swift")
           source = path.read_text(encoding="utf-8")
           old = "    private let emptyInputView = EmptyInputView()"
-          new = "    private let emptyInputView = ChatEntityKeyboardInputNode.EmptyInputView()"
+          new = "    private let emptyInputView = ChatMediaEmptyInputView()"
           old_count = source.count(old)
           new_count = source.count(new)
 
@@ -2366,6 +2383,15 @@ jobs:
             attempt=$next_attempt
             sleep "$delay"
           done
+
+      - name: Save partial Bazel cache even when simulator build fails
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/telegram-bazel-cache
+            ~/.cache/bazel/repository
+          key: ${{ runner.os }}-telegram-bazel-eb5ae67a32c6-xcode27-repository-v1-${{ hashFiles('patches/**') }}-${{ github.run_id }}
 
       - name: Smoke-test app in iPhone Simulator
         working-directory: telegram-ios
