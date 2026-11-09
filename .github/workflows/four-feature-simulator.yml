@@ -2623,12 +2623,27 @@ jobs:
 
           enum ScreenshotVerificationError: Error, CustomStringConvertible {
               case unreadableImage(String)
+              case recognitionFailed(String)
+
               var description: String {
                   switch self {
                   case let .unreadableImage(path):
-                      return "ImageIO could not decode the simulator screenshot at: \\(path)"
+                      return "ImageIO could not decode the simulator screenshot at: \(path)"
+                  case let .recognitionFailed(details):
+                      return "Vision OCR failed: \(details)"
                   }
               }
+          }
+
+          func runOCR(_ image: CGImage, level: VNRequestTextRecognitionLevel) throws -> String {
+              let request = VNRecognizeTextRequest()
+              request.recognitionLevel = level
+              request.usesLanguageCorrection = false
+              let handler = VNImageRequestHandler(cgImage: image, orientation: .up, options: [:])
+              try handler.perform([request])
+              return (request.results ?? [])
+                  .compactMap { $0.topCandidates(1).first?.string }
+                  .joined(separator: "\n")
           }
 
           func recognizedText(_ path: String) throws -> String {
@@ -2637,17 +2652,41 @@ jobs:
                     let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
                   throw ScreenshotVerificationError.unreadableImage(path)
               }
-              let request = VNRecognizeTextRequest()
-              request.recognitionLevel = .accurate
-              request.usesLanguageCorrection = false
-              let handler = VNImageRequestHandler(cgImage: image, options: [:])
-              try handler.perform([request])
-              return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
+
+              var fastText = ""
+              var fastError: Error?
+              do {
+                  fastText = try runOCR(image, level: .fast)
+              } catch {
+                  fastError = error
+              }
+
+              let hasExpectedFastText = fastText.localizedCaseInsensitiveContains("Smoke Test Sender")
+                  && (fastText.localizedCaseInsensitiveContains("Deleted message")
+                      || fastText.localizedCaseInsensitiveContains("AyuGram deleted-history smoke test"))
+              if hasExpectedFastText {
+                  print("Fast Vision OCR detected the expected History labels.")
+                  return fastText
+              }
+
+              do {
+                  let accurateText = try runOCR(image, level: .accurate)
+                  return accurateText.isEmpty ? fastText : accurateText
+              } catch {
+                  if !fastText.isEmpty {
+                      print("Accurate OCR retry failed; using non-empty fast OCR output. Error: \(String(reflecting: error))")
+                      return fastText
+                  }
+                  let fastDetails = fastError.map { String(reflecting: $0) } ?? "not attempted"
+                  throw ScreenshotVerificationError.recognitionFailed(
+                      "fast OCR: \(fastDetails); accurate OCR: \(String(reflecting: error))"
+                  )
+              }
           }
 
           do {
               let historyText = try recognizedText("ci-artifacts/smoke/AyuGram-History-List.png")
-              print("History screenshot OCR:\n\\(historyText)")
+              print("History screenshot OCR:\n\(historyText)")
               let actualHistoryScreen = historyText.localizedCaseInsensitiveContains("Deleted message")
                   && historyText.localizedCaseInsensitiveContains("Synthetic deleted message")
               let visualFallbackFixture = historyText.localizedCaseInsensitiveContains("AyuGram deleted-history smoke test")
@@ -2664,7 +2703,7 @@ jobs:
                   print("WARNING: This screenshot is the explicitly labeled unauthenticated visual fixture, not the production History screen.")
               }
           } catch {
-              fputs("History screenshot OCR failed safely: \\(error)\n", stderr)
+              fputs("History screenshot OCR failed safely: \(String(reflecting: error))\n", stderr)
               exit(2)
           }
           SWIFT
