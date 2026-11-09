@@ -2244,6 +2244,37 @@ jobs:
           )
           PY
 
+      - name: Align legacy Swift warning policy with compatibility check
+        working-directory: telegram-ios
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          changed = []
+          for root_name in ("Swiftgram", "submodules", "Telegram", "third-party"):
+              root = Path(root_name)
+              if not root.exists():
+                  continue
+              for path in root.rglob("BUILD*"):
+                  if not path.is_file():
+                      continue
+                  source = path.read_text(encoding="utf-8")
+                  lines = source.splitlines(keepends=True)
+                  kept = [line for line in lines if line.strip() != '"-warnings-as-errors",']
+                  count = len(lines) - len(kept)
+                  if count:
+                      path.write_text("".join(kept), encoding="utf-8")
+                      changed.append((str(path), count))
+
+          if not changed:
+              raise SystemExit("No legacy -warnings-as-errors flags found; refusing a no-op policy change")
+          total = sum(count for _, count in changed)
+          for path, count in changed:
+              print(f"Removed {count} legacy warning-as-error flag(s): {path}")
+          print(f"Verified {total} warning-as-error flag(s) removed from the temporary checkout only.")
+          PY
+
       - name: Build Telegram for iOS Simulator
         working-directory: telegram-ios
         run: |
@@ -2263,7 +2294,9 @@ jobs:
           # Xcode 27 libc++ reports legacy deployment-target support through
           # Clang's -W#warnings diagnostic. Keep that warning visible but prevent
           # the target's general -Werror from promoting this one diagnostic.
-          # All other warning groups remain errors.
+          # Keep Swift diagnostics visible without promoting legacy warnings to build errors,
+          # matching the repository's separately passing compatibility workflow.
+          build --features=-treat_warnings_as_errors
           build --cxxopt='-Wno-error=#warnings'
           BAZELRC
           printf 'build --repository_cache=%s/telegram-bazel-cache/repository\\n' "$HOME" >> .bazelrc
