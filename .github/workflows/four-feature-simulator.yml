@@ -520,23 +520,6 @@ jobs:
                   f"Unsafe CombinedComponent capture patch: old={old_count}, fixed={new_count}"
               )
 
-          helper = """private final class ChatMediaEmptyInputView: UIView, UIInputViewAudioFeedback {
-              var enableInputClicksWhenVisible: Bool {
-                  return true
-              }
-          }
-
-          """
-          anchor = "final class VideoNavigationControllerDropContentItem: NavigationControllerDropContentItem {"
-          if source.count(anchor) != 1:
-              raise SystemExit("Expected exactly one ChatControllerNode helper insertion anchor")
-          if helper not in source:
-              source = source.replace(anchor, helper + anchor, 1)
-              path.write_text(source, encoding="utf-8")
-              print("Added the locally named media input view with matching audio-click behavior.")
-          else:
-              print("ChatMediaEmptyInputView helper already exists.")
-
           verified = path.read_text(encoding="utf-8")
           if verified.count(new) != 1:
               raise SystemExit("CombinedComponent explicit weak capture verification failed.")
@@ -2320,12 +2303,29 @@ jobs:
                   f"Unexpected EmptyInputView declaration count: old={old_count}, new={new_count}"
               )
 
+          helper = """private final class ChatMediaEmptyInputView: UIView, UIInputViewAudioFeedback {
+              var enableInputClicksWhenVisible: Bool {
+                  return true
+              }
+          }
+
+          """
+          anchor = "final class VideoNavigationControllerDropContentItem: NavigationControllerDropContentItem {"
+          if source.count(anchor) != 1:
+              raise SystemExit("Expected exactly one ChatControllerNode helper insertion anchor")
+          if helper not in source:
+              source = source.replace(anchor, helper + anchor, 1)
+              path.write_text(source, encoding="utf-8")
+              print("Added a uniquely named input view preserving UIInputViewAudioFeedback.")
+          else:
+              print("ChatMediaEmptyInputView helper already exists.")
+
           verified = path.read_text(encoding="utf-8")
           if verified.count(new) != 1:
               raise SystemExit("EmptyInputView qualification verification failed.")
           if "private let emptyInputView = EmptyInputView()" in verified:
               raise SystemExit("Ambiguous EmptyInputView reference remains.")
-          print("PASS: the intended ChatEntityKeyboardInputNode type is explicit.")
+          print("PASS: ChatMediaEmptyInputView is local and unambiguous.")
           PY
           git diff --check
 
