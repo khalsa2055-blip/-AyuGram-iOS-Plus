@@ -2844,23 +2844,29 @@ jobs:
 
           path = Path("submodules/AsyncDisplayKit/BUILD")
           source = path.read_text(encoding="utf-8")
-          old = '''    cxxopts = [
-          "-Werror",
-          "-std=c++17",
-      ],'''
-          new = '''    cxxopts = [
-          "-Werror",
-          "-std=c++17",
-          "-Wno-error=#warnings",
-      ],'''
-          if new in source:
+          start = source.find("    cxxopts = [")
+          if start < 0 or source.find("    cxxopts = [", start + 1) >= 0:
+              raise SystemExit("Expected one AsyncDisplayKit cxxopts block; refusing an unsafe patch.")
+          end = source.find("    ],", start)
+          if end < 0:
+              raise SystemExit("AsyncDisplayKit cxxopts block is malformed.")
+          block = source[start:end]
+          flag = '"-Wno-error=#warnings"'
+          if flag in block:
               print("Xcode 27 libc++ warning demotion is already present.")
-          elif source.count(old) == 1:
-              path.write_text(source.replace(old, new, 1), encoding="utf-8")
-              print("Demoted only libc++ #warning diagnostics in AsyncDisplayKit C++ compilation.")
           else:
-              raise SystemExit("AsyncDisplayKit cxxopts block changed; refusing an unsafe patch.")
-          assert new in path.read_text(encoding="utf-8")
+              std_flag = '"-std=c++17",'
+              std_at = source.find(std_flag, start, end)
+              if std_at < 0:
+                  raise SystemExit("Expected AsyncDisplayKit C++17 flag was not found.")
+              insert_at = source.find("\\n", std_at, end) + 1
+              source = source[:insert_at] + '        "-Wno-error=#warnings",\\n' + source[insert_at:]
+              path.write_text(source, encoding="utf-8")
+              print("Demoted only libc++ #warning diagnostics in AsyncDisplayKit C++ compilation.")
+          check = path.read_text(encoding="utf-8")
+          check_start = check.find("    cxxopts = [")
+          check_end = check.find("    ],", check_start)
+          assert flag in check[check_start:check_end]
           PY
 
       - name: Build and verify arm64 iPhone IPA
