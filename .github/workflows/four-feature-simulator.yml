@@ -1926,6 +1926,125 @@ jobs:
           PY
           git diff --check
 
+      - name: Apply remaining Xcode 27 Gift, Gallery and Statistics capture fixes
+        working-directory: telegram-ios
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          patches = [
+              (
+                  "submodules/TelegramUI/Components/Gifts/GiftStoreScreen/Sources/GiftStoreScreen.swift",
+                  "                    action: { [weak self] _, f in",
+                  "                    action: { [weak self = self] _, f in",
+                  2,
+                  # Restrict the two Gift Store balance actions by verifying their local labels.
+                  ("Gift_Store_Balance_MyStars", "Gift_Store_Balance_MyTon"),
+              ),
+              (
+                  "submodules/GalleryData/Sources/GalleryData.swift",
+                  "timecode: startState.timecode, playbackRate: startState.rate, synchronousLoad: synchronousLoad, replaceRootController: { [weak navigationController] controller, ready in",
+                  "timecode: startState.timecode, playbackRate: startState.rate, synchronousLoad: synchronousLoad, replaceRootController: { [weak navigationController = navigationController] controller, ready in",
+                  1,
+                  None,
+              ),
+              (
+                  "submodules/TelegramUI/Components/Chat/ChatMessageInteractiveMediaNode/Sources/ChatMessageInteractiveMediaNode.swift",
+                  "storeAfterDownload: { [weak context] in",
+                  "storeAfterDownload: { [weak context = context] in",
+                  1,
+                  None,
+              ),
+              (
+                  "submodules/TelegramUI/Components/CameraScreen/Sources/CameraScreen.swift",
+                  "|> deliverOnMainQueue).start(next: { [weak self] recordingData in",
+                  "|> deliverOnMainQueue).start(next: { [weak self = self] recordingData in",
+                  1,
+                  None,
+              ),
+              ("submodules/StatisticsUI/Sources/BoostLevelHeaderItem.swift",
+               "return (layout, { [weak self] in","return (layout, { [weak self = self] in",1,None),
+              ("submodules/StatisticsUI/Sources/BoostsTabsItem.swift",
+               "return (layout, { [weak self] in","return (layout, { [weak self = self] in",1,None),
+              ("submodules/StatisticsUI/Sources/MonetizationBalanceItem.swift",
+               "return (ListViewItemNodeLayout(contentSize: contentSize, insets: insets), { [weak self] in",
+               "return (ListViewItemNodeLayout(contentSize: contentSize, insets: insets), { [weak self = self] in",1,None),
+              ("submodules/StatisticsUI/Sources/StarsTransactionItem.swift",
+               "return (ListViewItemNodeLayout(contentSize: contentSize, insets: insets), { [weak self] in",
+               "return (ListViewItemNodeLayout(contentSize: contentSize, insets: insets), { [weak self = self] in",1,None),
+              ("submodules/StatisticsUI/Sources/StatsGraphItem.swift",
+               "getDetailsData: { [weak self] date, completion in",
+               "getDetailsData: { [weak self = self] date, completion in",1,None),
+              ("submodules/StatisticsUI/Sources/StatsGraphItem.swift",
+               "return (ListViewItemNodeLayout(contentSize: contentSize, insets: insets), { [weak self] in",
+               "return (ListViewItemNodeLayout(contentSize: contentSize, insets: insets), { [weak self = self] in",1,None),
+              ("submodules/StatisticsUI/Sources/StatsMessageItem.swift",
+               "return (ListViewItemNodeLayout(contentSize: contentSize, insets: insets), { [weak self] in",
+               "return (ListViewItemNodeLayout(contentSize: contentSize, insets: insets), { [weak self = self] in",1,None),
+              ("submodules/StatisticsUI/Sources/StatsOverviewItem.swift",
+               "return (ListViewItemNodeLayout(contentSize: contentSize, insets: insets), { [weak self] in",
+               "return (ListViewItemNodeLayout(contentSize: contentSize, insets: insets), { [weak self = self] in",1,None),
+              ("submodules/ContactListUI/Sources/ContactListActionItem.swift",
+               "return (layout, { [weak self] in","return (layout, { [weak self = self] in",1,None),
+              ("submodules/ContactListUI/Sources/LimitedPermissionItem.swift",
+               "return (layout, { [weak self] in","return (layout, { [weak self = self] in",1,None),
+          ]
+
+          grouped = {}
+          for filename, old, new, expected, labels in patches:
+              grouped.setdefault(filename, []).append((old, new, expected, labels))
+
+          total = 0
+          for filename, entries in grouped.items():
+              path = Path(filename)
+              source = path.read_text(encoding="utf-8")
+              for old, new, expected, labels in entries:
+                  if labels:
+                      lines = source.splitlines(keepends=True)
+                      targeted = []
+                      for index, line in enumerate(lines):
+                          if old in line and any(label in "".join(lines[max(0, index - 5):index + 1]) for label in labels):
+                              targeted.append(index)
+                      already = []
+                      for index, line in enumerate(lines):
+                          if new in line and any(label in "".join(lines[max(0, index - 5):index + 1]) for label in labels):
+                              already.append(index)
+                      if len(targeted) == expected and not already:
+                          for index in targeted:
+                              lines[index] = lines[index].replace(old, new, 1)
+                          source = "".join(lines)
+                      elif not targeted and len(already) == expected:
+                          pass
+                      else:
+                          raise SystemExit(
+                              f"Unsafe labeled patch {filename}: "
+                              f"targeted={len(targeted)}, already={len(already)}, expected={expected}"
+                          )
+                  else:
+                      old_count = source.count(old)
+                      new_count = source.count(new)
+                      if old_count == expected and new_count == 0:
+                          source = source.replace(old, new, expected)
+                      elif old_count == 0 and new_count == expected:
+                          pass
+                      else:
+                          raise SystemExit(
+                              f"Unsafe Xcode 27 patch in {filename}: "
+                              f"expected={expected}, original={old_count}, fixed={new_count}"
+                          )
+                  total += expected
+              path.write_text(source, encoding="utf-8")
+              verified = path.read_text(encoding="utf-8")
+              for old, new, expected, labels in entries:
+                  if verified.count(new) < expected or old in verified.replace(new, ""):
+                      raise SystemExit(f"Capture verification failed in {filename}: {new}")
+
+          if total != 15:
+              raise SystemExit(f"Expected 15 weak-capture fixes, verified {total}")
+          print(f"PASS: verified all {total} newly exposed Xcode 27 weak captures.")
+          PY
+          git diff --check
+
       - name: Create simulator build configuration
         working-directory: telegram-ios
         env:
