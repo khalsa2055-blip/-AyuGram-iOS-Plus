@@ -2213,8 +2213,8 @@ jobs:
           for filename, entries in fixes.items():
               lines = Path(filename).read_text(encoding="utf-8").splitlines()
               for line_number, name in entries.items():
-                  expected = rf"\\bweak\\s+{re.escape(name)}\\s*=\\s*{re.escape(name)}(?=\\s*(?:,|\\]))"
-                  if len(re.findall(expected, lines[line_number - 1])) != 1:
+                  expected = f"weak {name} = {name}"
+                  if lines[line_number - 1].count(expected) != 1:
                       raise SystemExit(f"Verification failed: {filename}:{line_number}")
 
           print(f"Verified {sum(map(len, fixes.values()))} targeted weak-capture bindings; changed {total}.")
