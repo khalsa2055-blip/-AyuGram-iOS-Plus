@@ -1741,6 +1741,191 @@ jobs:
           PY
           git diff --check
 
+      - name: Apply Xcode 27 Gift and Stories weak-capture fixes
+        working-directory: telegram-ios
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          patches = [
+              # GiftViewScreen: preserve every existing weak reference while
+              # explicitly rebinding the outer value required by Xcode 27.
+              (
+                  "submodules/TelegramUI/Components/Gifts/GiftViewScreen/Sources/GiftViewScreen.swift",
+                  "|> deliverOnMainQueue).start(next: { [weak navigationController]",
+                  "|> deliverOnMainQueue).start(next: { [weak navigationController = navigationController]",
+                  6,
+              ),
+              (
+                  "submodules/TelegramUI/Components/Gifts/GiftViewScreen/Sources/GiftViewScreen.swift",
+                  "action: { [weak navigationController] action in",
+                  "action: { [weak navigationController = navigationController] action in",
+                  2,
+              ),
+              (
+                  "submodules/TelegramUI/Components/Gifts/GiftViewScreen/Sources/GiftViewScreen.swift",
+                  "completion: { [weak self, weak starsContext] stars in",
+                  "completion: { [weak self, weak starsContext = starsContext] stars in",
+                  4,
+              ),
+              (
+                  "submodules/TelegramUI/Components/Gifts/GiftViewScreen/Sources/GiftViewScreen.swift",
+                  "|> deliverOnMainQueue).start(next: { [weak self, weak starsContext] result in",
+                  "|> deliverOnMainQueue).start(next: { [weak self, weak starsContext = starsContext] result in",
+                  1,
+              ),
+              (
+                  "submodules/TelegramUI/Components/Gifts/GiftViewScreen/Sources/GiftViewScreen.swift",
+                  "c?.dismiss(completion: { [weak self, weak controller] in",
+                  "c?.dismiss(completion: { [weak self, weak controller = controller] in",
+                  1,
+              ),
+              (
+                  "submodules/TelegramUI/Components/Gifts/GiftViewScreen/Sources/GiftViewScreen.swift",
+                  "|> deliverOnMainQueue).start(next: { [weak self, weak controller, weak starsContext] result in",
+                  "|> deliverOnMainQueue).start(next: { [weak self, weak controller = controller, weak starsContext] result in",
+                  1,
+              ),
+              (
+                  "submodules/TelegramUI/Components/Gifts/GiftViewScreen/Sources/GiftViewScreen.swift",
+                  "|> deliverOnMainQueue).start(next: { [weak self, weak controller] sendPaidMessageStars in",
+                  "|> deliverOnMainQueue).start(next: { [weak self, weak controller = controller] sendPaidMessageStars in",
+                  1,
+              ),
+
+              # Story container and interaction closures.
+              (
+                  "submodules/TelegramUI/Components/Stories/StoryContainerScreen/Sources/LiveChatReactionStreamView.swift",
+                  "completion: { [weak self] image in",
+                  "completion: { [weak self = self] image in",
+                  1,
+              ),
+              (
+                  "submodules/TelegramUI/Components/Stories/StoryContainerScreen/Sources/StoryInteractionGuideComponent.swift",
+                  "let completionBlock = { [weak self] in",
+                  "let completionBlock = { [weak self = self] in",
+                  1,
+              ),
+              (
+                  "submodules/TelegramUI/Components/Stories/StoryContainerScreen/Sources/StoryInteractionGuideComponent.swift",
+                  "view.playOnce(force: true, completion: { [weak view] in",
+                  "view.playOnce(force: true, completion: { [weak view = view] in",
+                  1,
+              ),
+              (
+                  "submodules/TelegramUI/Components/Stories/StoryContainerScreen/Sources/StoryItemSetContainerViewSendMessage.swift",
+                  "removeOnCompletion: false, completion: { [weak inputMediaNode] _ in",
+                  "removeOnCompletion: false, completion: { [weak inputMediaNode = inputMediaNode] _ in",
+                  1,
+              ),
+              (
+                  "submodules/TelegramUI/Components/Stories/StoryContainerScreen/Sources/StoryItemSetContainerViewSendMessage.swift",
+                  "|> deliverOnMainQueue).start(next: { [weak self, weak view] message in",
+                  "|> deliverOnMainQueue).start(next: { [weak self, weak view = view] message in",
+                  1,
+              ),
+              (
+                  "submodules/TelegramUI/Components/Stories/StoryContainerScreen/Sources/StoryItemSetContainerViewSendMessage.swift",
+                  "send: { [weak self, weak view] videoController, message in",
+                  "send: { [weak self = self, weak view] videoController, message in",
+                  1,
+              ),
+              (
+                  "submodules/TelegramUI/Components/Stories/StoryContainerScreen/Sources/StoryItemSetContainerViewSendMessage.swift",
+                  "displaySlowmodeTooltip: { [weak self] view, rect in",
+                  "displaySlowmodeTooltip: { [weak self = self] view, rect in",
+                  1,
+              ),
+              (
+                  "submodules/TelegramUI/Components/Stories/StoryContainerScreen/Sources/StoryItemSetContainerViewSendMessage.swift",
+                  "presentSchedulePicker: { [weak self, weak view] done in",
+                  "presentSchedulePicker: { [weak self = self, weak view] done in",
+                  1,
+              ),
+              (
+                  "submodules/TelegramUI/Components/Stories/StoryContainerScreen/Sources/StoryItemSetContainerViewSendMessage.swift",
+                  "|> deliverOnMainQueue).start(next: { [weak self, weak view] data in",
+                  "|> deliverOnMainQueue).start(next: { [weak self = self, weak view] data in",
+                  3,
+              ),
+              (
+                  "submodules/TelegramUI/Components/Stories/StoryContainerScreen/Sources/StoryItemSetContainerViewSendMessage.swift",
+                  "completion: { [weak self, weak view] amount, _ in",
+                  "completion: { [weak self = self, weak view] amount, _ in",
+                  1,
+              ),
+              (
+                  "submodules/TelegramUI/Components/Stories/StoryContainerScreen/Sources/StoryItemSetContainerViewSendMessage.swift",
+                  "|> deliverOnMainQueue).start(next: { [weak self, weak view] messageIds in",
+                  "|> deliverOnMainQueue).start(next: { [weak self = self, weak view] messageIds in",
+                  5,
+              ),
+              (
+                  "submodules/TelegramUI/Components/Stories/StoryContainerScreen/Sources/StoryItemSetContainerViewSendMessage.swift",
+                  "dismissed: { [weak self, weak view] in",
+                  "dismissed: { [weak self = self, weak view = view] in",
+                  1,
+              ),
+              (
+                  "submodules/TelegramUI/Components/Stories/StoryContainerScreen/Sources/StoryItemSetContainerViewSendMessage.swift",
+                  "present: { [weak controller] c in",
+                  "present: { [weak controller = controller] c in",
+                  2,
+              ),
+              (
+                  "submodules/TelegramUI/Components/Stories/StoryContainerScreen/Sources/StoryItemSetContainerViewSendMessage.swift",
+                  "openResolved: { [weak self, weak view] resolved in",
+                  "openResolved: { [weak self = self, weak view = view] resolved in",
+                  2,
+              ),
+              (
+                  "submodules/TelegramUI/Components/Stories/StoryContainerScreen/Sources/StoryItemSetContainerViewSendMessage.swift",
+                  "alertDisplayUpdated: { [weak self, weak view] alertController in",
+                  "alertDisplayUpdated: { [weak self = self, weak view = view] alertController in",
+                  2,
+              ),
+              (
+                  "submodules/TelegramUI/Components/Stories/StoryContainerScreen/Sources/StoryItemSetContainerViewSendMessage.swift",
+                  "completion: { [weak self, weak view] amount, privacy, _, _ in",
+                  "completion: { [weak self = self, weak view] amount, privacy, _, _ in",
+                  1,
+              ),
+          ]
+
+          by_file = {}
+          for filename, old, new, expected in patches:
+              by_file.setdefault(filename, []).append((old, new, expected))
+
+          total = 0
+          for filename, entries in by_file.items():
+              path = Path(filename)
+              source = path.read_text(encoding="utf-8")
+              for old, new, expected in entries:
+                  old_count = source.count(old)
+                  new_count = source.count(new)
+                  if old_count == expected and new_count == 0:
+                      source = source.replace(old, new)
+                      print(f"Applied {expected} weak-preserving capture alias(es): {filename}")
+                  elif old_count == 0 and new_count == expected:
+                      print(f"Already applied: {filename} ({expected})")
+                  else:
+                      raise SystemExit(
+                          f"Unsafe Xcode 27 capture patch in {filename}: "
+                          f"expected={expected}, original={old_count}, fixed={new_count}"
+                      )
+                  total += expected
+              path.write_text(source, encoding="utf-8")
+              verified = path.read_text(encoding="utf-8")
+              for old, new, expected in entries:
+                  if verified.count(new) < expected or old in verified.replace(new, ""):
+                      raise SystemExit(f"Capture verification failed in {filename}: {new}")
+
+          if total != 36:
+              raise SystemExit(f"Expected 36 weak-capture aliases, verified {total}")
+          print(f"PASS: {total} weak-capture aliases explicitly preserve weak ownership.")
+          PY
+          git diff --check
+
       - name: Create simulator build configuration
         working-directory: telegram-ios
         env:
