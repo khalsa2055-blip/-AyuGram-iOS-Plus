@@ -2409,17 +2409,32 @@ jobs:
               ["xcrun", "simctl", "list", "devices", "available", "--json"],
               text=True
           ))
-          candidates = []
-          for runtime, devices in data.get("devices", {}).items():
-              if "iOS-27" not in runtime:
-                  continue
-              for device in devices:
-                  if device.get("isAvailable") and device.get("name", "").startswith("iPhone"):
-                      candidates.append((runtime, device.get("name", ""), device["udid"]))
-          if not candidates:
-              sys.exit("No available iOS 27 iPhone Simulator was found.")
-          candidates.sort()
-          print(candidates[-1][2])
+          # Prefer stable iOS 27 runtimes. The previous lexicographic selection
+          # picked the special iPhone19,4 seed runtime (iPhone Duo), whose
+          # UIKit UIRemoteKeyboardWindow path crashed repeatedly at app startup.
+          preferred_runtimes = (
+              "com.apple.CoreSimulator.SimRuntime.iOS-27-2",
+              "com.apple.CoreSimulator.SimRuntime.iOS-27-1",
+              "com.apple.CoreSimulator.SimRuntime.iOS-27-0",
+          )
+          selected = None
+          for preferred_runtime in preferred_runtimes:
+              candidates = []
+              for runtime, devices in data.get("devices", {}).items():
+                  if runtime != preferred_runtime:
+                      continue
+                  for device in devices:
+                      if device.get("isAvailable") and device.get("name", "").startswith("iPhone"):
+                          candidates.append((runtime, device.get("name", ""), device["udid"]))
+              if candidates:
+                  candidates.sort(key=lambda item: item[1])
+                  selected = candidates[-1]
+                  break
+          if selected is None:
+              sys.exit("No available iPhone Simulator found in a stable iOS 27.2, 27.1, or 27.0 runtime.")
+          runtime, device_name, udid = selected
+          print(f"Selected stable simulator runtime: {runtime}; device: {device_name}", file=sys.stderr)
+          print(udid)
           PY
           )"
           test -n "$DEVICE_UDID"
