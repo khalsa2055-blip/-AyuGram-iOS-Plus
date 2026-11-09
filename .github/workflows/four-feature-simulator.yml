@@ -46,9 +46,13 @@ jobs:
           path: |
             ~/telegram-bazel-cache
             ~/.cache/bazel/repository
-          key: ${{ runner.os }}-telegram-bazel-eb5ae67a32c6-xcode27-repository-v1-${{ hashFiles('patches/**') }}
+          # Each run saves its new partial/full Bazel cache under a unique key.
+          # Restore the newest prior cache so failed compiles still speed up the next run.
+          key: ${{ runner.os }}-telegram-bazel-eb5ae67a32c6-xcode27-repository-v1-${{ hashFiles('patches/**') }}-${{ github.run_id }}
           restore-keys: |
+            ${{ runner.os }}-telegram-bazel-eb5ae67a32c6-xcode27-repository-v1-${{ hashFiles('patches/**') }}-
             ${{ runner.os }}-telegram-bazel-eb5ae67a32c6-
+          save-always: true
 
       - name: Select Xcode 27 and verify iOS 27 runtime
         run: |
@@ -2274,6 +2278,39 @@ jobs:
               print(f"Removed {count} legacy warning-as-error flag(s): {path}")
           print(f"Verified {total} warning-as-error flag(s) removed from the temporary checkout only.")
           PY
+
+      - name: Disambiguate Telegram empty input keyboard view
+        working-directory: telegram-ios
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("submodules/TelegramUI/Sources/ChatControllerNode.swift")
+          source = path.read_text(encoding="utf-8")
+          old = "    private let emptyInputView = EmptyInputView()"
+          new = "    private let emptyInputView = ChatEntityKeyboardInputNode.EmptyInputView()"
+          old_count = source.count(old)
+          new_count = source.count(new)
+
+          if old_count == 1 and new_count == 0:
+              source = source.replace(old, new, 1)
+              path.write_text(source, encoding="utf-8")
+              print("Qualified the chat media keyboard's EmptyInputView.")
+          elif old_count == 0 and new_count == 1:
+              print("EmptyInputView qualification already applied.")
+          else:
+              raise SystemExit(
+                  f"Unexpected EmptyInputView declaration count: old={old_count}, new={new_count}"
+              )
+
+          verified = path.read_text(encoding="utf-8")
+          if verified.count(new) != 1:
+              raise SystemExit("EmptyInputView qualification verification failed.")
+          if "private let emptyInputView = EmptyInputView()" in verified:
+              raise SystemExit("Ambiguous EmptyInputView reference remains.")
+          print("PASS: the intended ChatEntityKeyboardInputNode type is explicit.")
+          PY
+          git diff --check
 
       - name: Build Telegram for iOS Simulator
         working-directory: telegram-ios
