@@ -2834,39 +2834,82 @@ jobs:
           print("Configured device IPA packaging without Apple signing assets; iLoader will sign it.")
           PY
 
-      - name: Keep legacy deployment target compatible with Xcode 27 libc++ warning
-        if: success() && ((github.event_name == 'workflow_dispatch' && inputs.build_device_ipa) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[build-device-ipa]'))) # One-time explicit opt-in via this commit marker or manual dispatch.
+      - name: Preserve iOS 13 while handling Xcode 27 libc++ warnings
+        if: success() && ((github.event_name == 'workflow_dispatch' && inputs.build_device_ipa) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[build-device-ipa]'))) # Device IPA build only.
         working-directory: telegram-ios
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
+          import os
+          import re
 
-          path = Path("submodules/AsyncDisplayKit/BUILD")
-          source = path.read_text(encoding="utf-8")
-          start = source.find("    cxxopts = [")
-          if start < 0 or source.find("    cxxopts = [", start + 1) >= 0:
-              raise SystemExit("Expected one AsyncDisplayKit cxxopts block; refusing an unsafe patch.")
-          end = source.find("    ],", start)
-          if end < 0:
-              raise SystemExit("AsyncDisplayKit cxxopts block is malformed.")
-          block = source[start:end]
-          flag = '"-Wno-error=#warnings"'
-          if flag in block:
-              print("Xcode 27 libc++ warning demotion is already present.")
-          else:
-              std_flag = '"-std=c++17",'
-              std_at = source.find(std_flag, start, end)
-              if std_at < 0:
-                  raise SystemExit("Expected AsyncDisplayKit C++17 flag was not found.")
-              insert_at = source.find("\n", std_at, end) + 1
-              source = source[:insert_at] + '        "-Wno-error=#warnings",\n' + source[insert_at:]
-              path.write_text(source, encoding="utf-8")
-              print("Demoted only libc++ #warning diagnostics in AsyncDisplayKit C++ compilation.")
-          check = path.read_text(encoding="utf-8")
-          check_start = check.find("    cxxopts = [")
-          check_end = check.find("    ],", check_start)
-          assert flag in check[check_start:check_end]
+          # Xcode 27's libc++ emits a targeted -W#warnings diagnostic for
+          # deployment targets below its current support floor. The pinned
+          # Telegram baseline still targets iOS 13. Keep that deployment target,
+          # and demote ONLY this diagnostic after existing per-rule -Werror flags.
+          option = re.compile(r'''(["'])-Werror\\1(,?)''')
+          patched_files = []
+          patched_entries = 0
+          roots = [Path("Telegram"), Path("submodules"), Path("third-party"), Path("build-system"), Path("Swiftgram")]
+          candidates = []
+          if Path("BUILD").is_file():
+              candidates.append(Path("BUILD"))
+          if Path("BUILD.bazel").is_file():
+              candidates.append(Path("BUILD.bazel"))
+          for root in roots:
+              if not root.is_dir():
+                  continue
+              for current, dirs, files in os.walk(root):
+                  dirs[:] = [d for d in dirs if d not in {".git", "bazel-out", "bazel-bin", "bazel-testlogs", "__pycache__"}]
+                  for name in files:
+                      if name in {"BUILD", "BUILD.bazel"} or name.endswith(".bzl"):
+                          candidates.append(Path(current) / name)
+
+          for path in sorted(set(candidates)):
+              source = path.read_text(encoding="utf-8")
+              matches = list(option.finditer(source))
+              if not matches:
+                  continue
+              pieces = []
+              cursor = 0
+              changed = 0
+              for match in matches:
+                  pieces.append(source[cursor:match.start()])
+                  quote, comma = match.group(1), match.group(2)
+                  suffix = source[match.end():]
+                  already_added = re.match(r"""\\s*["']-Wno-error=#warnings["']""", suffix)
+                  if already_added:
+                      pieces.append(match.group(0))
+                  else:
+                      pieces.append(f"{quote}-Werror{quote}, {quote}-Wno-error=#warnings{quote}{comma}")
+                      changed += 1
+                  cursor = match.end()
+              pieces.append(source[cursor:])
+              if changed:
+                  path.write_text("".join(pieces), encoding="utf-8")
+                  patched_files.append((str(path), changed))
+                  patched_entries += changed
+
+          if patched_entries == 0:
+              raise SystemExit("No existing -Werror compiler options were found to patch; refusing a no-op.")
+          for filename, count in patched_files:
+              print(f"Patched {count} compiler warning option(s): {filename}")
+          print(f"Patched {patched_entries} compiler option(s) across {len(patched_files)} Bazel files.")
+          print("The iOS 13 deployment target is unchanged; only -W#warnings is demoted.")
+
+          # Verify every explicit -Werror option is immediately followed by the
+          # narrow suppression so rule-level flags cannot re-promote this warning.
+          remaining = []
+          for path in sorted(set(candidates)):
+              if not path.is_file():
+                  continue
+              source = path.read_text(encoding="utf-8")
+              for match in option.finditer(source):
+                  if not re.match(r"""\\s*["']-Wno-error=#warnings["']""", source[match.end():]):
+                      remaining.append(f"{path}: {source.count(chr(10), 0, match.start()) + 1}")
+          if remaining:
+              raise SystemExit("Unpatched -Werror options remain: " + ", ".join(remaining[:20]))
           PY
 
       - name: Build and verify arm64 iPhone IPA
