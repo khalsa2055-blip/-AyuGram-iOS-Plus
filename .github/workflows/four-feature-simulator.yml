@@ -2137,6 +2137,87 @@ jobs:
           print(f"Verified {len(patches)} targeted outer-capture fixes.")
           PY
 
+      - name: Apply remaining Xcode 27 explicit weak-capture bindings
+        working-directory: telegram-ios
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          # Xcode 27 requires weak captures nested in a closure to explicitly
+          # bind the captured value. These are exact diagnostics from the
+          # preceding Bazel compile; only the weak-capture spelling changes.
+          fixes = {
+              "submodules/ChatListUI/Sources/Node/ChatListItem.swift": {4103: "self"},
+              "submodules/ChatListUI/Sources/ChatContextMenus.swift": {
+                  135: "chatListController", 734: "chatListController", 952: "chatListController"
+              },
+              "submodules/ChatListUI/Sources/ChatListController.swift": {
+                  1059: "self", 2694: "self", 3827: "sourceController",
+                  3863: "sourceController", 3895: "sourceController",
+                  3912: "sourceController", 5386: "self"
+              },
+              "submodules/ChatListUI/Sources/ChatListControllerLeaveChatConfirmation.swift": {80: "self"},
+              "submodules/ChatListUI/Sources/ChatListControllerNode.swift": {2188: "searchDisplayController"},
+              "submodules/ChatListUI/Sources/ChatListFilterPresetCategoryItem.swift": {229: "self"},
+              "submodules/ChatListUI/Sources/ChatListFilterPresetController.swift": {1334: "inputMediaNode"},
+              "submodules/ChatListUI/Sources/ChatListFilterPresetListController.swift": {629: "updatedFilterOrder"},
+              "submodules/ChatListUI/Sources/ChatListFilterPresetListItem.swift": {305: "self"},
+              "submodules/ChatListUI/Sources/ChatListFilterPresetListSuggestedItem.swift": {239: "self"},
+              "submodules/ChatListUI/Sources/ChatListFilterTagSectionHeaderItem.swift": {191: "self"},
+              "submodules/ChatListUI/Sources/Node/ChatListArchiveInfoItem.swift": {222: "self"},
+              "submodules/ChatListUI/Sources/Node/ChatListEmptyHeaderItem.swift": {71: "self"},
+              "submodules/ChatListUI/Sources/Node/ChatListEmptyInfoItem.swift": {128: "self", 238: "self"},
+              "submodules/ChatListUI/Sources/Node/ChatListHoleItem.swift": {72: "self"},
+              "submodules/TelegramUI/Components/Chat/ChatMessageWebpageBubbleContentNode/Sources/ChatMessageWebpageBubbleContentNode.swift": {
+                  610: "self", 624: "contentNode"
+              },
+              "submodules/TelegramUI/Components/Chat/ChatMessageEventLogPreviousDescriptionContentNode/Sources/ChatMessageEventLogPreviousDescriptionContentNode.swift": {64: "self"},
+              "submodules/TelegramUI/Components/Chat/ChatMessageEventLogPreviousLinkContentNode/Sources/ChatMessageEventLogPreviousLinkContentNode.swift": {59: "self"},
+              "submodules/TelegramUI/Components/Chat/ChatMessageEventLogPreviousMessageContentNode/Sources/ChatMessageEventLogPreviousMessageContentNode.swift": {64: "self"},
+              "submodules/TelegramUI/Components/Chat/ChatMessageGameBubbleContentNode/Sources/ChatMessageGameBubbleContentNode.swift": {92: "self"},
+              "submodules/TelegramUI/Components/Chat/ChatMessageInvoiceBubbleContentNode/Sources/ChatMessageInvoiceBubbleContentNode.swift": {88: "self"},
+              "submodules/TelegramUI/Components/ComposePollScreen/Sources/ComposePollScreen.swift": {
+                  818: "inputMediaNode", 1695: "self", 1741: "self",
+                  1757: "self", 1777: "self", 1789: "self", 1792: "self"
+              },
+          }
+
+          total = 0
+          for filename, entries in fixes.items():
+              path = Path(filename)
+              lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+              for line_number, name in entries.items():
+                  index = line_number - 1
+                  if index >= len(lines):
+                      raise SystemExit(f"Line moved in {filename}:{line_number}")
+                  old = f"[weak {name}]"
+                  new = f"[weak {name} = {name}]"
+                  count = lines[index].count(old)
+                  if count == 1:
+                      lines[index] = lines[index].replace(old, new, 1)
+                      total += 1
+                  elif count == 0 and new in lines[index]:
+                      pass
+                  else:
+                      raise SystemExit(
+                          f"Unexpected weak capture at {filename}:{line_number}: "
+                          f"expected one {old!r}, found {count}"
+                      )
+              path.write_text("".join(lines), encoding="utf-8")
+
+          # Re-read every target line and verify the exact binding is present.
+          for filename, entries in fixes.items():
+              lines = Path(filename).read_text(encoding="utf-8").splitlines()
+              for line_number, name in entries.items():
+                  expected = f"[weak {name} = {name}]"
+                  if expected not in lines[line_number - 1]:
+                      raise SystemExit(f"Verification failed: {filename}:{line_number}")
+
+          print(f"Verified {sum(map(len, fixes.values()))} targeted weak-capture bindings; changed {total}.")
+          PY
+          git diff --check
+
       - name: Create simulator build configuration
         working-directory: telegram-ios
         env:
