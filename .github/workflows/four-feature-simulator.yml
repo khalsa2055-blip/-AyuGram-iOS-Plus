@@ -2194,7 +2194,7 @@ jobs:
                   # Match a weak capture whether it is the only item
                   # ([weak self]) or part of a compound list
                   # ([weak self, weak searchDisplayController]).
-                  pattern = rf"\\bweak\\s+{re.escape(name)}(?=\\s*(?:,|\\]))"
+                  pattern = rf"\bweak\s+{re.escape(name)}(?=\s*(?:,|\]))"
                   alias = f"weak {name} = {name}"
                   count = len(list(re.finditer(pattern, lines[index])))
                   if count == 1:
