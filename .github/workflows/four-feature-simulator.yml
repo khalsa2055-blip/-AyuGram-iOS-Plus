@@ -2094,6 +2094,7 @@ jobs:
           ]
 
           expected_new_counts = {}
+          expected_old_counts = {}
 
           for relative, old, new in patches:
               path = Path(relative)
@@ -2108,9 +2109,11 @@ jobs:
                   source = source.replace(old, new, 1)
                   path.write_text(source, encoding="utf-8")
                   expected_new_counts[relative] = new_count + 1
+                  expected_old_counts[relative] = old_count - 1
                   print("Patched", relative)
               elif old_count == 0 and new_count >= 1:
                   expected_new_counts[relative] = new_count
+                  expected_old_counts[relative] = old_count
                   print("Already patched", relative)
               else:
                   raise SystemExit(
@@ -2123,11 +2126,12 @@ jobs:
               actual_new_count = source.count(new)
               actual_old_count = source.count(old)
               expected_new_count = expected_new_counts[relative]
-              if actual_new_count != expected_new_count or actual_old_count != 0:
+              expected_old_count = expected_old_counts[relative]
+              if actual_new_count != expected_new_count or actual_old_count != expected_old_count:
                   raise SystemExit(
                       f"Verification failed for {relative}: "
                       f"expected_new={expected_new_count}, actual_new={actual_new_count}, "
-                      f"remaining_old={actual_old_count}"
+                      f"expected_old={expected_old_count}, remaining_old={actual_old_count}"
                   )
 
           print(f"Verified {len(patches)} targeted outer-capture fixes.")
