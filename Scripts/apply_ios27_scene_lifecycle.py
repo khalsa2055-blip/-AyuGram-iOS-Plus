@@ -206,28 +206,48 @@ source = replace_once(
     "expose status-bar scene to AppDelegate.attach",
 )
 
-# Window1 is initialized during didFinishLaunching, before SceneDelegate has
-# attached the primary UIWindowScene. UIKit's remote keyboard lookup traps in
-# that interval on iOS 27 (UIRemoteKeyboardWindow.remoteKeyboardWindowForScreen).
-keyboard_window_lookup = """    var keyboardWindow: UIWindow? {
+# iOS 27 moved the remote keyboard into a scene-owned keyboard scene.
+# The pre-iOS-27 no-argument private getter calls
+# UIRemoteKeyboardWindow.remoteKeyboardWindowForScreen(create:), which traps
+# on iOS 27 during Window1's first layout. Use the scene-aware UIKit getter.
+keyboard_window_legacy = """    var keyboardWindow: UIWindow? {
         if #available(iOS 16.0, *) {
+            return UIApplication.shared.internalGetKeyboard()
+        }
+
+        for window in UIApplication.shared.windows {
+            if isKeyboardWindow(window: window) {
+                return window
+            }
+        }
+        return nil
+    }
 """
-keyboard_window_guarded = """    var keyboardWindow: UIWindow? {
-        // Avoid querying UIKit's remote keyboard window before scene attachment.
-        guard self.scene != nil else {
-            return nil
+keyboard_window_scene_aware = """    var keyboardWindow: UIWindow? {
+        if #available(iOS 27.0, *) {
+            return UIApplication.shared.internalGetKeyboard(for: self.scene)
         }
         if #available(iOS 16.0, *) {
+            return UIApplication.shared.internalGetKeyboard()
+        }
+
+        for window in UIApplication.shared.windows {
+            if isKeyboardWindow(window: window) {
+                return window
+            }
+        }
+        return nil
+    }
 """
-if "guard self.scene != nil else {" not in source:
+if keyboard_window_legacy in source:
     source = replace_once(
         source,
-        keyboard_window_lookup,
-        keyboard_window_guarded,
-        "defer private keyboard-window lookup until primary scene attachment",
+        keyboard_window_legacy,
+        keyboard_window_scene_aware,
+        "use the scene-aware iOS 27 keyboard-window lookup",
     )
-elif source.count("guard self.scene != nil else {") != 1:
-    raise SystemExit("Unexpected duplicate pre-scene keyboard-window guard")
+elif keyboard_window_scene_aware not in source:
+    raise SystemExit("ApplicationStatusBarHost.keyboardWindow is in an unexpected state; refusing migration")
 source = replace_once(
     source,
     "    var mainWindow: Window1!\n",
@@ -381,9 +401,9 @@ assert "func handleWillEnterForeground()" in app_text
 assert "func handleOpenURL(_ url: URL)" in app_text
 assert "handleUserActivity(_ userActivity: NSUserActivity)" in app_text
 assert "handleShortcutItem(_ shortcutItem: UIApplicationShortcutItem" in app_text
-keyboard_guard = app_text.find("guard self.scene != nil else {")
-keyboard_lookup = app_text.find("return UIApplication.shared.internalGetKeyboard()")
-assert keyboard_guard >= 0 and keyboard_lookup > keyboard_guard, "private keyboard lookup must be guarded until the scene is attached"
+scene_keyboard_lookup = app_text.find("return UIApplication.shared.internalGetKeyboard(for: self.scene)")
+legacy_keyboard_lookup = app_text.find("return UIApplication.shared.internalGetKeyboard()")
+assert scene_keyboard_lookup >= 0 and legacy_keyboard_lookup > scene_keyboard_lookup, "iOS 27 must use the scene-aware keyboard lookup before the legacy getter"
 assert "windowScene.delegate = self" not in native_text
 assert "UIWindowSceneDelegate" not in native_text
 assert "launchOptions?[.url]" not in app_text
