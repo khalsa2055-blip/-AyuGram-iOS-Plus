@@ -2834,6 +2834,35 @@ jobs:
           print("Configured device IPA packaging without Apple signing assets; iLoader will sign it.")
           PY
 
+      - name: Keep legacy deployment target compatible with Xcode 27 libc++ warning
+        if: success() && ((github.event_name == 'workflow_dispatch' && inputs.build_device_ipa) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[build-device-ipa]'))) # One-time explicit opt-in via this commit marker or manual dispatch.
+        working-directory: telegram-ios
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("submodules/AsyncDisplayKit/BUILD")
+          source = path.read_text(encoding="utf-8")
+          old = '''    cxxopts = [
+          "-Werror",
+          "-std=c++17",
+      ],'''
+          new = '''    cxxopts = [
+          "-Werror",
+          "-std=c++17",
+          "-Wno-error=#warnings",
+      ],'''
+          if new in source:
+              print("Xcode 27 libc++ warning demotion is already present.")
+          elif source.count(old) == 1:
+              path.write_text(source.replace(old, new, 1), encoding="utf-8")
+              print("Demoted only libc++ #warning diagnostics in AsyncDisplayKit C++ compilation.")
+          else:
+              raise SystemExit("AsyncDisplayKit cxxopts block changed; refusing an unsafe patch.")
+          assert new in path.read_text(encoding="utf-8")
+          PY
+
       - name: Build and verify arm64 iPhone IPA
         if: success() && ((github.event_name == 'workflow_dispatch' && inputs.build_device_ipa) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[build-device-ipa]'))) # One-time explicit opt-in via this commit marker or manual dispatch.
         working-directory: telegram-ios
