@@ -1920,8 +1920,8 @@ jobs:
                   if verified.count(new) < expected or old in verified.replace(new, ""):
                       raise SystemExit(f"Capture verification failed in {filename}: {new}")
 
-          if total != 36:
-              raise SystemExit(f"Expected 36 weak-capture aliases, verified {total}")
+          if total != 41:
+              raise SystemExit(f"Expected 41 weak-capture aliases, verified {total}")
           print(f"PASS: {total} weak-capture aliases explicitly preserve weak ownership.")
           PY
           git diff --check
