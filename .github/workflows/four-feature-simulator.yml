@@ -2191,18 +2191,21 @@ jobs:
                   index = line_number - 1
                   if index >= len(lines):
                       raise SystemExit(f"Line moved in {filename}:{line_number}")
-                  old = f"[weak {name}]"
-                  new = f"[weak {name} = {name}]"
-                  count = lines[index].count(old)
+                  # Match a weak capture whether it is the only item
+                  # ([weak self]) or part of a compound list
+                  # ([weak self, weak searchDisplayController]).
+                  pattern = rf"\\bweak\\s+{re.escape(name)}(?=\\s*(?:,|\\]))"
+                  alias = f"weak {name} = {name}"
+                  count = len(list(re.finditer(pattern, lines[index])))
                   if count == 1:
-                      lines[index] = lines[index].replace(old, new, 1)
+                      lines[index] = re.sub(pattern, lambda _: alias, lines[index], count=1)
                       total += 1
-                  elif count == 0 and new in lines[index]:
+                  elif count == 0 and alias in lines[index]:
                       pass
                   else:
                       raise SystemExit(
                           f"Unexpected weak capture at {filename}:{line_number}: "
-                          f"expected one {old!r}, found {count}"
+                          f"expected one weak {name}, found {count}"
                       )
               path.write_text("".join(lines), encoding="utf-8")
 
