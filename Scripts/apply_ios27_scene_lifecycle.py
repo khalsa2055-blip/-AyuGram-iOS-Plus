@@ -239,15 +239,28 @@ keyboard_window_scene_aware = """    var keyboardWindow: UIWindow? {
         return nil
     }
 """
-if keyboard_window_legacy in source:
-    source = replace_once(
-        source,
-        keyboard_window_legacy,
-        keyboard_window_scene_aware,
-        "use the scene-aware iOS 27 keyboard-window lookup",
+if keyboard_window_scene_aware in source:
+    pass
+else:
+    # The pinned Swiftgram source contains whitespace-only blank lines inside
+    # this computed property. Match the property structurally instead of
+    # requiring byte-for-byte blank-line formatting.
+    import re
+    pattern = re.compile(
+        r"(?ms)^    var keyboardWindow: UIWindow\? \{\n.*?^    \}\n(?=\n    var keyboardView:)"
     )
-elif keyboard_window_scene_aware not in source:
-    raise SystemExit("ApplicationStatusBarHost.keyboardWindow is in an unexpected state; refusing migration")
+    matches = list(pattern.finditer(source))
+    if len(matches) != 1:
+        raise SystemExit(
+            "ApplicationStatusBarHost.keyboardWindow: expected one property block, found "
+            + str(len(matches))
+        )
+    current = matches[0].group(0)
+    if current.count("return UIApplication.shared.internalGetKeyboard()") != 1:
+        raise SystemExit(
+            "ApplicationStatusBarHost.keyboardWindow has an unexpected getter; refusing migration"
+        )
+    source = source[:matches[0].start()] + keyboard_window_scene_aware.rstrip("\n") + "\n" + source[matches[0].end():]
 source = replace_once(
     source,
     "    var mainWindow: Window1!\n",
