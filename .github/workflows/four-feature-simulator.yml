@@ -2843,9 +2843,9 @@ jobs:
           USE_BAZEL_VERSION=8.4.2 python3 build-system/Make/Make.py \
             --bazel="$(command -v bazelisk)" \
             --cacheDir="$HOME/telegram-bazel-cache" \
+            --overrideXcodeVersion \
             build \
             --configurationPath=build-system/ayugram-ci-configuration.json \
-            --overrideXcodeVersion \
             --xcodeManagedCodesigning \
             --buildNumber=200084 \
             --configuration=release_arm64
