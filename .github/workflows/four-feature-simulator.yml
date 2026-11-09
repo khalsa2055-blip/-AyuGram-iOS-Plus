@@ -2093,16 +2093,24 @@ jobs:
                "return { [self] item, params, neighbors in"),
           ]
 
+          expected_new_counts = {}
+
           for relative, old, new in patches:
               path = Path(relative)
               source = path.read_text(encoding="utf-8")
               old_count = source.count(old)
               new_count = source.count(new)
-              if old_count == 1 and new_count == 0:
+
+              # A path may already contain other closures using the same explicit
+              # capture spelling. Verify the exact count delta from this patch,
+              # not a global count of one for the whole file.
+              if old_count == 1:
                   source = source.replace(old, new, 1)
                   path.write_text(source, encoding="utf-8")
+                  expected_new_counts[relative] = new_count + 1
                   print("Patched", relative)
-              elif old_count == 0 and new_count == 1:
+              elif old_count == 0 and new_count >= 1:
+                  expected_new_counts[relative] = new_count
                   print("Already patched", relative)
               else:
                   raise SystemExit(
@@ -2112,8 +2120,15 @@ jobs:
 
           for relative, old, new in patches:
               source = Path(relative).read_text(encoding="utf-8")
-              if source.count(new) != 1 or source.count(old) != 0:
-                  raise SystemExit(f"Verification failed for {relative}")
+              actual_new_count = source.count(new)
+              actual_old_count = source.count(old)
+              expected_new_count = expected_new_counts[relative]
+              if actual_new_count != expected_new_count or actual_old_count != 0:
+                  raise SystemExit(
+                      f"Verification failed for {relative}: "
+                      f"expected_new={expected_new_count}, actual_new={actual_new_count}, "
+                      f"remaining_old={actual_old_count}"
+                  )
 
           print(f"Verified {len(patches)} targeted outer-capture fixes.")
           PY
