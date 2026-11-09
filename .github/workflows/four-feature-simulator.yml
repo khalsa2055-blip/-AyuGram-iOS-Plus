@@ -2045,6 +2045,79 @@ jobs:
           PY
           git diff --check
 
+      - name: Apply final Xcode 27 explicit outer-capture fixes
+        working-directory: telegram-ios
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          patches = [
+              ("submodules/TelegramUI/Components/Chat/ChatMessageMediaBubbleContentNode/Sources/ChatMessageMediaBubbleContentNode.swift",
+               "return { item, layoutConstants, preparePosition, selection, constrainedSize, _ in",
+               "return { [self] item, layoutConstants, preparePosition, selection, constrainedSize, _ in"),
+              ("submodules/TelegramUI/Components/StorageUsageScreen/Sources/StorageUsageScreen.swift",
+               "|> deliverOnMainQueue).start(next: { cacheSettings, peerExceptions in",
+               "|> deliverOnMainQueue).start(next: { [sourceView] cacheSettings, peerExceptions in"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageAttachedContentNode/Sources/ChatMessageAttachedContentNode.swift",
+               "return (maxWidth, { constrainedSize, position in",
+               "return (maxWidth, { [controllerInteraction] constrainedSize, position in"),
+              ("submodules/TelegramUI/Components/Stars/StarsTransactionsScreen/Sources/StarsTransactionsScreen.swift",
+               "Queue.mainQueue().after(2.0) {",
+               "Queue.mainQueue().after(2.0) { [self] in"),
+              ("submodules/PeerInfoUI/Sources/ChannelDiscussionGroupSetupHeaderItem.swift",
+               "return { item, params, neighbors in",
+               "return { [self] item, params, neighbors in"),
+              ("submodules/PeerInfoUI/Sources/ChatSlowmodeItem.swift",
+               "return { item, params, neighbors in",
+               "return { [self] item, params, neighbors in"),
+              ("submodules/PeerInfoUI/Sources/ChatUnrestrictBoostersItem.swift",
+               "return { item, params, neighbors in",
+               "return { [self] item, params, neighbors in"),
+              ("submodules/PeerInfoUI/Sources/DeviceContactInfoController.swift",
+               "action: { _, f in",
+               "action: { [parentController] _, f in"),
+              ("submodules/PeerInfoUI/Sources/ItemListReactionItem.swift",
+               "return { item, params, neighbors in",
+               "return { [self] item, params, neighbors in"),
+              ("submodules/PeerInfoUI/Sources/ItemListSecretChatKeyItem.swift",
+               "return { item, params, neighbors in",
+               "return { [self] item, params, neighbors in"),
+              ("submodules/PeerInfoUI/Sources/PeerAutoremoveTimeoutItem.swift",
+               "return { item, params, neighbors in",
+               "return { [self] item, params, neighbors in"),
+              ("submodules/PeerInfoUI/Sources/UserInfoEditingPhoneActionItem.swift",
+               "return { item, params, neighbors in",
+               "return { [self] item, params, neighbors in"),
+              ("submodules/PeerInfoUI/Sources/UserInfoEditingPhoneItem.swift",
+               "return { item, params, neighbors in",
+               "return { [self] item, params, neighbors in"),
+          ]
+
+          for relative, old, new in patches:
+              path = Path(relative)
+              source = path.read_text(encoding="utf-8")
+              old_count = source.count(old)
+              new_count = source.count(new)
+              if old_count == 1 and new_count == 0:
+                  source = source.replace(old, new, 1)
+                  path.write_text(source, encoding="utf-8")
+                  print("Patched", relative)
+              elif old_count == 0 and new_count == 1:
+                  print("Already patched", relative)
+              else:
+                  raise SystemExit(
+                      f"Unsafe Xcode 27 capture patch for {relative}: "
+                      f"old={old_count}, new={new_count}"
+                  )
+
+          for relative, old, new in patches:
+              source = Path(relative).read_text(encoding="utf-8")
+              if source.count(new) != 1 or source.count(old) != 0:
+                  raise SystemExit(f"Verification failed for {relative}")
+
+          print(f"Verified {len(patches)} targeted outer-capture fixes.")
+          PY
+
       - name: Create simulator build configuration
         working-directory: telegram-ios
         env:
