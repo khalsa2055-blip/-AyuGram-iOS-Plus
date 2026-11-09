@@ -205,6 +205,29 @@ source = replace_once(
     "    weak var scene: UIWindowScene?",
     "expose status-bar scene to AppDelegate.attach",
 )
+
+# Window1 is initialized during didFinishLaunching, before SceneDelegate has
+# attached the primary UIWindowScene. UIKit's remote keyboard lookup traps in
+# that interval on iOS 27 (UIRemoteKeyboardWindow.remoteKeyboardWindowForScreen).
+keyboard_window_lookup = """    var keyboardWindow: UIWindow? {
+        if #available(iOS 16.0, *) {
+"""
+keyboard_window_guarded = """    var keyboardWindow: UIWindow? {
+        // Avoid querying UIKit's remote keyboard window before scene attachment.
+        guard self.scene != nil else {
+            return nil
+        }
+        if #available(iOS 16.0, *) {
+"""
+if "guard self.scene != nil else {" not in source:
+    source = replace_once(
+        source,
+        keyboard_window_lookup,
+        keyboard_window_guarded,
+        "defer private keyboard-window lookup until primary scene attachment",
+    )
+elif source.count("guard self.scene != nil else {") != 1:
+    raise SystemExit("Unexpected duplicate pre-scene keyboard-window guard")
 source = replace_once(
     source,
     "    var mainWindow: Window1!\n",
@@ -358,6 +381,9 @@ assert "func handleWillEnterForeground()" in app_text
 assert "func handleOpenURL(_ url: URL)" in app_text
 assert "handleUserActivity(_ userActivity: NSUserActivity)" in app_text
 assert "handleShortcutItem(_ shortcutItem: UIApplicationShortcutItem" in app_text
+keyboard_guard = app_text.find("guard self.scene != nil else {")
+keyboard_lookup = app_text.find("return UIApplication.shared.internalGetKeyboard()")
+assert keyboard_guard >= 0 and keyboard_lookup > keyboard_guard, "private keyboard lookup must be guarded until the scene is attached"
 assert "windowScene.delegate = self" not in native_text
 assert "UIWindowSceneDelegate" not in native_text
 assert "launchOptions?[.url]" not in app_text
