@@ -2619,33 +2619,53 @@ jobs:
           import Vision
           import ImageIO
           import Darwin
+          import CoreGraphics
+
+          enum ScreenshotVerificationError: Error, CustomStringConvertible {
+              case unreadableImage(String)
+              var description: String {
+                  switch self {
+                  case let .unreadableImage(path):
+                      return "ImageIO could not decode the simulator screenshot at: \\(path)"
+                  }
+              }
+          }
 
           func recognizedText(_ path: String) throws -> String {
               let url = URL(fileURLWithPath: path)
+              guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+                    let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+                  throw ScreenshotVerificationError.unreadableImage(path)
+              }
               let request = VNRecognizeTextRequest()
               request.recognitionLevel = .accurate
               request.usesLanguageCorrection = false
-              let handler = VNImageRequestHandler(url: url)
+              let handler = VNImageRequestHandler(cgImage: image, options: [:])
               try handler.perform([request])
               return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
           }
 
-          let historyText = try recognizedText("ci-artifacts/smoke/AyuGram-History-List.png")
-          print("History screenshot OCR:\n\\(historyText)")
-          let actualHistoryScreen = historyText.localizedCaseInsensitiveContains("Deleted message")
-              && historyText.localizedCaseInsensitiveContains("Synthetic deleted message")
-          let visualFallbackFixture = historyText.localizedCaseInsensitiveContains("AyuGram deleted-history smoke test")
-              && historyText.localizedCaseInsensitiveContains("Deleted: just now")
-          guard historyText.localizedCaseInsensitiveContains("Smoke Test Sender"),
-                (actualHistoryScreen || visualFallbackFixture),
-                !historyText.localizedCaseInsensitiveContains("Start Messaging") else {
-              fputs("History screenshot is neither the actual deleted-message list nor the intended fallback fixture.\n", stderr)
-              exit(1)
-          }
-          if actualHistoryScreen {
-              print("Production AyuGram History screen text detected.")
-          } else {
-              print("WARNING: This screenshot is the explicitly labeled unauthenticated visual fixture, not the production History screen.")
+          do {
+              let historyText = try recognizedText("ci-artifacts/smoke/AyuGram-History-List.png")
+              print("History screenshot OCR:\n\\(historyText)")
+              let actualHistoryScreen = historyText.localizedCaseInsensitiveContains("Deleted message")
+                  && historyText.localizedCaseInsensitiveContains("Synthetic deleted message")
+              let visualFallbackFixture = historyText.localizedCaseInsensitiveContains("AyuGram deleted-history smoke test")
+                  && historyText.localizedCaseInsensitiveContains("Deleted: just now")
+              guard historyText.localizedCaseInsensitiveContains("Smoke Test Sender"),
+                    (actualHistoryScreen || visualFallbackFixture),
+                    !historyText.localizedCaseInsensitiveContains("Start Messaging") else {
+                  fputs("History screenshot is neither the actual deleted-message list nor the intended fallback fixture.\n", stderr)
+                  exit(1)
+              }
+              if actualHistoryScreen {
+                  print("Production AyuGram History screen text detected.")
+              } else {
+                  print("WARNING: This screenshot is the explicitly labeled unauthenticated visual fixture, not the production History screen.")
+              }
+          } catch {
+              fputs("History screenshot OCR failed safely: \\(error)\n", stderr)
+              exit(2)
           }
           SWIFT
           swift ci-artifacts/smoke/verify-history-screenshots.swift
