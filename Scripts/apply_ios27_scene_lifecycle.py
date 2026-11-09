@@ -247,7 +247,7 @@ else:
     # requiring byte-for-byte blank-line formatting.
     import re
     pattern = re.compile(
-        r"(?ms)^    var keyboardWindow: UIWindow\? \{\n.*?^    \}\n(?=\n    var keyboardView:)"
+        r"(?ms)^    var keyboardWindow: UIWindow\? \{\n.*?^    \}\n(?=[ \t]*\n[ \t]*var keyboardView:)"
     )
     matches = list(pattern.finditer(source))
     if len(matches) != 1:
