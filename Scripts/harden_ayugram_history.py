@@ -589,6 +589,55 @@ for capture_path in (delete_source, state_utils):
 
 print("Verified deleted/edit capture selects the largest complete local photo or complete file before archival.")
 
+
+# Extract the existing message/media snapshot logic so each Telegram delete route
+# invokes one identical capture implementation before its deletion operation.
+delete_source = root / "submodules/TelegramCore/Sources/TelegramEngine/Messages/DeleteMessages.swift"
+if not delete_source.exists():
+    raise SystemExit(f"Missing Telegram delete implementation: {delete_source}")
+delete_source_text = delete_source.read_text(encoding="utf-8")
+delete_function_marker = "public func _internal_deleteMessages("
+capture_marker = "    if let ayuAccountID {\n"
+if "public func _internal_captureDeletedMessages(" not in delete_source_text:
+    function_start = delete_source_text.find(delete_function_marker)
+    if function_start < 0:
+        raise SystemExit("Could not locate _internal_deleteMessages for capture extraction")
+    capture_start = delete_source_text.find(capture_marker, function_start)
+    capture_end = delete_source_text.find("\n\n    var resourceIds", capture_start)
+    if capture_start < 0 or capture_end < 0:
+        raise SystemExit("Could not extract the existing deleted-message capture block")
+    capture_block = delete_source_text[capture_start:capture_end]
+    body = capture_block[len(capture_marker):]
+    if not body.endswith("\n    }"):
+        raise SystemExit("Existing deleted-message capture block has an unexpected shape")
+    body = body[:-len("\n    }")]
+    helper_body = "\n".join(
+        line[4:] if line.startswith("    ") else line
+        for line in body.splitlines()
+    )
+    helper = (
+        "public func _internal_captureDeletedMessages(transaction: Transaction, mediaBox: MediaBox, ids: [MessageId], ayuAccountID: Int64) {\n"
+        + helper_body
+        + "\n}\n\n"
+    )
+    capture_call = """    if let ayuAccountID {
+        _internal_captureDeletedMessages(transaction: transaction, mediaBox: mediaBox, ids: ids, ayuAccountID: ayuAccountID)
+    }"""
+    delete_source_text = (
+        delete_source_text[:capture_start]
+        + capture_call
+        + delete_source_text[capture_end:]
+    )
+    function_start = delete_source_text.find(delete_function_marker)
+    delete_source_text = (
+        delete_source_text[:function_start]
+        + helper
+        + delete_source_text[function_start:]
+    )
+elif "_internal_captureDeletedMessages(transaction: transaction, mediaBox: mediaBox, ids: ids, ayuAccountID: ayuAccountID)" not in delete_source_text:
+    raise SystemExit("Existing deleted-message capture helper is not called by the normal delete path")
+delete_source.write_text(delete_source_text, encoding="utf-8")
+
 # Server-delivered deletion updates are replayed through AccountStateManagementUtils,
 # not only the user's local delete button. Pass the account ID there too, otherwise
 # _internal_deleteMessages receives nil and silently skips automatic History capture.
@@ -610,6 +659,19 @@ if old_delete_event in state_utils_text:
     state_utils_text = state_utils_text.replace(old_delete_event, new_delete_event, 1)
 elif new_delete_event not in state_utils_text:
     raise SystemExit("Could not wire account ID into server-delivered delete events")
+
+# Telegram also reports some private-chat deletions through global message IDs.
+# The stock branch deletes those messages without going through _internal_deleteMessages.
+old_global_delete = """            case let .DeleteMessagesWithGlobalIds(ids):
+                var resourceIds: [MediaResourceId] = []"""
+new_global_delete = """            case let .DeleteMessagesWithGlobalIds(ids):
+                let messageIds = transaction.messageIdsForGlobalIds(ids)
+                _internal_captureDeletedMessages(transaction: transaction, mediaBox: mediaBox, ids: messageIds, ayuAccountID: accountPeerId.toInt64())
+                var resourceIds: [MediaResourceId] = []"""
+if old_global_delete in state_utils_text:
+    state_utils_text = state_utils_text.replace(old_global_delete, new_global_delete, 1)
+elif new_global_delete not in state_utils_text:
+    raise SystemExit("Could not wire global-ID server deletions into automatic History")
 state_utils.write_text(state_utils_text)
 
 # Guard against regressions in the actual server-update deletion path.
@@ -622,7 +684,15 @@ if not delete_source.exists() or "AyuGramCaptureService.captureDeleted(" not in 
     raise SystemExit("Automatic deleted-message capture service is not integrated")
 if "ayuAccountID: accountPeerId.toInt64()" not in delete_event_block:
     raise SystemExit("Automatic History is not enabled for server-delivered deleted-message updates")
-print("Verified automatic History receives account ID on Telegram's server-delivered DeleteMessages path.")
+global_delete_marker = "case let .DeleteMessagesWithGlobalIds(ids):"
+if global_delete_marker not in state_utils_text:
+    raise SystemExit("Global-ID server deletion handler not found")
+global_delete_block = state_utils_text.split(global_delete_marker, 1)[1].split("case let .DeleteMessages(ids):", 1)[0]
+if "transaction.messageIdsForGlobalIds(ids)" not in global_delete_block or "_internal_captureDeletedMessages(" not in global_delete_block:
+    raise SystemExit("Global-ID server deletion events are not captured before Postbox removes their messages")
+if "_internal_captureDeletedMessages(transaction: transaction, mediaBox: mediaBox, ids: ids, ayuAccountID: ayuAccountID)" not in delete_source.read_text(encoding="utf-8"):
+    raise SystemExit("Normal deletion path is not using the shared deleted-message capture helper")
+print("Verified both direct/server DeleteMessages and server DeleteMessagesWithGlobalIds capture before deletion.")
 
 for required in [
     "AyuGram Save",
