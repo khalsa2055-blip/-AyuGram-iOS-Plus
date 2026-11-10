@@ -2554,7 +2554,7 @@ jobs:
           xcrun simctl terminate "$DEVICE_UDID" "$bundle_id" >/dev/null 2>&1 || true
 
           set +e
-          launch_output=$(xcrun simctl launch "$DEVICE_UDID" "$bundle_id" -AyuGramHistoryListSmokeTest -AyuGramHistoryListOnlySmokeTest 2>&1)
+          launch_output=$(xcrun simctl launch "$DEVICE_UDID" "$bundle_id" -AyuGramHistoryListSmokeTest 2>&1)
           launch_rc=$?
           set -e
           echo "$launch_output"
@@ -2568,9 +2568,9 @@ jobs:
           # ps inside the simulator does not consistently expose third-party process names.
           echo "Simulator launch succeeded: $launch_output"
 
-          # The Simulator has no authenticated Telegram session, so this
-          # launch-only harness renders the group More menu and a synthetic deleted
-          # History row. The production menu action is separately verified above.
+          # The Simulator has no authenticated Telegram session, so inject one synthetic
+          # deleted-message record into Postbox and open the production AyuGram History screen.
+          # Keep the separate visual fixture disabled during this production UI check.
           echo "Simulator app data container: $APP_CONTAINER"
           echo "Cleared stale History smoke markers before launch."
           mkdir -p ci-artifacts/smoke
