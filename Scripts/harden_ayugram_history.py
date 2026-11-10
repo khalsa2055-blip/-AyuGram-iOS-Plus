@@ -1512,7 +1512,7 @@ for delete_file in delete_paths:
     if delete_file.name == "DeleteMessages.swift" and "var ayuSenderNames: [Int32: String] = [:]" not in d:
         # Capture is extracted into a reusable helper above. Its function-body
         # indentation is four spaces (the pre-extraction block used eight).
-        anchor = "    let messages = ids.compactMap { transaction.getMessage($0) }\\n"
+        anchor = "    let messages = ids.compactMap { transaction.getMessage($0) }\n"
         if anchor in d:
             insertion = '''    let messages = ids.compactMap { transaction.getMessage($0) }
     var ayuSenderNames: [Int32: String] = [:]
@@ -1539,8 +1539,8 @@ for delete_file in delete_paths:
         elif "var ayuSenderNames: [Int32: String] = [:]" not in d:
             raise SystemExit("DeleteMessages message snapshot anchor not found")
         d = d.replace(
-            "            accountID: ayuAccountID\\n        )",
-            "            accountID: ayuAccountID,\\n            senderNames: ayuSenderNames\\n        )",
+            "            accountID: ayuAccountID\n        )",
+            "            accountID: ayuAccountID,\n            senderNames: ayuSenderNames\n        )",
             1,
         )
     elif delete_file.name == "AccountStateManagementUtils.swift":
