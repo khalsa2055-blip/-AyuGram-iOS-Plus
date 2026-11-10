@@ -2510,14 +2510,15 @@ jobs:
           mkdir -p "$DOCUMENTS"
           rm -f "$DOCUMENTS/AyuGramHistoryMenuHarnessReady.txt" \
                 "$DOCUMENTS/AyuGramHistoryListHarnessReady.txt" \
-                "$DOCUMENTS/AyuGramHistoryListSmokeReport.json"
+                "$DOCUMENTS/AyuGramHistoryListSmokeReport.json" \
+                "$DOCUMENTS/AyuGramDeletedCaptureSmokeReport.json"
           
           # Run the actual in-app save implementation against a two-file album and
           # a text-only message before the separate unauthenticated History UI fixture.
           # This catches regressions in the multi-media path without using a fake UI.
           rm -rf "$DOCUMENTS/AyuGram" "$DOCUMENTS/Telegram/AyuGram"
           set +e
-          feature_smoke_launch=$(xcrun simctl launch --terminate-running-process "$DEVICE_UDID" "$bundle_id" -AyuGramFullSmokeTest 2>&1)
+          feature_smoke_launch=$(xcrun simctl launch --terminate-running-process "$DEVICE_UDID" "$bundle_id" -AyuGramFullSmokeTest -AyuGramDeletedCaptureSmokeTest 2>&1)
           feature_smoke_rc=$?
           set -e
           echo "$feature_smoke_launch"
@@ -2537,19 +2538,37 @@ jobs:
             xcrun simctl spawn "$DEVICE_UDID" log show --last 2m --style compact --predicate '(process == "Swiftgram" OR process == "Telegram")' | tail -250 || true
             exit 1
           fi
-          python3 - "$feature_report" <<'PY'
+          capture_report="$DOCUMENTS/AyuGramDeletedCaptureSmokeReport.json"
+          for attempt in $(seq 1 45); do
+            if [ -s "$capture_report" ]; then
+              break
+            fi
+            sleep 1
+          done
+          if [ ! -s "$capture_report" ]; then
+            echo "AyuGram deleted-message capture runtime report was not created." >&2
+            xcrun simctl spawn "$DEVICE_UDID" log show --last 2m --style compact --predicate '(process == "Swiftgram" OR process == "Telegram")' | tail -250 || true
+            exit 1
+          fi
+          python3 - "$feature_report" "$capture_report" <<'PY'
           import json, sys
           from pathlib import Path
 
           report = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          capture = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
           print("AyuGram save regression report:")
           print(json.dumps(report, ensure_ascii=False, indent=2))
+          print("AyuGram deleted-message capture report:")
+          print(json.dumps(capture, ensure_ascii=False, indent=2))
           items = {item.get("name"): item for item in report.get("items", [])}
           required = ("History → Saved media copy", "History → Saved text copy", "Saved media isolation by dialog")
           for name in required:
               assert name in items, f"Missing runtime check: {name}"
               assert items[name].get("passed") is True, items[name]
-          print("Multi-media Save, text-only Save, and cross-dialog isolation runtime checks passed.")
+          assert capture.get("passed") is True, capture
+          assert capture.get("isDeleted") is True, capture
+          assert capture.get("capturedText") == "Synthetic message routed through deleted capture service", capture
+          print("Multi-media Save checks and the production deleted-message capture entry point passed.")
           PY
           xcrun simctl terminate "$DEVICE_UDID" "$bundle_id" >/dev/null 2>&1 || true
 
