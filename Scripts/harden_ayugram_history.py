@@ -1539,8 +1539,8 @@ for delete_file in delete_paths:
         elif "var ayuSenderNames: [Int32: String] = [:]" not in d:
             raise SystemExit("DeleteMessages message snapshot anchor not found")
         d = d.replace(
-            "            accountID: ayuAccountID\n        )",
-            "            accountID: ayuAccountID,\n            senderNames: ayuSenderNames\n        )",
+            "        accountID: ayuAccountID\n    )",
+            "        accountID: ayuAccountID,\n        senderNames: ayuSenderNames\n    )",
             1,
         )
     elif delete_file.name == "AccountStateManagementUtils.swift":
