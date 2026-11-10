@@ -46,7 +46,7 @@ private final class AyuGramHistoryHarnessController: UIViewController {
             self.contentStack.trailingAnchor.constraint(equalTo: self.view.safeAreaLayoutGuide.trailingAnchor, constant: -20.0),
             self.contentStack.topAnchor.constraint(equalTo: self.view.safeAreaLayoutGuide.topAnchor, constant: 24.0)
         ])
-        if ProcessInfo.processInfo.arguments.contains("-AyuGramHistoryListOnlySmokeTest") {
+        if ProcessInfo.processInfo.arguments.contains("-AyuGramHistoryVisualFixtureSmokeTest") {
             self.showHistory()
         } else {
             self.showMenu()
@@ -295,7 +295,7 @@ launch_anchor = "        let launchStartTime = CFAbsoluteTimeGetCurrent()\n"
 if "AyuGramHistoryHarnessController(), on: .root" not in s:
     if launch_anchor not in s:
         raise SystemExit("AppDelegate launch hook anchor not found")
-    hook = r'''        if ProcessInfo.processInfo.arguments.contains("-AyuGramHistoryListSmokeTest") {
+    hook = r'''        if ProcessInfo.processInfo.arguments.contains("-AyuGramHistoryVisualFixtureSmokeTest") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 20.0) { [weak self] in
                 guard let self else {
                     return
