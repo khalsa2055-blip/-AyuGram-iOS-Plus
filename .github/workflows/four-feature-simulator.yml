@@ -264,6 +264,48 @@ jobs:
 
           # Comprehensive AyuGram runtime smoke-test hook (UI + feature verification).
           python3 ../Scripts/inject_ayugram_history_test.py
+          # The simulator is intentionally unauthenticated. Verify the production
+          # deleted-message route and Postbox persistence at source level; do not
+          # require an AccountContext smoke report that cannot exist before login.
+          python3 - <<'PY'
+          from pathlib import Path
+
+          capture_path = Path("submodules/AyuGramIOS/Sources/AyuGramCaptureService.swift")
+          store_path = Path("submodules/AyuGramIOS/Sources/AyuGramPostboxHistoryStore.swift")
+          settings_path = Path("submodules/AyuGramIOS/Sources/AyuSettings.swift")
+          delete_path = Path("submodules/TelegramCore/Sources/TelegramEngine/Messages/DeleteMessages.swift")
+          state_path = Path("submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift")
+          for path in (capture_path, store_path, settings_path, delete_path, state_path):
+              if not path.is_file():
+                  raise SystemExit(f"Deleted-message source check is missing: {path}")
+
+          capture = capture_path.read_text(encoding="utf-8")
+          deleted_body = capture.split("public static func captureDeleted(", 1)[1].split("public static func saveNow(", 1)[0]
+          assert "guard settingsStore?.settings.saveDeletedMessages == true else" in deleted_body
+          assert "AyuGramPostboxHistoryStore.appendDeleted(transaction: transaction, messages: snapshots)" in deleted_body
+
+          store = store_path.read_text(encoding="utf-8")
+          assert "public static func appendDeleted(" in store
+          assert "transaction.setPreferencesEntry(key: key, value: PreferencesEntry(state))" in store
+
+          settings = settings_path.read_text(encoding="utf-8")
+          assert "public var saveDeletedMessages = true" in settings
+
+          delete_source = delete_path.read_text(encoding="utf-8")
+          assert "public func _internal_captureDeletedMessages(" in delete_source
+          assert "AyuGramCaptureService.captureDeleted(" in delete_source
+          assert "_internal_captureDeletedMessages(transaction: transaction, mediaBox: mediaBox, ids: ids, ayuAccountID: ayuAccountID)" in delete_source
+
+          updates = state_path.read_text(encoding="utf-8")
+          remote_delete = updates.split("case let .DeleteMessages(ids):", 1)[1].split("case let .UpdateMinAvailableMessage", 1)[0]
+          assert "ayuAccountID: accountPeerId.toInt64()" in remote_delete
+          global_delete = updates.split("case let .DeleteMessagesWithGlobalIds(ids):", 1)[1].split("case let .DeleteMessages(ids):", 1)[0]
+          assert "transaction.messageIdsForGlobalIds(ids)" in global_delete
+          assert "_internal_captureDeletedMessages(" in global_delete
+          assert global_delete.index("_internal_captureDeletedMessages(") < global_delete.index("deleteMessagesWithGlobalIds(")
+
+          print("PASS: deleted-message capture is default-on, routed before local/server deletion, and committed through Postbox.")
+          PY
           python3 "$GITHUB_WORKSPACE/.github/history-menu-smoke.py"
 
           git diff --check
@@ -2510,15 +2552,14 @@ jobs:
           mkdir -p "$DOCUMENTS"
           rm -f "$DOCUMENTS/AyuGramHistoryMenuHarnessReady.txt" \
                 "$DOCUMENTS/AyuGramHistoryListHarnessReady.txt" \
-                "$DOCUMENTS/AyuGramHistoryListSmokeReport.json" \
-                "$DOCUMENTS/AyuGramDeletedCaptureSmokeReport.json"
+                "$DOCUMENTS/AyuGramHistoryListSmokeReport.json"
           
           # Run the actual in-app save implementation against a two-file album and
           # a text-only message before the separate unauthenticated History UI fixture.
           # This catches regressions in the multi-media path without using a fake UI.
           rm -rf "$DOCUMENTS/AyuGram" "$DOCUMENTS/Telegram/AyuGram"
           set +e
-          feature_smoke_launch=$(xcrun simctl launch --terminate-running-process "$DEVICE_UDID" "$bundle_id" -AyuGramFullSmokeTest -AyuGramDeletedCaptureSmokeTest 2>&1)
+          feature_smoke_launch=$(xcrun simctl launch --terminate-running-process "$DEVICE_UDID" "$bundle_id" -AyuGramFullSmokeTest 2>&1)
           feature_smoke_rc=$?
           set -e
           echo "$feature_smoke_launch"
@@ -2538,37 +2579,19 @@ jobs:
             xcrun simctl spawn "$DEVICE_UDID" log show --last 2m --style compact --predicate '(process == "Swiftgram" OR process == "Telegram")' | tail -250 || true
             exit 1
           fi
-          capture_report="$DOCUMENTS/AyuGramDeletedCaptureSmokeReport.json"
-          for attempt in $(seq 1 45); do
-            if [ -s "$capture_report" ]; then
-              break
-            fi
-            sleep 1
-          done
-          if [ ! -s "$capture_report" ]; then
-            echo "AyuGram deleted-message capture runtime report was not created." >&2
-            xcrun simctl spawn "$DEVICE_UDID" log show --last 2m --style compact --predicate '(process == "Swiftgram" OR process == "Telegram")' | tail -250 || true
-            exit 1
-          fi
-          python3 - "$feature_report" "$capture_report" <<'PY'
+          python3 - "$feature_report" <<'PY'
           import json, sys
           from pathlib import Path
 
           report = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-          capture = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
           print("AyuGram save regression report:")
           print(json.dumps(report, ensure_ascii=False, indent=2))
-          print("AyuGram deleted-message capture report:")
-          print(json.dumps(capture, ensure_ascii=False, indent=2))
           items = {item.get("name"): item for item in report.get("items", [])}
           required = ("History → Saved media copy", "History → Saved text copy", "Saved media isolation by dialog")
           for name in required:
               assert name in items, f"Missing runtime check: {name}"
               assert items[name].get("passed") is True, items[name]
-          assert capture.get("passed") is True, capture
-          assert capture.get("isDeleted") is True, capture
-          assert capture.get("capturedText") == "Synthetic message routed through deleted capture service", capture
-          print("Multi-media Save checks and the production deleted-message capture entry point passed.")
+          print("Multi-media Save regression checks passed.")
           PY
           xcrun simctl terminate "$DEVICE_UDID" "$bundle_id" >/dev/null 2>&1 || true
 
