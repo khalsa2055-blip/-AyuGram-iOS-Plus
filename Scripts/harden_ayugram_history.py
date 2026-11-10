@@ -1510,43 +1510,39 @@ for delete_file in delete_paths:
     d = delete_file.read_text()
 
     if delete_file.name == "DeleteMessages.swift" and "var ayuSenderNames: [Int32: String] = [:]" not in d:
-        anchor = "        let messages = ids.compactMap { transaction.getMessage($0) }\n"
+        # Capture is extracted into a reusable helper above. Its function-body
+        # indentation is four spaces (the pre-extraction block used eight).
+        anchor = "    let messages = ids.compactMap { transaction.getMessage($0) }\\n"
         if anchor in d:
-            insertion = '''        let messages = ids.compactMap { transaction.getMessage($0) }
-        var ayuSenderNames: [Int32: String] = [:]
-        for message in messages {
-            if let author = message.author {
-                let name: String?
-                if let user = author as? TelegramUser {
-                    let parts = [user.firstName, user.lastName].compactMap { $0 }.filter { !$0.isEmpty }
-                    name = parts.isEmpty ? nil : parts.joined(separator: " ")
-                } else if let channel = author as? TelegramChannel {
-                    name = channel.title
-                } else if let group = author as? TelegramGroup {
-                    name = group.title
-                } else {
-                    name = nil
-                }
-                if let name, !name.isEmpty {
-                    ayuSenderNames[message.id.id] = name
-                }
+            insertion = '''    let messages = ids.compactMap { transaction.getMessage($0) }
+    var ayuSenderNames: [Int32: String] = [:]
+    for message in messages {
+        if let author = message.author {
+            let name: String?
+            if let user = author as? TelegramUser {
+                let parts = [user.firstName, user.lastName].compactMap { $0 }.filter { !$0.isEmpty }
+                name = parts.isEmpty ? nil : parts.joined(separator: " ")
+            } else if let channel = author as? TelegramChannel {
+                name = channel.title
+            } else if let group = author as? TelegramGroup {
+                name = group.title
+            } else {
+                name = nil
+            }
+            if let name, !name.isEmpty {
+                ayuSenderNames[message.id.id] = name
             }
         }
+    }
 '''
             d = d.replace(anchor, insertion, 1)
-        else:
+        elif "var ayuSenderNames: [Int32: String] = [:]" not in d:
             raise SystemExit("DeleteMessages message snapshot anchor not found")
         d = d.replace(
-            "            accountID: ayuAccountID\n        )",
-            "            accountID: ayuAccountID,\n            senderNames: ayuSenderNames\n        )",
+            "            accountID: ayuAccountID\\n        )",
+            "            accountID: ayuAccountID,\\n            senderNames: ayuSenderNames\\n        )",
             1,
         )
-        if automatic_media_old in d:
-            d = d.replace(automatic_media_old, automatic_media_new, 1)
-        elif "AyuMediaResourceInfo" in d and "TelegramMediaImage" in d and "TelegramMediaFile" in d and "for representation in image.representations.sorted" in d:
-            raise SystemExit(f"Automatic History photo capture anchor missing in {delete_file}")
-        delete_file.write_text(d)
-
     elif delete_file.name == "AccountStateManagementUtils.swift":
         # Interactive/automatic deletion ultimately flows through DeleteMessages,
         # so no duplicate sender-name logic is needed here.
