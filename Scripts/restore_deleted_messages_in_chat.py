@@ -428,17 +428,31 @@ if entry_start < 0 or entry_end < 0:
     raise SystemExit("AyuGram settings entry enum boundaries were not found")
 entry = settings_text[entry_start:entry_end]
 entry = entry.replace("    case history\n", "", 1)
+# The private-preview row is installed before this cleanup step. Remove the
+# History entry without dropping that neighboring preview case.
+entry = entry.replace(
+    "case .saveDeleted, .saveEdited, .history, .clearDeletedHistory, .privateInvitePreview:",
+    "case .saveDeleted, .saveEdited, .clearDeletedHistory, .privateInvitePreview:",
+    1
+)
 entry = entry.replace(
     "case .saveDeleted, .saveEdited, .history, .clearDeletedHistory:",
     "case .saveDeleted, .saveEdited, .clearDeletedHistory:",
     1
 )
-entry = entry.replace("        case .history: return 103\n", "", 1)
-history_case = entry.find("        case .history:\n")
+entry = entry.replace("        case .history: return 103\\n", "", 1)
+history_case = entry.find("        case .history:\\n")
 if history_case >= 0:
-    next_case = entry.find("        case .clearDeletedHistory:", history_case)
-    if next_case < 0:
-        raise SystemExit("Could not find next AyuGram settings case after History")
+    next_cases = [
+        position for marker in (
+            "        case .privateInvitePreview:\\n",
+            "        case .clearDeletedHistory:\\n",
+        )
+        if (position := entry.find(marker, history_case)) >= 0
+    ]
+    if not next_cases:
+        raise SystemExit("Could not find the next AyuGram settings case after History")
+    next_case = min(next_cases)
     entry = entry[:history_case] + entry[next_case:]
 settings_text = settings_text[:entry_start] + entry + settings_text[entry_end:]
 
