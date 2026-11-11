@@ -306,7 +306,7 @@ jobs:
           assert "@discardableResult" in delete_path.read_text(encoding="utf-8")
           assert "idsToDelete = ids.filter" in delete_path.read_text(encoding="utf-8")
           global_delete = updates.split("case let .DeleteMessagesWithGlobalIds(ids):", 1)[1].split("case let .DeleteMessages(ids):", 1)[0]
-          assert "transaction.messageIdsForGlobalIds(ids)" in global_delete
+          assert "transaction.messageIdsForGlobalIds([globalID])" in global_delete
           assert "_internal_captureDeletedMessages(" in global_delete
           assert global_delete.index("_internal_captureDeletedMessages(") < global_delete.index("deleteMessagesWithGlobalIds(")
           assert "ayuRetainedGlobalIds" in global_delete
