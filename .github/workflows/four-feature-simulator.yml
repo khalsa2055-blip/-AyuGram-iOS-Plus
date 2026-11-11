@@ -20,7 +20,7 @@ on:
       - 'Scripts/**'
 
 # Maximum allowed GitHub Actions job duration: 360 minutes.
-# History hardening v2
+# History hardening v2; explicit device IPA run after cache-safe simulator cleanup
 # Force CI on source-level hardening fixes; one-time iPhone IPA opt-in after green validation
 
 permissions:
