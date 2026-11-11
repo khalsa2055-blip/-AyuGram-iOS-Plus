@@ -444,6 +444,8 @@ jobs:
           bubble_node = Path("telegram-ios/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift").read_text(encoding="utf-8")
           text_bubble_node = Path("telegram-ios/submodules/TelegramUI/Components/Chat/ChatMessageTextBubbleContentNode/Sources/ChatMessageTextBubbleContentNode.swift").read_text(encoding="utf-8")
           assert "preserveDeletedMessagesInChat: true" in delete_updates
+          assert "-> Set<MessageId>" in delete_updates
+          assert "@discardableResult" in delete_updates
           assert "idsToDelete = ids.filter" in delete_core
           assert "EditedMessageAttribute(date: Int32.min, isHidden: true)" in delete_core
           assert 'updatedDateText = "🧹 \\(updatedDateText)"' in date_status
@@ -456,6 +458,11 @@ jobs:
           assert "transaction.messageIdsForGlobalIds(ids)" in global_delete
           assert "ayuRetainedGlobalIds" in global_delete
           assert "ayuGlobalIdsToDelete = ids.filter" in global_delete
+          direct_delete_start = delete_updates.index("case let .DeleteMessages(ids):")
+          direct_delete_end = delete_updates.index("case let .UpdateMinAvailableMessage", direct_delete_start)
+          direct_delete = delete_updates[direct_delete_start:direct_delete_end]
+          assert "ids.filter { !ayuRetainedDeletedMessageIds.contains($0) }" in direct_delete
+          assert "ids.filter { !ayuRetainedGlobalIds.contains($0) }" in global_delete
           assert 'text: "AyuGram History"' not in Path("telegram-ios/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift").read_text(encoding="utf-8")
           print("PASS: server-deleted Telegram messages stay in their original chat with a local broom marker; no standalone History menu remains.")
           assert 'AyuGramMediaArchive.saveToSaved(message: savedSnapshot, folderName: "king")' in capture_service, "Manual Save must remain routed to saved/king"

@@ -119,6 +119,7 @@ old_signature = (
     "ayuAccountID: Int64? = nil) {"
 )
 new_signature = (
+    "@discardableResult\n"
     "public func _internal_deleteMessages(transaction: Transaction, mediaBox: MediaBox, ids: [MessageId], "
     "deleteMedia: Bool = true, manualAddMessageThreadStatsDifference: ((MessageThreadKey, Int, Int) -> Void)? = nil, "
     "ayuAccountID: Int64? = nil, preserveDeletedMessagesInChat: Bool = false) {"
@@ -189,7 +190,8 @@ delete_text = replace_once(
     "    transaction.deleteMessages(ids, forEachMedia: { _ in\n    })",
     """    let idsToDelete = ids.filter { !ayuRetainedDeletedMessageIds.contains($0) }
     transaction.deleteMessages(idsToDelete, forEachMedia: { _ in
-    })""",
+    })
+    return ayuRetainedDeletedMessageIds""",
     "filtered Postbox deletion"
 )
 DELETE.write_text(delete_text, encoding="utf-8")
@@ -201,6 +203,25 @@ state_text = replace_once(
     "}, ayuAccountID: accountPeerId.toInt64(), preserveDeletedMessagesInChat: true)",
     "server deletion retention route"
 )
+direct_delete_start = state_text.find("case let .DeleteMessages(ids):")
+direct_delete_end = state_text.find("case let .UpdateMinAvailableMessage", direct_delete_start)
+if direct_delete_start < 0 or direct_delete_end < 0:
+    raise SystemExit("Server DeleteMessages source block boundaries not found")
+direct_delete_block = state_text[direct_delete_start:direct_delete_end]
+direct_delete_block = replace_once(
+    direct_delete_block,
+    "                _internal_deleteMessages(",
+    "                let ayuRetainedDeletedMessageIds = _internal_deleteMessages(",
+    "capture retained IDs from server DeleteMessages"
+)
+direct_delete_block = replace_once(
+    direct_delete_block,
+    "                deletedMessageIds.append(contentsOf: ids.map { .messageId($0) })",
+    "                deletedMessageIds.append(contentsOf: ids.filter { !ayuRetainedDeletedMessageIds.contains($0) }.map { .messageId($0) })",
+    "exclude retained rows from removed-message notifications"
+)
+state_text = state_text[:direct_delete_start] + direct_delete_block + state_text[direct_delete_end:]
+
 global_capture_anchor = "_internal_captureDeletedMessages(transaction: transaction, mediaBox: mediaBox, ids: messageIds, ayuAccountID: accountPeerId.toInt64())\n"
 global_retention_block = r'''                var ayuRetainedGlobalIds = Set<Int64>()
                 if (try? AyuGramRuntime.makeSettingsStore(accountID: accountPeerId.toInt64()))?.settings.saveDeletedMessages == true {
@@ -261,6 +282,12 @@ new_global_delete_call = """let ayuGlobalIdsToDelete = ids.filter { !ayuRetained
 if old_global_delete_call not in state_text:
     raise SystemExit("Global-ID deletion call anchor not found")
 state_text = state_text.replace(old_global_delete_call, new_global_delete_call, 1)
+state_text = replace_once(
+    state_text,
+    "deletedMessageIds.append(contentsOf: ids.map { .global($0) })",
+    "deletedMessageIds.append(contentsOf: ids.filter { !ayuRetainedGlobalIds.contains($0) }.map { .global($0) })",
+    "exclude retained global IDs from removed-message notifications"
+)
 STATE.write_text(state_text, encoding="utf-8")
 
 
@@ -449,6 +476,10 @@ assert "let idsToDelete = ids.filter { !ayuRetainedDeletedMessageIds.contains($0
 assert "preserveDeletedMessagesInChat: true" in state_check
 assert "ayuRetainedGlobalIds" in state_check
 assert "ayuGlobalIdsToDelete = ids.filter" in state_check
+assert "-> Set<MessageId>" in delete_check
+assert "@discardableResult" in delete_check
+assert "ids.filter { !ayuRetainedDeletedMessageIds.contains($0) }.map { .messageId($0) }" in state_check
+assert "ids.filter { !ayuRetainedGlobalIds.contains($0) }.map { .global($0) }" in state_check
 assert "EditedMessageAttribute(date: Int32.min, isHidden: true)" in delete_check
 assert "isAyuGramDeleted: Bool" in date_check
 assert 'updatedDateText = "🧹 \\(updatedDateText)"' in date_check
