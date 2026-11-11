@@ -502,7 +502,7 @@ assert "return _internal_deleteMessages(" not in ENGINE.read_text(encoding="utf-
 assert "-> Set<MessageId>" in delete_check
 assert "@discardableResult" in delete_check
 assert "ids.filter { !ayuRetainedDeletedMessageIds.contains($0) }.map { .messageId($0) }" in state_check
-assert "ids.filter { !ayuRetainedGlobalIds.contains($0) }.map { .global($0) }" in state_check
+assert "ids.filter { !ayuRetainedGlobalIds.contains($0) }.map { .global(Int64($0)) }" in state_check
 assert "EditedMessageAttribute(date: Int32.min, isHidden: true)" in delete_check
 assert "isAyuGramDeleted: Bool" in date_check
 assert 'updatedDateText = "🧹 \\(updatedDateText)"' in date_check
