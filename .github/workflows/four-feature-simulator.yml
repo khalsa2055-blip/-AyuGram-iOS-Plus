@@ -2821,6 +2821,22 @@ jobs:
 
           ls -lh ci-artifacts
 
+      - name: Reclaim simulator Bazel outputs before device IPA
+        if: success() && ((github.event_name == 'workflow_dispatch' && inputs.build_device_ipa) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[build-device-ipa]')))
+        working-directory: telegram-ios
+        run: |
+          set -euo pipefail
+          echo "Disk space before Bazel output cleanup:"
+          df -h /
+          test -s ci-artifacts/AyuGram-iOS-simulator.ipa
+          echo "Removing generated simulator output tree; keeping the persistent disk/repository caches."
+          USE_BAZEL_VERSION=8.4.2 bazelisk clean
+          test -d "$HOME/telegram-bazel-cache"
+          echo "Persistent Bazel cache retained:"
+          du -sh "$HOME/telegram-bazel-cache" || true
+          echo "Disk space after Bazel output cleanup:"
+          df -h /
+
       - name: Prepare unsigned arm64 device IPA for iLoader
         if: success() && ((github.event_name == 'workflow_dispatch' && inputs.build_device_ipa) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[build-device-ipa]'))) # One-time explicit opt-in via this commit marker or manual dispatch.
         working-directory: telegram-ios
