@@ -13,6 +13,7 @@ SETTINGS = ROOT / "submodules/TelegramUI/Components/AyuGramSettingsScreen/Source
 MESSAGE_MENU = ROOT / "submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift"
 PEER_MEDIA_MENU = ROOT / "submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreenDisplayMediaGalleryContextMenu.swift"
 PEER_HEADER_MENU = ROOT / "submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreenPerformButtonAction.swift"
+ENGINE = ROOT / "submodules/TelegramCore/Sources/TelegramEngine/Messages/TelegramEngineMessages.swift"
 
 
 def replace_once(source: str, old: str, new: str, label: str) -> str:
@@ -105,7 +106,7 @@ def remove_swift_function(source: str, signature: str, label: str) -> str:
     return source[:start] + source[end:]
 
 
-for path in (DELETE, STATE, BUBBLE, TEXT_BUBBLE, DATE_STATUS, SETTINGS, MESSAGE_MENU, PEER_MEDIA_MENU, PEER_HEADER_MENU):
+for path in (DELETE, STATE, BUBBLE, TEXT_BUBBLE, DATE_STATUS, SETTINGS, MESSAGE_MENU, PEER_MEDIA_MENU, PEER_HEADER_MENU, ENGINE):
     if not path.is_file():
         raise SystemExit(f"Required source file is missing: {path}")
 
@@ -232,16 +233,16 @@ direct_delete_block = replace_once(
 state_text = state_text[:direct_delete_start] + direct_delete_block + state_text[direct_delete_end:]
 
 global_capture_anchor = "_internal_captureDeletedMessages(transaction: transaction, mediaBox: mediaBox, ids: messageIds, ayuAccountID: accountPeerId.toInt64())\n"
-global_retention_block = r'''                var ayuRetainedGlobalIds = Set<Int64>()
+global_retention_block = r'''                var ayuRetainedGlobalIds = Set<Int32>()
                 if (try? AyuGramRuntime.makeSettingsStore(accountID: accountPeerId.toInt64()))?.settings.saveDeletedMessages == true {
-                    for id in messageIds {
-                        guard let message = transaction.getMessage(id),
-                              let globalId = message.globallyUniqueId,
+                    for globalID in ids {
+                        guard let messageID = transaction.messageIdsForGlobalIds([globalID]).first,
+                              let message = transaction.getMessage(messageID),
                               !message.isCopyProtected(),
                               !message.containsSecretMedia else {
                             continue
                         }
-                        transaction.updateMessage(id, update: { currentMessage in
+                        transaction.updateMessage(messageID, update: { currentMessage in
                             var attributes = currentMessage.attributes
                             if attributes.contains(where: { ($0 as? EditedMessageAttribute)?.date == Int32.min }) {
                                 return .skip
@@ -278,7 +279,7 @@ global_retention_block = r'''                var ayuRetainedGlobalIds = Set<Int6
                                 media: currentMessage.media
                             ))
                         })
-                        ayuRetainedGlobalIds.insert(globalId)
+                        ayuRetainedGlobalIds.insert(globalID)
                     }
                 }
 '''
@@ -294,10 +295,20 @@ state_text = state_text.replace(old_global_delete_call, new_global_delete_call, 
 state_text = replace_once(
     state_text,
     "deletedMessageIds.append(contentsOf: ids.map { .global($0) })",
-    "deletedMessageIds.append(contentsOf: ids.filter { !ayuRetainedGlobalIds.contains($0) }.map { .global($0) })",
+    "deletedMessageIds.append(contentsOf: ids.filter { !ayuRetainedGlobalIds.contains($0) }.map { .global(Int64($0)) })",
     "exclude retained global IDs from removed-message notifications"
 )
 STATE.write_text(state_text, encoding="utf-8")
+
+# The engine-facing helper is Void; its call must not return the retained-ID set.
+engine_text = ENGINE.read_text(encoding="utf-8")
+engine_text = replace_once(
+    engine_text,
+    "            return _internal_deleteMessages(",
+    "            _internal_deleteMessages(",
+    "Void TelegramEngineMessages deleteMessages caller"
+)
+ENGINE.write_text(engine_text, encoding="utf-8")
 
 
 # 2) Render the local deletion mark beside the original message time.
@@ -485,6 +496,9 @@ assert "let idsToDelete = ids.filter { !ayuRetainedDeletedMessageIds.contains($0
 assert "preserveDeletedMessagesInChat: true" in state_check
 assert "ayuRetainedGlobalIds" in state_check
 assert "ayuGlobalIdsToDelete = ids.filter" in state_check
+assert "var ayuRetainedGlobalIds = Set<Int32>()" in state_check
+assert ".global(Int64($0))" in state_check
+assert "return _internal_deleteMessages(" not in ENGINE.read_text(encoding="utf-8")
 assert "-> Set<MessageId>" in delete_check
 assert "@discardableResult" in delete_check
 assert "ids.filter { !ayuRetainedDeletedMessageIds.contains($0) }.map { .messageId($0) }" in state_check
