@@ -15,6 +15,7 @@ on:
       - ".github/workflows/four-feature-compatibility.yml"
       - ".github/workflows/four-feature-simulator.yml"
 
+# Manual re-dispatch after stale queued runs (2026-11-12).
 permissions:
   contents: read
 
