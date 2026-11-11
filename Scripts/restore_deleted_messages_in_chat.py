@@ -7,6 +7,7 @@ ROOT = Path("telegram-ios") if Path("telegram-ios").is_dir() else Path(".")
 DELETE = ROOT / "submodules/TelegramCore/Sources/TelegramEngine/Messages/DeleteMessages.swift"
 STATE = ROOT / "submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift"
 BUBBLE = ROOT / "submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift"
+TEXT_BUBBLE = ROOT / "submodules/TelegramUI/Components/Chat/ChatMessageTextBubbleContentNode/Sources/ChatMessageTextBubbleContentNode.swift"
 DATE_STATUS = ROOT / "submodules/TelegramUI/Components/Chat/ChatMessageDateAndStatusNode/Sources/ChatMessageDateAndStatusNode.swift"
 SETTINGS = ROOT / "submodules/TelegramUI/Components/AyuGramSettingsScreen/Sources/AyuGramSettingsScreen.swift"
 MESSAGE_MENU = ROOT / "submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift"
@@ -104,7 +105,7 @@ def remove_swift_function(source: str, signature: str, label: str) -> str:
     return source[:start] + source[end:]
 
 
-for path in (DELETE, STATE, BUBBLE, DATE_STATUS, SETTINGS, MESSAGE_MENU, PEER_MEDIA_MENU, PEER_HEADER_MENU):
+for path in (DELETE, STATE, BUBBLE, TEXT_BUBBLE, DATE_STATUS, SETTINGS, MESSAGE_MENU, PEER_MEDIA_MENU, PEER_HEADER_MENU):
     if not path.is_file():
         raise SystemExit(f"Required source file is missing: {path}")
 
@@ -328,6 +329,45 @@ bubble_text = replace_once(
 )
 BUBBLE.write_text(bubble_text, encoding="utf-8")
 
+text_bubble_text = TEXT_BUBBLE.read_text(encoding="utf-8")
+text_bubble_text = replace_once(
+    text_bubble_text,
+    """                var edited = false
+                if item.attributes.updatingMedia != nil {
+                    edited = true
+                }
+""",
+    """                var edited = false
+                var isAyuGramDeleted = false
+                if item.attributes.updatingMedia != nil {
+                    edited = true
+                }
+""",
+    "text bubble deleted-state variable"
+)
+text_bubble_text = replace_once(
+    text_bubble_text,
+    """                    if let attribute = attribute as? EditedMessageAttribute {
+                        edited = !attribute.isHidden
+""",
+    """                    if let attribute = attribute as? EditedMessageAttribute {
+                        if attribute.date == Int32.min {
+                            isAyuGramDeleted = true
+                            edited = false
+                        } else {
+                            edited = !attribute.isHidden
+                        }
+""",
+    "text bubble deletion sentinel detection"
+)
+text_bubble_text = replace_once(
+    text_bubble_text,
+    "                        edited: edited && !item.presentationData.isPreview,\\n",
+    "                        edited: edited && !item.presentationData.isPreview,\\n                        isAyuGramDeleted: isAyuGramDeleted && !item.presentationData.isPreview,\\n",
+    "text bubble deleted-state date/status argument"
+)
+TEXT_BUBBLE.write_text(text_bubble_text, encoding="utf-8")
+
 
 # 3) Remove the user-facing History list shortcuts. The Postbox store remains
 # private and is still used for Before originals and local deleted-message state.
@@ -400,6 +440,7 @@ delete_check = DELETE.read_text(encoding="utf-8")
 state_check = STATE.read_text(encoding="utf-8")
 bubble_check = BUBBLE.read_text(encoding="utf-8")
 date_check = DATE_STATUS.read_text(encoding="utf-8")
+text_bubble_check = TEXT_BUBBLE.read_text(encoding="utf-8")
 assert "preserveDeletedMessagesInChat: Bool = false" in delete_check
 assert "let idsToDelete = ids.filter { !ayuRetainedDeletedMessageIds.contains($0) }" in delete_check
 assert "preserveDeletedMessagesInChat: true" in state_check
