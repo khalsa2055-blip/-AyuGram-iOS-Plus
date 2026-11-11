@@ -362,8 +362,11 @@ text_bubble_text = replace_once(
 )
 text_bubble_text = replace_once(
     text_bubble_text,
-    "                        edited: edited && !item.presentationData.isPreview,\n",
-    "                        edited: edited && !item.presentationData.isPreview,\\n                        isAyuGramDeleted: isAyuGramDeleted && !item.presentationData.isPreview,\n",
+    """                        edited: edited && !item.presentationData.isPreview,
+""",
+    """                        edited: edited && !item.presentationData.isPreview,
+                        isAyuGramDeleted: isAyuGramDeleted && !item.presentationData.isPreview,
+""",
     "text bubble deleted-state date/status argument"
 )
 TEXT_BUBBLE.write_text(text_bubble_text, encoding="utf-8")
