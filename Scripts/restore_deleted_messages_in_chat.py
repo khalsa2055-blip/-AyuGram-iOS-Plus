@@ -323,7 +323,7 @@ peer_header_text = PEER_HEADER_MENU.read_text(encoding="utf-8")
 peer_header_text = remove_swift_action(
     peer_header_text,
     'text: "AyuGram History"',
-    "items.append(.action(ContextMenuItem(",
+    "items.append(.action(ContextMenuActionItem(",
     "PeerInfo header More-menu History action"
 )
 peer_header_text = peer_header_text.replace("import AyuGramSettingsScreen\n", "")
