@@ -179,12 +179,21 @@ retention_block = r'''    var ayuRetainedDeletedMessageIds = Set<MessageId>()
     }
 
 '''
-delete_text = replace_once(
-    delete_text,
+delete_function_start = delete_text.find("public func _internal_deleteMessages(")
+if delete_function_start < 0:
+    raise SystemExit("Target _internal_deleteMessages function was not found")
+delete_function_brace = delete_text.find("{", delete_function_start)
+if delete_function_brace < 0:
+    raise SystemExit("Target _internal_deleteMessages opening brace was not found")
+delete_function_end = matching_delimiter(delete_text, delete_function_brace, "{", "}") + 1
+delete_function = delete_text[delete_function_start:delete_function_end]
+delete_function = replace_once(
+    delete_function,
     "    var resourceIds: [MediaResourceId] = []\n",
     retention_block + "    var resourceIds: [MediaResourceId] = []\n",
     "deleted-message local retention block"
 )
+delete_text = delete_text[:delete_function_start] + delete_function + delete_text[delete_function_end:]
 delete_text = replace_once(
     delete_text,
     "    transaction.deleteMessages(ids, forEachMedia: { _ in\n    })",
