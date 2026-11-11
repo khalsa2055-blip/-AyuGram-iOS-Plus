@@ -295,7 +295,7 @@ state_text = state_text.replace(old_global_delete_call, new_global_delete_call, 
 state_text = replace_once(
     state_text,
     "deletedMessageIds.append(contentsOf: ids.map { .global($0) })",
-    "deletedMessageIds.append(contentsOf: ids.filter { !ayuRetainedGlobalIds.contains($0) }.map { .global(Int64($0)) })",
+    "deletedMessageIds.append(contentsOf: ids.filter { !ayuRetainedGlobalIds.contains($0) }.map { .global($0) })",
     "exclude retained global IDs from removed-message notifications"
 )
 STATE.write_text(state_text, encoding="utf-8")
@@ -477,6 +477,7 @@ peer_header_text = remove_swift_action(
     "PeerInfo header More-menu History action"
 )
 peer_header_text = peer_header_text.replace("import AyuGramSettingsScreen\n", "")
+peer_header_text = "\n".join(line.rstrip() for line in peer_header_text.splitlines()) + "\n"
 PEER_HEADER_MENU.write_text(peer_header_text, encoding="utf-8")
 
 
@@ -497,12 +498,12 @@ assert "preserveDeletedMessagesInChat: true" in state_check
 assert "ayuRetainedGlobalIds" in state_check
 assert "ayuGlobalIdsToDelete = ids.filter" in state_check
 assert "var ayuRetainedGlobalIds = Set<Int32>()" in state_check
-assert ".global(Int64($0))" in state_check
+assert ".global($0)" in state_check
 assert "return _internal_deleteMessages(" not in ENGINE.read_text(encoding="utf-8")
 assert "-> Set<MessageId>" in delete_check
 assert "@discardableResult" in delete_check
 assert "ids.filter { !ayuRetainedDeletedMessageIds.contains($0) }.map { .messageId($0) }" in state_check
-assert "ids.filter { !ayuRetainedGlobalIds.contains($0) }.map { .global(Int64($0)) }" in state_check
+assert "ids.filter { !ayuRetainedGlobalIds.contains($0) }.map { .global($0) }" in state_check
 assert "EditedMessageAttribute(date: Int32.min, isHidden: true)" in delete_check
 assert "isAyuGramDeleted: Bool" in date_check
 assert 'updatedDateText = "🧹 \\(updatedDateText)"' in date_check
