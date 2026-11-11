@@ -359,6 +359,7 @@ jobs:
               "Translation service": "class AyuGramTranslationService",
               "AyuGram Settings core": "struct AyuSettings",
               "In-chat deleted-message marker": "isAyuGramDeleted",
+              "In-chat deleted-text marker": "isAyuGramDeleted: isAyuGramDeleted",
               "Manual AyuGram Save": "AyuGramCaptureService.saveNow(",
               "Automatic History Postbox persistence": "AyuGramPostboxHistoryStore.appendDeleted",
           }

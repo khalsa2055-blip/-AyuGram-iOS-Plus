@@ -362,8 +362,8 @@ text_bubble_text = replace_once(
 )
 text_bubble_text = replace_once(
     text_bubble_text,
-    "                        edited: edited && !item.presentationData.isPreview,\\n",
-    "                        edited: edited && !item.presentationData.isPreview,\\n                        isAyuGramDeleted: isAyuGramDeleted && !item.presentationData.isPreview,\\n",
+    "                        edited: edited && !item.presentationData.isPreview,\n",
+    "                        edited: edited && !item.presentationData.isPreview,\\n                        isAyuGramDeleted: isAyuGramDeleted && !item.presentationData.isPreview,\n",
     "text bubble deleted-state date/status argument"
 )
 TEXT_BUBBLE.write_text(text_bubble_text, encoding="utf-8")
@@ -444,6 +444,8 @@ text_bubble_check = TEXT_BUBBLE.read_text(encoding="utf-8")
 assert "preserveDeletedMessagesInChat: Bool = false" in delete_check
 assert "let idsToDelete = ids.filter { !ayuRetainedDeletedMessageIds.contains($0) }" in delete_check
 assert "preserveDeletedMessagesInChat: true" in state_check
+assert "ayuRetainedGlobalIds" in state_check
+assert "ayuGlobalIdsToDelete = ids.filter" in state_check
 assert "EditedMessageAttribute(date: Int32.min, isHidden: true)" in delete_check
 assert "isAyuGramDeleted: Bool" in date_check
 assert 'updatedDateText = "🧹 \\(updatedDateText)"' in date_check

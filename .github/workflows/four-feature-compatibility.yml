@@ -214,6 +214,7 @@ jobs:
           xcrun swiftc -frontend -parse telegram-ios/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift
           xcrun swiftc -frontend -parse telegram-ios/submodules/TelegramCore/Sources/TelegramEngine/Messages/DeleteMessages.swift
           xcrun swiftc -frontend -parse telegram-ios/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift
+          xcrun swiftc -frontend -parse telegram-ios/submodules/TelegramUI/Components/Chat/ChatMessageTextBubbleContentNode/Sources/ChatMessageTextBubbleContentNode.swift
           xcrun swiftc -frontend -parse telegram-ios/submodules/TelegramUI/Components/Chat/ChatMessageDateAndStatusNode/Sources/ChatMessageDateAndStatusNode.swift
           xcrun swiftc -frontend -parse telegram-ios/submodules/AyuGramIOS/Sources/AyuGramMediaArchive.swift
           xcrun swiftc -frontend -parse telegram-ios/submodules/AyuGramIOS/Sources/AyuGramPostboxHistoryStore.swift
@@ -441,11 +442,14 @@ jobs:
           delete_updates = Path("telegram-ios/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift").read_text(encoding="utf-8")
           date_status = Path("telegram-ios/submodules/TelegramUI/Components/Chat/ChatMessageDateAndStatusNode/Sources/ChatMessageDateAndStatusNode.swift").read_text(encoding="utf-8")
           bubble_node = Path("telegram-ios/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift").read_text(encoding="utf-8")
+          text_bubble_node = Path("telegram-ios/submodules/TelegramUI/Components/Chat/ChatMessageTextBubbleContentNode/Sources/ChatMessageTextBubbleContentNode.swift").read_text(encoding="utf-8")
           assert "preserveDeletedMessagesInChat: true" in delete_updates
           assert "idsToDelete = ids.filter" in delete_core
           assert "EditedMessageAttribute(date: Int32.min, isHidden: true)" in delete_core
           assert 'updatedDateText = "🧹 \\(updatedDateText)"' in date_status
           assert "isAyuGramDeleted = true" in bubble_node
+          assert "isAyuGramDeleted = true" in text_bubble_node
+          assert "isAyuGramDeleted: isAyuGramDeleted" in text_bubble_node
           global_delete_start = delete_updates.index("case let .DeleteMessagesWithGlobalIds(ids):")
           global_delete_end = delete_updates.index("case let .DeleteMessages(ids):", global_delete_start)
           global_delete = delete_updates[global_delete_start:global_delete_end]
