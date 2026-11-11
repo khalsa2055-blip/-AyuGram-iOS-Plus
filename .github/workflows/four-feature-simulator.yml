@@ -264,6 +264,7 @@ jobs:
 
           # Comprehensive AyuGram runtime smoke-test hook (UI + feature verification).
           python3 ../Scripts/inject_ayugram_history_test.py
+          python3 ../Scripts/restore_deleted_messages_in_chat.py
           # The simulator is intentionally unauthenticated. Verify the production
           # deleted-message route and Postbox persistence at source level; do not
           # require an AccountContext smoke report that cannot exist before login.
@@ -299,6 +300,9 @@ jobs:
           updates = state_path.read_text(encoding="utf-8")
           remote_delete = updates.split("case let .DeleteMessages(ids):", 1)[1].split("case let .UpdateMinAvailableMessage", 1)[0]
           assert "ayuAccountID: accountPeerId.toInt64()" in remote_delete
+          assert "preserveDeletedMessagesInChat: true" in remote_delete
+          assert "preserveDeletedMessagesInChat: Bool = false" in delete_path.read_text(encoding="utf-8")
+          assert "idsToDelete = ids.filter" in delete_path.read_text(encoding="utf-8")
           global_delete = updates.split("case let .DeleteMessagesWithGlobalIds(ids):", 1)[1].split("case let .DeleteMessages(ids):", 1)[0]
           assert "transaction.messageIdsForGlobalIds(ids)" in global_delete
           assert "_internal_captureDeletedMessages(" in global_delete
@@ -350,7 +354,7 @@ jobs:
               "Zalgo/bidi sanitizer": "AyuTextSanitizer.filterZalgo",
               "Translation service": "class AyuGramTranslationService",
               "AyuGram Settings core": "struct AyuSettings",
-              "History screen": "ayuGramHistoryScreen(context: context, dialogID:",
+              "In-chat deleted-message marker": "isAyuGramDeleted",
               "Manual AyuGram Save": "AyuGramCaptureService.saveNow(",
               "Automatic History Postbox persistence": "AyuGramPostboxHistoryStore.appendDeleted",
           }

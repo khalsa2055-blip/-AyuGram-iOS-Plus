@@ -9,6 +9,7 @@ on:
       - "Scripts/harden_ayugram_history.py"
       - "Scripts/harden_four_feature_storage.py"
       - "Scripts/apply_four_feature_ui.py"
+      - "Scripts/restore_deleted_messages_in_chat.py"
       - "Scripts/apply_ios27_scene_lifecycle.py"
       - "Experiments/PrivateInviteLinkInspector/**"
       - ".github/workflows/four-feature-compatibility.yml"
@@ -188,6 +189,9 @@ jobs:
       - name: Apply private preview and Before UI
         run: python3 Scripts/apply_four_feature_ui.py
 
+      - name: Restore deleted messages inside the original chat
+        run: python3 Scripts/restore_deleted_messages_in_chat.py
+
       - name: Backport and parse iOS 27 Scene lifecycle
         working-directory: telegram-ios
         run: |
@@ -209,6 +213,8 @@ jobs:
           xcrun swiftc -frontend -parse telegram-ios/submodules/ChatPresentationInterfaceState/Sources/ChatPresentationInterfaceState.swift
           xcrun swiftc -frontend -parse telegram-ios/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift
           xcrun swiftc -frontend -parse telegram-ios/submodules/TelegramCore/Sources/TelegramEngine/Messages/DeleteMessages.swift
+          xcrun swiftc -frontend -parse telegram-ios/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift
+          xcrun swiftc -frontend -parse telegram-ios/submodules/TelegramUI/Components/Chat/ChatMessageDateAndStatusNode/Sources/ChatMessageDateAndStatusNode.swift
           xcrun swiftc -frontend -parse telegram-ios/submodules/AyuGramIOS/Sources/AyuGramMediaArchive.swift
           xcrun swiftc -frontend -parse telegram-ios/submodules/AyuGramIOS/Sources/AyuGramPostboxHistoryStore.swift
           xcrun swiftc -frontend -parse telegram-ios/submodules/AyuGramIOS/Sources/AyuGramCaptureService.swift
@@ -431,6 +437,17 @@ jobs:
           assert "saveDeletedMessages == true" in capture_service
           assert "AyuGramPostboxHistoryStore.appendDeleted" in capture_service
           assert "AyuGramPostboxHistoryStore.appendEdited" in capture_service
+          delete_core = Path("telegram-ios/submodules/TelegramCore/Sources/TelegramEngine/Messages/DeleteMessages.swift").read_text(encoding="utf-8")
+          delete_updates = Path("telegram-ios/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift").read_text(encoding="utf-8")
+          date_status = Path("telegram-ios/submodules/TelegramUI/Components/Chat/ChatMessageDateAndStatusNode/Sources/ChatMessageDateAndStatusNode.swift").read_text(encoding="utf-8")
+          bubble_node = Path("telegram-ios/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift").read_text(encoding="utf-8")
+          assert "preserveDeletedMessagesInChat: true" in delete_updates
+          assert "idsToDelete = ids.filter" in delete_core
+          assert "EditedMessageAttribute(date: Int32.min, isHidden: true)" in delete_core
+          assert 'updatedDateText = "🧹 \\(updatedDateText)"' in date_status
+          assert "isAyuGramDeleted = true" in bubble_node
+          assert 'text: "AyuGram History"' not in Path("telegram-ios/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift").read_text(encoding="utf-8")
+          print("PASS: server-deleted Telegram messages stay in their original chat with a local broom marker; no standalone History menu remains.")
           assert 'AyuGramMediaArchive.saveToSaved(message: savedSnapshot, folderName: "king")' in capture_service, "Manual Save must remain routed to saved/king"
           assert 'public static func saveToSaved(message: AyuMessage, folderName: String = "Media")' in media_archive
           assert 'let mediaRoot = root.appendingPathComponent(folderName, isDirectory: true)' in media_archive
