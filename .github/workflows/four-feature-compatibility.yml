@@ -19,7 +19,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: four-feature-swiftgram-compatibility
+  group: four-feature-swiftgram-compatibility-recovery-20261111
   cancel-in-progress: true
 
 jobs:
