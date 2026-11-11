@@ -446,6 +446,12 @@ jobs:
           assert "EditedMessageAttribute(date: Int32.min, isHidden: true)" in delete_core
           assert 'updatedDateText = "🧹 \\(updatedDateText)"' in date_status
           assert "isAyuGramDeleted = true" in bubble_node
+          global_delete_start = delete_updates.index("case let .DeleteMessagesWithGlobalIds(ids):")
+          global_delete_end = delete_updates.index("case let .DeleteMessages(ids):", global_delete_start)
+          global_delete = delete_updates[global_delete_start:global_delete_end]
+          assert "transaction.messageIdsForGlobalIds(ids)" in global_delete
+          assert "ayuRetainedGlobalIds" in global_delete
+          assert "ayuGlobalIdsToDelete = ids.filter" in global_delete
           assert 'text: "AyuGram History"' not in Path("telegram-ios/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift").read_text(encoding="utf-8")
           print("PASS: server-deleted Telegram messages stay in their original chat with a local broom marker; no standalone History menu remains.")
           assert 'AyuGramMediaArchive.saveToSaved(message: savedSnapshot, folderName: "king")' in capture_service, "Manual Save must remain routed to saved/king"
