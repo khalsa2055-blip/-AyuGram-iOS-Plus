@@ -200,6 +200,66 @@ state_text = replace_once(
     "}, ayuAccountID: accountPeerId.toInt64(), preserveDeletedMessagesInChat: true)",
     "server deletion retention route"
 )
+global_capture_anchor = "_internal_captureDeletedMessages(transaction: transaction, mediaBox: mediaBox, ids: messageIds, ayuAccountID: accountPeerId.toInt64())\n"
+global_retention_block = r'''                var ayuRetainedGlobalIds = Set<Int64>()
+                if (try? AyuGramRuntime.makeSettingsStore(accountID: accountPeerId.toInt64()))?.settings.saveDeletedMessages == true {
+                    for id in messageIds {
+                        guard let message = transaction.getMessage(id),
+                              let globalId = message.globallyUniqueId,
+                              !message.isCopyProtected(),
+                              !message.containsSecretMedia else {
+                            continue
+                        }
+                        transaction.updateMessage(id, update: { currentMessage in
+                            var attributes = currentMessage.attributes
+                            if attributes.contains(where: { ($0 as? EditedMessageAttribute)?.date == Int32.min }) {
+                                return .skip
+                            }
+                            attributes.append(EditedMessageAttribute(date: Int32.min, isHidden: true))
+
+                            var storeForwardInfo: StoreMessageForwardInfo?
+                            if let forwardInfo = currentMessage.forwardInfo {
+                                storeForwardInfo = StoreMessageForwardInfo(
+                                    authorId: forwardInfo.author?.id,
+                                    sourceId: forwardInfo.source?.id,
+                                    sourceMessageId: forwardInfo.sourceMessageId,
+                                    date: forwardInfo.date,
+                                    authorSignature: forwardInfo.authorSignature,
+                                    psaType: forwardInfo.psaType,
+                                    flags: forwardInfo.flags
+                                )
+                            }
+                            return .update(StoreMessage(
+                                id: currentMessage.id,
+                                customStableId: nil,
+                                globallyUniqueId: currentMessage.globallyUniqueId,
+                                groupingKey: currentMessage.groupingKey,
+                                threadId: currentMessage.threadId,
+                                timestamp: currentMessage.timestamp,
+                                flags: StoreMessageFlags(currentMessage.flags),
+                                tags: currentMessage.tags,
+                                globalTags: currentMessage.globalTags,
+                                localTags: currentMessage.localTags,
+                                forwardInfo: storeForwardInfo,
+                                authorId: currentMessage.author?.id,
+                                text: currentMessage.text,
+                                attributes: attributes,
+                                media: currentMessage.media
+                            ))
+                        })
+                        ayuRetainedGlobalIds.insert(globalId)
+                    }
+                }
+'''
+if global_capture_anchor not in state_text:
+    raise SystemExit("Global-ID capture insertion anchor not found")
+state_text = state_text.replace(global_capture_anchor, global_capture_anchor + global_retention_block, 1)
+old_global_delete_call = "transaction.deleteMessagesWithGlobalIds(ids, forEachMedia: { media in"
+new_global_delete_call = """let ayuGlobalIdsToDelete = ids.filter { !ayuRetainedGlobalIds.contains($0) }
+                transaction.deleteMessagesWithGlobalIds(ayuGlobalIdsToDelete, forEachMedia: { media in"""
+if old_global_delete_call not in state_text:
+    raise SystemExit("Global-ID deletion call anchor not found")
+state_text = state_text.replace(old_global_delete_call, new_global_delete_call, 1)
 STATE.write_text(state_text, encoding="utf-8")
 
 
