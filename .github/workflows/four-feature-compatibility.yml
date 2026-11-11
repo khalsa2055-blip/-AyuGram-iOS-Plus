@@ -444,8 +444,8 @@ jobs:
           bubble_node = Path("telegram-ios/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift").read_text(encoding="utf-8")
           text_bubble_node = Path("telegram-ios/submodules/TelegramUI/Components/Chat/ChatMessageTextBubbleContentNode/Sources/ChatMessageTextBubbleContentNode.swift").read_text(encoding="utf-8")
           assert "preserveDeletedMessagesInChat: true" in delete_updates
-          assert "-> Set<MessageId>" in delete_updates
-          assert "@discardableResult" in delete_updates
+          assert "-> Set<MessageId>" in delete_core
+          assert "@discardableResult" in delete_core
           assert "idsToDelete = ids.filter" in delete_core
           assert "EditedMessageAttribute(date: Int32.min, isHidden: true)" in delete_core
           assert 'updatedDateText = "🧹 \\(updatedDateText)"' in date_status

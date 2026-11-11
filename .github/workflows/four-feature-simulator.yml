@@ -302,6 +302,8 @@ jobs:
           assert "ayuAccountID: accountPeerId.toInt64()" in remote_delete
           assert "preserveDeletedMessagesInChat: true" in remote_delete
           assert "preserveDeletedMessagesInChat: Bool = false" in delete_path.read_text(encoding="utf-8")
+          assert "-> Set<MessageId>" in delete_path.read_text(encoding="utf-8")
+          assert "@discardableResult" in delete_path.read_text(encoding="utf-8")
           assert "idsToDelete = ids.filter" in delete_path.read_text(encoding="utf-8")
           global_delete = updates.split("case let .DeleteMessagesWithGlobalIds(ids):", 1)[1].split("case let .DeleteMessages(ids):", 1)[0]
           assert "transaction.messageIdsForGlobalIds(ids)" in global_delete

@@ -122,7 +122,7 @@ new_signature = (
     "@discardableResult\n"
     "public func _internal_deleteMessages(transaction: Transaction, mediaBox: MediaBox, ids: [MessageId], "
     "deleteMedia: Bool = true, manualAddMessageThreadStatsDifference: ((MessageThreadKey, Int, Int) -> Void)? = nil, "
-    "ayuAccountID: Int64? = nil, preserveDeletedMessagesInChat: Bool = false) {"
+    "ayuAccountID: Int64? = nil, preserveDeletedMessagesInChat: Bool = false) -> Set<MessageId> {"
 )
 delete_text = replace_once(delete_text, old_signature, new_signature, "deleted-message helper signature")
 
