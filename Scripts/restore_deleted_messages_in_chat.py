@@ -440,20 +440,22 @@ entry = entry.replace(
     "case .saveDeleted, .saveEdited, .clearDeletedHistory:",
     1
 )
-entry = entry.replace("        case .history: return 103\\n", "", 1)
-history_case = entry.find("        case .history:\\n")
+entry = entry.replace("        case .history: return 103\n", "", 1)
+history_case = entry.find("        case .history:\n")
 if history_case >= 0:
-    next_cases = [
-        position for marker in (
-            "        case .privateInvitePreview:\\n",
-            "        case .clearDeletedHistory:\\n",
-        )
-        if (position := entry.find(marker, history_case)) >= 0
-    ]
-    if not next_cases:
+    next_case = None
+    for marker in (
+        "        case .privateInvitePreview:\n",
+        "        case .clearDeletedHistory:\n",
+    ):
+        position = entry.find(marker, history_case)
+        if position >= 0 and (next_case is None or position < next_case):
+            next_case = position
+    if next_case is None:
         raise SystemExit("Could not find the next AyuGram settings case after History")
-    next_case = min(next_cases)
     entry = entry[:history_case] + entry[next_case:]
+if "case .privateInvitePreview:" not in entry:
+    raise SystemExit("Private group preview action was removed with the History shortcut")
 settings_text = settings_text[:entry_start] + entry + settings_text[entry_end:]
 
 entries_start = settings_text.find("private func ayuSettingsEntries")

@@ -1136,11 +1136,106 @@ jobs:
           for relative_path, entries in grouped.items():
               path = Path(relative_path)
               lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+              for line_number, old, new in entries:
+                  index = line_number - 1
+                  if index >= len(lines):
+                      raise SystemExit(f"{relative_path}:{line_number} is outside the pinned baseline")
+                  line = lines[index]
+                  if line.count(old) == 1 and new not in line:
+                      lines[index] = line.replace(old, new, 1)
+                  elif line.count(new) == 1 and old not in line:
+                      pass
+                  else:
+                      raise SystemExit(f"Unsafe weak-capture patch at {relative_path}:{line_number}")
+              path.write_text("".join(lines), encoding="utf-8")
+              verified = path.read_text(encoding="utf-8").splitlines()
+              for line_number, old, new in entries:
+                  line = verified[line_number - 1]
+                  if line.count(new) != 1 or old in line:
+                      raise SystemExit(f"Verification failed at {relative_path}:{line_number}")
+              print(f"Verified {len(entries)} additional weak-capture fixes: {relative_path}")
+
+          if sum(len(entries) for entries in grouped.values()) != 18:
+              raise SystemExit("Expected exactly 18 additional Xcode 27 capture fixes")
+          print("PASS: all 18 Simulator #183 compiler-reported captures were explicitly rebound.")
+          PY
+          # Apply every additional Xcode 27 nested weak-capture diagnostic from Simulator #184.
+          # Rebind weak capture items explicitly; this preserves weak ownership and avoids
+          # broad source rewrites. Each edit is guarded by the compiler-reported line and token.
+          python3 - <<'PY'
+          from pathlib import Path
+
+          patches = [
+              ("submodules/TelegramUI/Components/Settings/QuickReactionSetupController/Sources/ItemListReactionItem.swift", 239, "self"),
+              ("submodules/TelegramUI/Components/Settings/QuickReactionSetupController/Sources/ReactionChatPreviewItem.swift", 358, "self"),
+              ("submodules/TelegramUI/Components/Settings/ThemeCarouselItem/Sources/ThemeCarouselItem.swift", 332, "animatedStickerNode"),
+              ("submodules/TelegramUI/Components/Settings/ThemeCarouselItem/Sources/ThemeCarouselItem.swift", 332, "self"),
+              ("submodules/TelegramUI/Components/Settings/ThemeCarouselItem/Sources/ThemeCarouselItem.swift", 786, "self"),
+              ("submodules/TelegramUI/Components/Settings/ThemeSettingsThemeItem/Sources/ThemeSettingsThemeItem.swift", 610, "self"),
+              ("submodules/TelegramUI/Components/AuthConfirmationScreen/Sources/AuthConfirmationScreen.swift", 277, "self"),
+              ("submodules/TelegramUI/Components/AuthConfirmationScreen/Sources/AuthConfirmationScreen.swift", 295, "self"),
+              ("submodules/HorizontalPeerItem/Sources/HorizontalPeerItem.swift", 232, "item"),
+              ("submodules/TelegramUI/Components/Chat/ChatRichTextEditorComposer/Sources/TableStructuralMenuAlignmentItem.swift", 179, "self"),
+              ("submodules/TranslateUI/Sources/LocalizationListItem.swift", 262, "self"),
+              ("submodules/TelegramUI/Components/ShareWithPeersScreen/Sources/ShareWithPeersScreen.swift", 3026, "controller"),
+              ("submodules/TelegramUI/Components/ShareWithPeersScreen/Sources/ShareWithPeersScreen.swift", 3026, "component"),
+              ("submodules/ItemListPeerItem/Sources/ItemListPeerItem.swift", 1309, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageInteractiveFileNode/Sources/ChatMessageInteractiveFileNode.swift", 615, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageInteractiveFileNode/Sources/ChatMessageInteractiveFileNode.swift", 1079, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageFactCheckBubbleContentNode/Sources/ChatMessageFactCheckBubbleContentNode.swift", 489, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageInteractiveInstantVideoNode/Sources/ChatMessageInteractiveInstantVideoNode.swift", 647, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageInteractiveInstantVideoNode/Sources/ChatMessageInteractiveInstantVideoNode.swift", 1717, "node"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageDisableCopyProtectionBubbleContentNode/Sources/ChatMessageDisableCopyProtectionBubbleContentNode.swift", 173, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageGiveawayBubbleContentNode/Sources/ChatMessageGiveawayBubbleContentNode.swift", 699, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageGiveawayBubbleContentNode/Sources/ChatMessageGiveawayBubbleContentNode.swift", 1056, "targetNode"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageGiftOfferBubbleContentNode/Sources/ChatMessageGiftOfferBubbleContentNode.swift", 202, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageWallpaperBubbleContentNode/Sources/ChatMessageWallpaperBubbleContentNode.swift", 329, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageGiftBubbleContentNode/Sources/ChatMessageGiftBubbleContentNode.swift", 991, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageUnsupportedBubbleContentNode/Sources/ChatMessageUnsupportedBubbleContentNode.swift", 62, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageRestrictedBubbleContentNode/Sources/ChatMessageRestrictedBubbleContentNode.swift", 174, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageBirthdateSuggestionContentNode/Sources/ChatMessageBirthdateSuggestionContentNode.swift", 207, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageTextBubbleContentNode/Sources/ChatMessageTextBubbleContentNode.swift", 815, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageCommunityChangedBubbleContentNode/Sources/ChatMessageCommunityChangedBubbleContentNode.swift", 170, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageCallBubbleContentNode/Sources/ChatMessageCallBubbleContentNode.swift", 294, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageContactBubbleContentNode/Sources/ChatMessageContactBubbleContentNode.swift", 405, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageMapBubbleContentNode/Sources/ChatMessageMapBubbleContentNode.swift", 339, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageTodoBubbleContentNode/Sources/ChatMessageTodoBubbleContentNode.swift", 1347, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageCommentFooterContentNode/Sources/ChatMessageCommentFooterContentNode.swift", 253, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageReactionsFooterContentNode/Sources/ChatMessageReactionsFooterContentNode.swift", 646, "self"),
+              # Newly reported by Simulator #188; all paths and exact capture lines
+              # are pinned to Telegram-iOS eb5ae67a32c6e8b936ca0e875f19f99251112f17.
+              ("submodules/PremiumUI/Sources/GiftOptionItem.swift", 332, "self"),
+              ("submodules/PremiumUI/Sources/IncreaseLimitHeaderItem.swift", 159, "self"),
+              ("submodules/PremiumUI/Sources/PremiumBoostLevelsScreen.swift", 1107, "self"),
+              ("submodules/PremiumUI/Sources/PremiumGiftScreen.swift", 631, "controller"),
+              ("submodules/PremiumUI/Sources/PremiumIntroScreen.swift", 2193, "state"),
+              ("submodules/PremiumUI/Sources/PremiumIntroScreen.swift", 2386, "state"),
+              ("submodules/PremiumUI/Sources/PremiumIntroScreen.swift", 2590, "state"),
+              ("submodules/PremiumUI/Sources/PremiumIntroScreen.swift", 2727, "state"),
+              ("submodules/PremiumUI/Sources/PremiumIntroScreen.swift", 2928, "controller"),
+              ("submodules/PremiumUI/Sources/SubscriptionsCountItem.swift", 188, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageFileBubbleContentNode/Sources/ChatMessageFileBubbleContentNode.swift", 189, "self"),
+              ("submodules/TelegramUI/Components/Chat/ChatMessageInstantVideoBubbleContentNode/Sources/ChatMessageInstantVideoBubbleContentNode.swift", 313, "self"),
+              # Newly reported by Simulator #189; verified against the pinned Telegram baseline.
+              ("submodules/FeaturedStickersScreen/Sources/StickerPaneSearchGlobaltem.swift", 355, "highlightNode"),
+              ("submodules/TelegramUI/Components/TranslateHeaderPanelComponent/Sources/ChatTranslationPanelNode.swift", 297, "self"),
+              ("submodules/TelegramUI/Components/TranslateHeaderPanelComponent/Sources/ChatTranslationPanelNode.swift", 376, "self"),
+              ("submodules/TelegramUI/Components/TranslateHeaderPanelComponent/Sources/ChatTranslationPanelNode.swift", 387, "self"),
+              ("submodules/TelegramUI/Components/TranslateHeaderPanelComponent/Sources/ChatTranslationPanelNode.swift", 413, "self"),
+              ("submodules/TelegramUI/Components/GroupStickerPackSetupController/Sources/GroupStickerPackCurrentItem.swift", 336, "self"),
+          ]
+
+          grouped = {}
+          for relative_path, line_number, name in patches:
+              grouped.setdefault(relative_path, []).append((line_number, name))
+
+          for relative_path, entries in grouped.items():
+              path = Path(relative_path)
+              lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
               resolved_entries = []
               for line_number, name in entries:
-                  # This file receives AyuGram and local-tombstone insertions before
-                  # the reported location. Anchor the timer closure by stable source
-                  # text instead of trusting an offset that those patches shift.
+                  # AyuGram inserts code before this timer. Resolve the reported
+                  # weak capture by its stable source statement, not a stale line.
                   if relative_path.endswith("ChatMessageTextBubbleContentNode/Sources/ChatMessageTextBubbleContentNode.swift"):
                       candidates = [
                           index for index, candidate in enumerate(lines)
@@ -1148,7 +1243,7 @@ jobs:
                       ]
                       if len(candidates) != 1:
                           raise SystemExit(
-                              f"Expected one relativeDateTimer weak-capture anchor in {relative_path}, "
+                              f"Expected one relativeDateTimer source anchor in {relative_path}, "
                               f"found {len(candidates)}"
                           )
                       index = candidates[0]
@@ -1159,8 +1254,8 @@ jobs:
                       raise SystemExit(f"{relative_path}:{line_number} is outside the pinned source")
                   import re
                   line = lines[index]
-                  old_pattern = rf"(?<![A-Za-z0-9_])weak\\s+{re.escape(name)}(?=\\s*[,\\]])"
-                  fixed_pattern = rf"weak\\s+{re.escape(name)}\\s*=\\s*{re.escape(name)}(?=\\s*[,\\]])"
+                  old_pattern = rf"(?<![A-Za-z0-9_])weak\s+{re.escape(name)}(?=\s*[,\]])"
+                  fixed_pattern = rf"weak\s+{re.escape(name)}\s*=\s*{re.escape(name)}(?=\s*[,\]])"
                   old_count = len(re.findall(old_pattern, line))
                   fixed_count = len(re.findall(fixed_pattern, line))
                   if old_count == 1 and fixed_count == 0:
@@ -1177,7 +1272,7 @@ jobs:
               verified = path.read_text(encoding="utf-8").splitlines()
               for line_number, name in resolved_entries:
                   line = verified[line_number - 1]
-                  fixed_pattern = rf"weak\\s+{re.escape(name)}\\s*=\\s*{re.escape(name)}(?=\\s*[,\\]])"
+                  fixed_pattern = rf"weak\s+{re.escape(name)}\s*=\s*{re.escape(name)}(?=\s*[,\]])"
                   if len(re.findall(fixed_pattern, line)) != 1:
                       raise SystemExit(f"Verification failed at {relative_path}:{line_number} ({name})")
               print(f"Verified {len(entries)} Xcode 27 capture fixes: {relative_path}")
