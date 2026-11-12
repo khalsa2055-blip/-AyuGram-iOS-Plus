@@ -322,9 +322,9 @@ jobs:
               if header_text.count(declaration) != 1:
                   raise SystemExit(f"Expected exactly one deprecated declaration in {header_path}")
               wrapped = (
-                  '#pragma clang diagnostic push\\n'
-                  '#pragma clang diagnostic ignored "-Wdeprecated-declarations"\\n'
-                  + declaration + '\\n'
+                  '#pragma clang diagnostic push\n'
+                  '#pragma clang diagnostic ignored "-Wdeprecated-declarations"\n'
+                  + declaration + '\n'
                   '#pragma clang diagnostic pop'
               )
               header_path.write_text(header_text.replace(declaration, wrapped, 1), encoding="utf-8")
