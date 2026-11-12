@@ -282,6 +282,24 @@ jobs:
                   if count:
                       path.write_text("".join(kept), encoding="utf-8")
                       changed.append((str(path), count))
+          # LegacyComponents also sets target-local -Werror. Swift's Clang module
+          # importer inherits these flags when importing its public headers, so
+          # --copt alone does not downgrade the iOS 17 deprecation there.
+          legacy_build = Path("submodules/LegacyComponents/BUILD")
+          if not legacy_build.is_file():
+              raise SystemExit("LegacyComponents BUILD file missing; refusing an unverified compatibility edit")
+          legacy_lines = legacy_build.read_text(encoding="utf-8").splitlines(keepends=True)
+          legacy_kept = [
+              line.replace('" -Werror",', '"-Wno-error=deprecated-declarations",').replace('"-Werror",', '"-Wno-error=deprecated-declarations",')
+              if line.strip() == '"-Werror",' else line
+              for line in legacy_lines
+          ]
+          relaxed_count = sum(1 for before, after in zip(legacy_lines, legacy_kept) if before != after)
+          if relaxed_count != 1:
+              raise SystemExit(f"Expected exactly one LegacyComponents -Werror flag, found {relaxed_count}; refusing an ambiguous edit")
+          legacy_build.write_text("".join(legacy_kept), encoding="utf-8")
+          changed.append((str(legacy_build), relaxed_count))
+
           if not changed:
               raise SystemExit("No legacy warnings-as-errors flags found; refusing a no-op compatibility edit")
           for path, count in changed:
