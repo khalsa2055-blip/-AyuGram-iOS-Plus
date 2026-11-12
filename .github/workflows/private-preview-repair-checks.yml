@@ -49,8 +49,9 @@ jobs:
           swift = "\\n".join(p.read_text(encoding="utf-8") for p in core.glob("*.swift"))
 
           required = {
-              "AyuGram settings row": ".privateInvitePreview,",
-              "settings navigation controller": "AyuGramPrivateInvitePreviewController(context: arguments.context)",
+              "Settings > My Profile row": '"Private Group Preview"',
+              "Settings > My Profile action": "interaction.openSettings(.privateInvitePreview)",
+              "Settings > My Profile navigation": "ayuGramPrivateInvitePreviewController(context: self.context)",
               "URL input accessibility id": 'privateInviteURLField',
               "preview Back button": "privateInvitePreviewBackButton",
               "preview Back action": "entryView.onBack",
