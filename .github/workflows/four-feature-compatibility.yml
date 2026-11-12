@@ -304,22 +304,31 @@ jobs:
           legacy_build.write_text("".join(legacy_kept), encoding="utf-8")
           changed.append((str(legacy_build), relaxed_count))
 
-          # Pass the Clang-importer override through rules_swift's supported
-          # swift_library.copts attribute, not an unsupported Bazel --swiftcopt flag.
-          settings_build = Path("submodules/TelegramUI/Components/AyuGramSettingsScreen/BUILD")
-          if not settings_build.is_file():
-              raise SystemExit("AyuGramSettingsScreen BUILD file missing; refusing an unverified compiler-option edit")
-          settings_text = settings_build.read_text(encoding="utf-8")
-          swift_copts_anchor = '    copts = ["-warnings-as-errors"],'
-          if settings_text.count(swift_copts_anchor) != 1:
-              raise SystemExit("Expected exactly one AyuGramSettingsScreen swift_library copts anchor")
-          settings_text = settings_text.replace(
-              swift_copts_anchor,
-              '    copts = ["-warnings-as-errors", "-Xcc", "-Wno-error=deprecated-declarations"],',
-              1,
-          )
-          settings_build.write_text(settings_text, encoding="utf-8")
-          changed.append((str(settings_build), 1))
+          # The Swift Clang importer diagnoses these deprecated AVFoundation types
+          # at the exact public declarations that expose them. Scope suppression to
+          # those three declarations instead of weakening warnings for the whole module.
+          header_declarations = {
+              Path("submodules/LegacyComponents/PublicHeaders/LegacyComponents/PGCameraCaptureSession.h"):
+                  "- (void)startVideoRecordingWithOrientation:(AVCaptureVideoOrientation)orientation mirrored:(bool)mirrored completion:(void (^)(NSURL *outputURL, CGAffineTransform transform, CGSize dimensions, NSTimeInterval duration, bool success))completion;",
+              Path("submodules/LegacyComponents/PublicHeaders/LegacyComponents/TGPhotoEditorUtils.h"):
+                  "CGAffineTransform TGTransformForVideoOrientation(AVCaptureVideoOrientation orientation, bool mirrored);",
+              Path("submodules/LegacyComponents/PublicHeaders/LegacyComponents/TGVideoCameraGLRenderer.h"):
+                  "@property (nonatomic, assign) AVCaptureVideoOrientation orientation;",
+          }
+          for header_path, declaration in header_declarations.items():
+              if not header_path.is_file():
+                  raise SystemExit(f"LegacyComponents public header missing: {header_path}")
+              header_text = header_path.read_text(encoding="utf-8")
+              if header_text.count(declaration) != 1:
+                  raise SystemExit(f"Expected exactly one deprecated declaration in {header_path}")
+              wrapped = (
+                  '#pragma clang diagnostic push\\n'
+                  '#pragma clang diagnostic ignored "-Wdeprecated-declarations"\\n'
+                  + declaration + '\\n'
+                  '#pragma clang diagnostic pop'
+              )
+              header_path.write_text(header_text.replace(declaration, wrapped, 1), encoding="utf-8")
+              changed.append((str(header_path), 1))
 
           if not changed:
               raise SystemExit("No legacy warnings-as-errors flags found; refusing a no-op compatibility edit")
