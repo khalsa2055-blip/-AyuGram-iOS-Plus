@@ -209,6 +209,9 @@ jobs:
         run: |
           set -euo pipefail
           xcrun swiftc -frontend -parse telegram-ios/submodules/TelegramUI/Components/AyuGramSettingsScreen/Sources/AyuGramSettingsScreen.swift
+          xcrun swiftc -frontend -parse telegram-ios/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreen.swift
+          xcrun swiftc -frontend -parse telegram-ios/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift
+          xcrun swiftc -frontend -parse telegram-ios/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreenSettingsActions.swift
           xcrun swiftc -frontend -parse telegram-ios/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
           xcrun swiftc -frontend -parse telegram-ios/submodules/TelegramUI/Sources/ChatController.swift
           xcrun swiftc -frontend -parse telegram-ios/submodules/ChatPresentationInterfaceState/Sources/ChatPresentationInterfaceState.swift
@@ -304,7 +307,7 @@ jobs:
           attempt=1
           while true; do
             set +e
-            USE_BAZEL_VERSION=8.4.2 bazelisk build --repository_cache="$HOME/telegram-bazel-repository-cache" --disk_cache="$HOME/telegram-bazel-disk-cache" --jobs=4 --config=macos --apple_platform_type=ios --ios_multi_cpus=arm64 --platforms=//:ios_arm64 --features=-treat_warnings_as_errors --per_file_copt='^submodules/.*[.](m|mm)$@-Wno-error=deprecated-declarations' --verbose_failures //submodules/TelegramUI/Components/AyuGramSettingsScreen:AyuGramSettingsScreen //submodules/ChatPresentationInterfaceState:ChatPresentationInterfaceState //submodules/TelegramUI:TelegramUI //submodules/TelegramUI/Components/Chat/ChatMessageDateAndStatusNode:ChatMessageDateAndStatusNode 2>&1 | tee "$RUNNER_TEMP/compatibility-bazel-build.log"
+            USE_BAZEL_VERSION=8.4.2 bazelisk build --repository_cache="$HOME/telegram-bazel-repository-cache" --disk_cache="$HOME/telegram-bazel-disk-cache" --jobs=4 --config=macos --apple_platform_type=ios --ios_multi_cpus=arm64 --platforms=//:ios_arm64 --features=-treat_warnings_as_errors --per_file_copt='^submodules/.*[.](m|mm)$@-Wno-error=deprecated-declarations' --verbose_failures //submodules/TelegramUI/Components/AyuGramSettingsScreen:AyuGramSettingsScreen //submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen:PeerInfoScreen //submodules/ChatPresentationInterfaceState:ChatPresentationInterfaceState //submodules/TelegramUI:TelegramUI //submodules/TelegramUI/Components/Chat/ChatMessageDateAndStatusNode:ChatMessageDateAndStatusNode 2>&1 | tee "$RUNNER_TEMP/compatibility-bazel-build.log"
             build_status=${PIPESTATUS[0]}
             set -e
             if [ "$build_status" -eq 0 ]; then
@@ -320,7 +323,7 @@ jobs:
             attempt=$next_attempt
             sleep "$delay"
           done
-          echo "AyuGram settings, TelegramUI send/preview actions, chat date/status UI and native permissions compiled; no Telegram app or IPA was built."
+          echo "AyuGram settings, Settings > My Profile, TelegramUI send/preview actions, chat date/status UI and native permissions compiled; no Telegram app or IPA was built."
 
       - name: Verify all four feature entry points
         run: |
@@ -328,7 +331,11 @@ jobs:
           grep -q 'text: "AyuGram Save"' telegram-ios/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
           grep -q 'AyuGramCaptureService.captureDeleted' telegram-ios/submodules/TelegramCore/Sources/TelegramEngine/Messages/DeleteMessages.swift
           grep -q 'AyuGramOriginalMediaPreviewController' telegram-ios/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
-          grep -q 'Preview Private Group' telegram-ios/submodules/TelegramUI/Components/AyuGramSettingsScreen/Sources/AyuGramSettingsScreen.swift
+          grep -q 'Private Group Preview' telegram-ios/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift
+          grep -q 'interaction.openSettings(.privateInvitePreview)' telegram-ios/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift
+          grep -q 'case .privateInvitePreview:' telegram-ios/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreenSettingsActions.swift
+          grep -q 'ayuGramPrivateInvitePreviewController(context: self.context)' telegram-ios/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreenSettingsActions.swift
+          grep -q 'public func ayuGramPrivateInvitePreviewController' telegram-ios/submodules/TelegramUI/Components/AyuGramSettingsScreen/Sources/AyuGramSettingsScreen.swift
           grep -q 'privateInvitePreviewBackButton' telegram-ios/submodules/TelegramUI/Components/AyuGramSettingsScreen/Sources/AyuGramSettingsScreen.swift
           grep -q 'entryView.onBack' telegram-ios/submodules/TelegramUI/Components/AyuGramSettingsScreen/Sources/AyuGramSettingsScreen.swift
           grep -q 'joinLinkInformation(hash)' telegram-ios/submodules/TelegramUI/Components/AyuGramSettingsScreen/Sources/AyuGramSettingsScreen.swift

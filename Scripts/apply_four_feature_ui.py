@@ -9,6 +9,10 @@ SETTINGS_BUILD = ROOT / "submodules/TelegramUI/Components/AyuGramSettingsScreen/
 MENU = ROOT / "submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift"
 CHAT_CONTROLLER = ROOT / "submodules/TelegramUI/Sources/ChatController.swift"
 CHAT_CONTROLLER_INTERACTION = ROOT / "submodules/TelegramUI/Components/ChatControllerInteraction/Sources/ChatControllerInteraction.swift"
+PEER_INFO_SCREEN = ROOT / "submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreen.swift"
+PEER_INFO_ITEMS = ROOT / "submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift"
+PEER_INFO_ACTIONS = ROOT / "submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreenSettingsActions.swift"
+PEER_INFO_BUILD = ROOT / "submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/BUILD"
 
 def replace_once(source: str, old: str, new: str, label: str) -> str:
     count = source.count(old)
@@ -16,7 +20,7 @@ def replace_once(source: str, old: str, new: str, label: str) -> str:
         raise SystemExit(f"{label}: expected exactly one anchor, found {count}")
     return source.replace(old, new, 1)
 
-for path in (SETTINGS, SETTINGS_BUILD, MENU, CHAT_CONTROLLER, CHAT_CONTROLLER_INTERACTION):
+for path in (SETTINGS, SETTINGS_BUILD, MENU, CHAT_CONTROLLER, CHAT_CONTROLLER_INTERACTION, PEER_INFO_SCREEN, PEER_INFO_ITEMS, PEER_INFO_ACTIONS, PEER_INFO_BUILD):
     if not path.is_file():
         raise SystemExit(f"Missing required AyuGram integration file: {path}")
 
@@ -25,6 +29,10 @@ build = SETTINGS_BUILD.read_text(encoding="utf-8")
 menu = MENU.read_text(encoding="utf-8")
 chat_controller = CHAT_CONTROLLER.read_text(encoding="utf-8")
 chat_controller_interaction = CHAT_CONTROLLER_INTERACTION.read_text(encoding="utf-8")
+peer_info_screen = PEER_INFO_SCREEN.read_text(encoding="utf-8")
+peer_info_items = PEER_INFO_ITEMS.read_text(encoding="utf-8")
+peer_info_actions = PEER_INFO_ACTIONS.read_text(encoding="utf-8")
+peer_info_build = PEER_INFO_BUILD.read_text(encoding="utf-8")
 
 # Private invite previews may display media, but actions originating from the
 # media gallery must remain read-only. These callbacks bypass the regular
@@ -450,14 +458,23 @@ private final class AyuGramPrivateInvitePreviewController: ViewController {
 private func ayuSettingsEntries(_ settings: AyuSettings, accountID: Int64) -> [AyuSettingsEntry] {''',
         "private invite controller insertion"
     )
+
+
+# Expose the existing preview controller to Telegram's main Settings screen.
+preview_factory = """public func ayuGramPrivateInvitePreviewController(context: AccountContext) -> ViewController {
+    return AyuGramPrivateInvitePreviewController(context: context)
+}
+
+"""
+if preview_factory not in settings:
     settings = replace_once(
         settings,
-        "        .saveEdited(settings.saveMessagesHistory),\n",
-        "        .saveEdited(settings.saveMessagesHistory),\n        .privateInvitePreview,\n",
-        "private invite settings row"
+        "private func ayuSettingsEntries(_ settings: AyuSettings, accountID: Int64) -> [AyuSettingsEntry] {",
+        preview_factory + "private func ayuSettingsEntries(_ settings: AyuSettings, accountID: Int64) -> [AyuSettingsEntry] {",
+        "private invite public controller factory"
     )
 
-if "privateInvitePreview" not in settings or "privateInviteURLField" not in settings:
+if "AyuGramPrivateInvitePreviewController" not in settings or "privateInviteURLField" not in settings or "public func ayuGramPrivateInvitePreviewController" not in settings:
     raise SystemExit("Private group preview settings integration did not complete")
 
 if "//submodules/AsyncDisplayKit" not in build:
@@ -467,6 +484,54 @@ if "//submodules/AsyncDisplayKit" not in build:
         '        "//submodules/AccountContext",\n        "//submodules/AsyncDisplayKit",\n',
         "private invite AsyncDisplayKit dependency"
     )
+
+# Add the invite preview directly below the native My Profile row.
+if "case privateInvitePreview" not in peer_info_screen:
+    peer_info_screen = replace_once(
+        peer_info_screen,
+        "    case profile\n    case premiumManagement\n",
+        "    case profile\n    case privateInvitePreview\n    case premiumManagement\n",
+        "private invite Settings route"
+    )
+
+if "import AyuGramSettingsScreen" not in peer_info_actions:
+    peer_info_actions = replace_once(
+        peer_info_actions,
+        "import SGSettingsUI\n",
+        "import SGSettingsUI\nimport AyuGramSettingsScreen\n",
+        "private invite controller module import"
+    )
+
+if "case .privateInvitePreview:" not in peer_info_actions:
+    peer_info_actions = replace_once(
+        peer_info_actions,
+        "        case .profile:\n",
+        "        case .privateInvitePreview:\n            push(ayuGramPrivateInvitePreviewController(context: self.context))\n        case .profile:\n",
+        "private invite Settings action"
+    )
+
+profile_row = "        items[.myProfile]!.append(PeerInfoScreenDisclosureItem(id: 0, text: presentationData.strings.Settings_MyProfile, icon: PresentationResourcesSettings.myProfile, action: {\n            interaction.openSettings(.profile)\n        }))"
+profile_row_with_preview = "        items[.myProfile]!.append(PeerInfoScreenDisclosureItem(id: 0, text: presentationData.strings.Settings_MyProfile, icon: PresentationResourcesSettings.myProfile, action: {\n            interaction.openSettings(.profile)\n        }))\n\n        items[.myProfile]!.append(PeerInfoScreenDisclosureItem(id: 1, text: \"Private Group Preview\", icon: UIImage(systemName: \"eye\"), action: {\n            interaction.openSettings(.privateInvitePreview)\n        }))"
+if '"Private Group Preview"' not in peer_info_items:
+    peer_info_items = replace_once(
+        peer_info_items,
+        profile_row,
+        profile_row_with_preview,
+        "private invite row under My Profile"
+    )
+
+if '"//submodules/TelegramUI/Components/AyuGramSettingsScreen"' not in peer_info_build:
+    peer_info_build = replace_once(
+        peer_info_build,
+        '        "//submodules/AsyncDisplayKit",\n',
+        '        "//submodules/AsyncDisplayKit",\n        "//submodules/TelegramUI/Components/AyuGramSettingsScreen",\n',
+        "private invite Settings module dependency"
+    )
+
+if '"Private Group Preview"' not in peer_info_items or '"interaction.openSettings(.privateInvitePreview)"' not in peer_info_items:
+    raise SystemExit("Settings > My Profile preview row was not installed")
+if '"ayuGramPrivateInvitePreviewController(context: self.context)"' not in peer_info_actions:
+    raise SystemExit("Settings > My Profile preview row does not open the invite controller")
 
 # Telegram's native ChatPeekTimeout owns the peek lifecycle and read-only behavior.
 # Do not globally alter channel send/reaction permissions: that would also affect
@@ -844,6 +909,10 @@ if chat_controller_interaction.count("guard canPerformPeekInteractions() else { 
     raise SystemExit("Not all private preview callbacks were wrapped")
 
 CHAT_CONTROLLER_INTERACTION.write_text(chat_controller_interaction, encoding="utf-8")
+PEER_INFO_SCREEN.write_text(peer_info_screen, encoding="utf-8")
+PEER_INFO_ITEMS.write_text(peer_info_items, encoding="utf-8")
+PEER_INFO_ACTIONS.write_text(peer_info_actions, encoding="utf-8")
+PEER_INFO_BUILD.write_text(peer_info_build, encoding="utf-8")
 
 SETTINGS.write_text(settings, encoding="utf-8")
 SETTINGS_BUILD.write_text(build, encoding="utf-8")
@@ -851,7 +920,7 @@ MENU.write_text(menu, encoding="utf-8")
 CHAT_CONTROLLER.write_text(chat_controller, encoding="utf-8")
 CHAT_CONTROLLER_INTERACTION.write_text(chat_controller_interaction, encoding="utf-8")
 print("PASS: manual Save and deleted-message capture remain from the AyuGram patch.")
-print("PASS: added Telegram-resolved private invite preview entry.")
+print("PASS: added Telegram-resolved private invite preview under Settings > My Profile.")
 print("PASS: non-member channel chat composer and reactions are read-only.")
 print("PASS: native peek expiry no longer offers Join.")
 print("PASS: added Before action backed by the pre-edit archive.")
