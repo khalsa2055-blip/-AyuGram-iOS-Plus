@@ -530,7 +530,7 @@ if '"//submodules/TelegramUI/Components/AyuGramSettingsScreen"' not in peer_info
 
 if '"Private Group Preview"' not in peer_info_items or 'interaction.openSettings(.privateInvitePreview)' not in peer_info_items:
     raise SystemExit("Settings > My Profile preview row was not installed")
-if '"ayuGramPrivateInvitePreviewController(context: self.context)"' not in peer_info_actions:
+if 'ayuGramPrivateInvitePreviewController(context: self.context)' not in peer_info_actions:
     raise SystemExit("Settings > My Profile preview row does not open the invite controller")
 
 # Telegram's native ChatPeekTimeout owns the peek lifecycle and read-only behavior.
