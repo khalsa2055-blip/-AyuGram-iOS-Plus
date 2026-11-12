@@ -1,4 +1,5 @@
 name: AyuGram iOS Plus — Four Feature Simulator Validation
+# Re-run simulator validation after the latest compatibility-check fix.
 
 on:
   workflow_dispatch:
