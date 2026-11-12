@@ -296,7 +296,7 @@ jobs:
                   relaxed_count += 1
                   indent = line[:len(line) - len(line.lstrip())]
                   legacy_kept.append(line)
-                  legacy_kept.append(indent + '"-Wno-error=deprecated-declarations",\\n')
+                  legacy_kept.append(indent + '"-Wno-error=deprecated-declarations",\n')
               else:
                   legacy_kept.append(line)
           if relaxed_count != 1:
