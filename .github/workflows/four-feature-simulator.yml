@@ -2425,6 +2425,10 @@ jobs:
           # matching the repository's separately passing compatibility workflow.
           build --features=-treat_warnings_as_errors
           build --cxxopt='-Wno-error=#warnings'
+          # Bound the action cache so the simulator + device builds cannot exhaust the runner disk.
+          # Bazel garbage-collects this cache while its server is idle after the simulator build.
+          build --experimental_disk_cache_gc_max_size=6G
+          build --experimental_disk_cache_gc_idle_delay=30s
           BAZELRC
           printf 'build --repository_cache=%s/telegram-bazel-cache/repository\\n' "$HOME" >> .bazelrc
 
@@ -2456,15 +2460,6 @@ jobs:
             attempt=$next_attempt
             sleep "$delay"
           done
-
-      - name: Save partial Bazel cache even when simulator build fails
-        if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            ~/telegram-bazel-cache
-            ~/.cache/bazel/repository
-          key: ${{ runner.os }}-telegram-bazel-eb5ae67a32c6-xcode27-repository-v1-${{ hashFiles('patches/**') }}-${{ github.run_id }}
 
       - name: Smoke-test app in iPhone Simulator
         working-directory: telegram-ios
@@ -2863,10 +2858,42 @@ jobs:
           echo "Removing generated simulator output tree; keeping the persistent disk/repository caches."
           USE_BAZEL_VERSION=8.4.2 bazelisk clean
           test -d "$HOME/telegram-bazel-cache"
-          echo "Persistent Bazel cache retained:"
+          # If Bazel's idle GC did not reduce the action cache enough, clear only that
+          # disposable cache. Keep ~/.cache/bazel/repository so dependency downloads remain warm.
+          cache_size_kb="$(du -sk "$HOME/telegram-bazel-cache" | awk '{print $1}')"
+          if [ "$cache_size_kb" -gt "$((8 * 1024 * 1024))" ]; then
+            echo "::warning::Bazel action cache is still above 8 GiB; removing the action cache to protect device packaging."
+            rm -rf "$HOME/telegram-bazel-cache"
+            mkdir -p "$HOME/telegram-bazel-cache"
+          fi
+          available_kb="$(df -Pk / | awk 'NR == 2 {print $4}')"
+          if [ "$available_kb" -lt "$((12 * 1024 * 1024))" ] && [ -d "$HOME/telegram-bazel-cache" ]; then
+            echo "::warning::Less than 12 GiB remains; clearing the disposable Bazel action cache."
+            rm -rf "$HOME/telegram-bazel-cache"
+            mkdir -p "$HOME/telegram-bazel-cache"
+          fi
+          available_kb="$(df -Pk / | awk 'NR == 2 {print $4}')"
+          if [ "$available_kb" -lt "$((10 * 1024 * 1024))" ]; then
+            echo "::error::Less than 10 GiB is available for the arm64 IPA build after cache cleanup."
+            df -h /
+            exit 1
+          fi
+          test -d "$HOME/telegram-bazel-cache"
+          echo "Bazel action cache after bounded cleanup:"
           du -sh "$HOME/telegram-bazel-cache" || true
-          echo "Disk space after Bazel output cleanup:"
+          echo "Repository cache retained:"
+          du -sh "$HOME/.cache/bazel/repository" || true
+          echo "Disk space after Bazel output/cache cleanup:"
           df -h /
+
+      - name: Save partial Bazel cache even when simulator build fails
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/telegram-bazel-cache
+            ~/.cache/bazel/repository
+          key: ${{ runner.os }}-telegram-bazel-eb5ae67a32c6-xcode27-repository-v1-${{ hashFiles('patches/**') }}-${{ github.run_id }}
 
       - name: Prepare unsigned arm64 device IPA for iLoader
         if: success() && ((github.event_name == 'workflow_dispatch' && inputs.build_device_ipa) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[build-device-ipa]'))) # One-time explicit opt-in via this commit marker or manual dispatch.
