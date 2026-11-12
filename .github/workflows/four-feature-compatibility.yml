@@ -289,12 +289,16 @@ jobs:
           if not legacy_build.is_file():
               raise SystemExit("LegacyComponents BUILD file missing; refusing an unverified compatibility edit")
           legacy_lines = legacy_build.read_text(encoding="utf-8").splitlines(keepends=True)
-          legacy_kept = [
-              line.replace('" -Werror",', '"-Wno-error=deprecated-declarations",').replace('"-Werror",', '"-Wno-error=deprecated-declarations",')
-              if line.strip() == '"-Werror",' else line
-              for line in legacy_lines
-          ]
-          relaxed_count = sum(1 for before, after in zip(legacy_lines, legacy_kept) if before != after)
+          legacy_kept = []
+          relaxed_count = 0
+          for line in legacy_lines:
+              if line.strip() == '"-Werror",':
+                  relaxed_count += 1
+                  indent = line[:len(line) - len(line.lstrip())]
+                  legacy_kept.append(line)
+                  legacy_kept.append(indent + '"-Wno-error=deprecated-declarations",\\n')
+              else:
+                  legacy_kept.append(line)
           if relaxed_count != 1:
               raise SystemExit(f"Expected exactly one LegacyComponents -Werror flag, found {relaxed_count}; refusing an ambiguous edit")
           legacy_build.write_text("".join(legacy_kept), encoding="utf-8")
