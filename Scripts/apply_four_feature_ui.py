@@ -512,7 +512,7 @@ if "case .privateInvitePreview:" not in peer_info_actions:
 
 profile_row = "        items[.myProfile]!.append(PeerInfoScreenDisclosureItem(id: 0, text: presentationData.strings.Settings_MyProfile, icon: PresentationResourcesSettings.myProfile, action: {\n            interaction.openSettings(.profile)\n        }))"
 profile_row_with_preview = "        items[.myProfile]!.append(PeerInfoScreenDisclosureItem(id: 0, text: presentationData.strings.Settings_MyProfile, icon: PresentationResourcesSettings.myProfile, action: {\n            interaction.openSettings(.profile)\n        }))\n\n        items[.myProfile]!.append(PeerInfoScreenDisclosureItem(id: 1, text: \"Private Group Preview\", icon: UIImage(systemName: \"eye\"), action: {\n            interaction.openSettings(.privateInvitePreview)\n        }))"
-if '"Private Group Preview"' not in peer_info_items:
+if '"Private Group Preview"' not in peer_info_items or '"interaction.openSettings(.privateInvitePreview)"' not in peer_info_items:
     peer_info_items = replace_once(
         peer_info_items,
         profile_row,
