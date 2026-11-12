@@ -111,13 +111,8 @@ CORE_ANCHOR = "func replayFinalState(\n"
 CORE_HOOK_OLD = """            case let .EditMessage(id, message):
                 var generatedEvent: (reactionAuthor: Peer, reaction: MessageReaction.Reaction, message: Message, timestamp: Int32)?
                 transaction.updateMessage(id, update: { previousMessage in
-                    let peers: [PeerId:Peer] = previousMessage.peers.reduce([:], { current, value in
 """
-CORE_HOOK_NEW = """            case let .EditMessage(id, message):
-                var generatedEvent: (reactionAuthor: Peer, reaction: MessageReaction.Reaction, message: Message, timestamp: Int32)?
-                transaction.updateMessage(id, update: { previousMessage in
-                    ayuGramArchiveOriginalMediaBeforeEdit(previousMessage: previousMessage, replacementMessage: message, mediaBox: mediaBox)
-                    let peers: [PeerId:Peer] = previousMessage.peers.reduce([:], { current, value in
+CORE_HOOK_NEW = CORE_HOOK_OLD + """                    ayuGramArchiveOriginalMediaBeforeEdit(previousMessage: previousMessage, replacementMessage: message, mediaBox: mediaBox)
 """
 
 UI_IMPORT_ANCHOR = "import TelegramCore\n"
