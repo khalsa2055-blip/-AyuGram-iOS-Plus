@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Swiftgram/Telegram-iOS
-          ref: master
+          ref: eb5ae67a32c6e8b936ca0e875f19f99251112f17
           path: upstream
           fetch-depth: 1
 
@@ -86,7 +86,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Swiftgram/Telegram-iOS
-          ref: master
+          ref: eb5ae67a32c6e8b936ca0e875f19f99251112f17
           path: upstream
           submodules: recursive
           fetch-depth: 0
