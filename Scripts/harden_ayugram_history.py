@@ -2310,7 +2310,6 @@ if "private static func mergeLegacyDefaults(defaults: Any, stored: Any) throws -
     if settings_store_text.count(anchor) != 1:
         raise SystemExit("Settings store method insertion anchor is not unique")
     settings_store_text = settings_store_text.replace(anchor, method + anchor, 1)
-}
 settings_store.write_text(settings_store_text, encoding="utf-8")
 if "Self.mergeLegacyDefaults(defaults: defaultsObject, stored: storedObject)" not in settings_store_text:
     raise SystemExit("AyuSettingsStore legacy migration code was not applied as expected")
