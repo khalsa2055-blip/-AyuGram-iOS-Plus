@@ -2215,14 +2215,16 @@ settings_store = root / "submodules/AyuGramIOS/Sources/AyuSettingsStore.swift"
 if not settings_store.is_file():
     raise SystemExit(f"Missing AyuGram settings store: {settings_store}")
 settings_store_text = settings_store.read_text(encoding="utf-8")
-store_decode_pattern = re.compile(
-    r"(?m)^([ \t]*)(?:self\.)?cached\s*=\s*try decoder\.decode\(AyuSettings\.self,\s*from:\s*data\)\s*$"
-)
-store_decode_match = store_decode_pattern.search(settings_store_text)
+decode_marker = "decoder.decode(AyuSettings.self, from: data)"
+decode_lines = [
+    line for line in settings_store_text.splitlines()
+    if decode_marker in line
+]
 migration_call = "Self.mergeLegacyDefaults(defaults: defaultsObject, stored: storedObject)"
-if store_decode_match:
-    indent = store_decode_match.group(1)
-    new_store_decode_block = "\n".join(indent + line for line in (
+if len(decode_lines) == 1:
+    old_decode_line = decode_lines[0]
+    indent = old_decode_line[:len(old_decode_line) - len(old_decode_line.lstrip(" \t"))]
+    replacement_lines = [
         "let storedObject = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])",
         "let defaultsData = try encoder.encode(initial)",
         "let defaultsObject = try JSONSerialization.jsonObject(with: defaultsData, options: [.fragmentsAllowed])",
@@ -2232,14 +2234,16 @@ if store_decode_match:
         "if migratedData != data {",
         "    try migratedData.write(to: url, options: .atomic)",
         "}",
-    ))
-    settings_store_text = (
-        settings_store_text[:store_decode_match.start()]
-        + new_store_decode_block
-        + settings_store_text[store_decode_match.end():]
+    ]
+    replacement_block = "\n".join(indent + line for line in replacement_lines)
+    settings_store_text = settings_store_text.replace(old_decode_line, replacement_block, 1)
+elif len(decode_lines) == 0 and migration_call in settings_store_text:
+    pass
+else:
+    raise SystemExit(
+        "Expected exactly one AyuSettingsStore decoder assignment or an existing migration; "
+        f"found {len(decode_lines)} decoder lines"
     )
-elif migration_call not in settings_store_text:
-    raise SystemExit("AyuSettingsStore decode assignment anchor not found")
 
 if "private static func mergeLegacyDefaults(defaults: Any, stored: Any) throws -> Any" not in settings_store_text:
     method = """
