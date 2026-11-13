@@ -242,6 +242,57 @@ standalone_hook = """        if ProcessInfo.processInfo.arguments.contains("-Ayu
             }
             
             let now = Int64(Date().timeIntervalSince1970 * 1000.0)
+            do {
+                let legacySettingsURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("AyuGramLegacySettings-\(UUID().uuidString).json")
+                defer { try? FileManager.default.removeItem(at: legacySettingsURL) }
+                let legacyObject: [String: Any] = [
+                    "saveMessagesHistory": false,
+                    "translationProvider": "google",
+                    "ghostByAccount": [
+                        "7": ["sendReadMessages": false]
+                    ],
+                    "regexFilters": [
+                        ["id": UUID().uuidString, "text": "legacy-filter"]
+                    ]
+                ]
+                let legacyData = try JSONSerialization.data(withJSONObject: legacyObject, options: [.sortedKeys])
+                try legacyData.write(to: legacySettingsURL, options: .atomic)
+                let migratedStore = try AyuSettingsStore(url: legacySettingsURL)
+                let migratedSettings = migratedStore.settings
+                let reloadedStore = try AyuSettingsStore(url: legacySettingsURL)
+                let reloadedSettings = reloadedStore.settings
+                let ghostSettings = reloadedSettings.ghostSettings(for: 7)
+                let preservedFilter = reloadedSettings.regexFilters.first
+                let migrationPassed = migratedSettings.saveDeletedMessages
+                    && !migratedSettings.saveMessagesHistory
+                    && migratedSettings.translationProvider == .google
+                    && !ghostSettings.sendReadMessages
+                    && preservedFilter?.text == "legacy-filter"
+                    && preservedFilter?.enabled == true
+                    && reloadedSettings.saveDeletedMessages
+                let explicitFalseURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("AyuGramLegacySettingsFalse-\(UUID().uuidString).json")
+                defer { try? FileManager.default.removeItem(at: explicitFalseURL) }
+                let explicitFalseData = try JSONSerialization.data(
+                    withJSONObject: ["saveDeletedMessages": false, "saveMessagesHistory": true],
+                    options: [.sortedKeys]
+                )
+                try explicitFalseData.write(to: explicitFalseURL, options: .atomic)
+                let explicitFalseStore = try AyuSettingsStore(url: explicitFalseURL)
+                let explicitFalsePreserved = !explicitFalseStore.settings.saveDeletedMessages
+                    && explicitFalseStore.settings.saveMessagesHistory
+                add(
+                    "Legacy AyuGram settings migration",
+                    migrationPassed && explicitFalsePreserved,
+                    migrationPassed && explicitFalsePreserved
+                        ? "missing keys received defaults; existing values, Ghost Mode and filters survived; explicit false stayed false"
+                        : "legacy settings migration did not preserve the expected values"
+                )
+            } catch {
+                add("Legacy AyuGram settings migration", false, String(describing: error))
+            }
+
             let report = AyuGramSmokeTestReport(version: AyuGramRuntime.version, accountID: 0, startedAt: now, finishedAt: now, items: items)
             let reportURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.appendingPathComponent("AyuGram", isDirectory: true).appendingPathComponent("AyuGramSmokeReport.json")
             if let reportURL {
