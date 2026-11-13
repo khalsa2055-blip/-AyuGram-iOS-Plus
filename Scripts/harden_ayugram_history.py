@@ -2249,14 +2249,21 @@ if "private static func mergeLegacyDefaults(defaults: Any, stored: Any) throws -
             for (key, value) in storedObject {
                 switch key {
                 case "ghostByAccount":
-                    if let accounts = value as? [String: Any] {
+                    // JSONEncoder represents [Int64: GhostModeSettings] as
+                    // alternating key/value elements, e.g. [7, { ... }].
+                    if let entries = value as? [Any], entries.count % 2 == 0 {
                         let ghostData = try JSONEncoder().encode(GhostModeSettings())
                         let ghostDefaults = try JSONSerialization.jsonObject(with: ghostData, options: [.fragmentsAllowed])
-                        var migratedAccounts: [String: Any] = [:]
-                        for (accountID, accountSettings) in accounts {
-                            migratedAccounts[accountID] = try Self.mergeLegacyDefaults(defaults: ghostDefaults, stored: accountSettings)
+                        var migratedEntries: [Any] = []
+                        var index = 0
+                        while index < entries.count {
+                            migratedEntries.append(entries[index])
+                            migratedEntries.append(
+                                try Self.mergeLegacyDefaults(defaults: ghostDefaults, stored: entries[index + 1])
+                            )
+                            index += 2
                         }
-                        merged[key] = migratedAccounts
+                        merged[key] = migratedEntries
                         continue
                     }
                 case "regexFilters":
