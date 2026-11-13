@@ -2216,7 +2216,7 @@ if not settings_store.is_file():
     raise SystemExit(f"Missing AyuGram settings store: {settings_store}")
 settings_store_text = settings_store.read_text(encoding="utf-8")
 store_decode_pattern = re.compile(
-    r"(?m)^(\s*)(?:self\.)?cached\s*=\s*try decoder\.decode\(AyuSettings\.self,\s*from:\s*data\)\s*$"
+    r"(?m)^([ \t]*)(?:self\.)?cached\s*=\s*try decoder\.decode\(AyuSettings\.self,\s*from:\s*data\)\s*$"
 )
 store_decode_match = store_decode_pattern.search(settings_store_text)
 migration_call = "Self.mergeLegacyDefaults(defaults: defaultsObject, stored: storedObject)"
