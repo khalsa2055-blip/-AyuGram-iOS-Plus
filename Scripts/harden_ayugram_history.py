@@ -2215,13 +2215,8 @@ settings_store = root / "submodules/AyuGramIOS/Sources/AyuSettingsStore.swift"
 if not settings_store.is_file():
     raise SystemExit(f"Missing AyuGram settings store: {settings_store}")
 settings_store_text = settings_store.read_text(encoding="utf-8")
-old_store_decode = """        if FileManager.default.fileExists(atPath: url.path) {
-            let data = try Data(contentsOf: url)
-            self.cached = try decoder.decode(AyuSettings.self, from: data)
-        } else {"""
-new_store_decode = """        if FileManager.default.fileExists(atPath: url.path) {
-            let data = try Data(contentsOf: url)
-            let storedObject = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
+old_store_decode_line = "            self.cached = try decoder.decode(AyuSettings.self, from: data)"
+new_store_decode_block = """            let storedObject = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
             let defaultsData = try encoder.encode(initial)
             let defaultsObject = try JSONSerialization.jsonObject(with: defaultsData, options: [.fragmentsAllowed])
             let migratedObject = try Self.mergeLegacyDefaults(defaults: defaultsObject, stored: storedObject)
@@ -2229,12 +2224,11 @@ new_store_decode = """        if FileManager.default.fileExists(atPath: url.path
             self.cached = try decoder.decode(AyuSettings.self, from: migratedData)
             if migratedData != data {
                 try migratedData.write(to: url, options: .atomic)
-            }
-        } else {"""
-if old_store_decode in settings_store_text:
-    settings_store_text = settings_store_text.replace(old_store_decode, new_store_decode, 1)
+            }"""
+if old_store_decode_line in settings_store_text:
+    settings_store_text = settings_store_text.replace(old_store_decode_line, new_store_decode_block, 1)
 elif "Self.mergeLegacyDefaults(defaults: defaultsObject, stored: storedObject)" not in settings_store_text:
-    raise SystemExit("AyuSettingsStore decode initializer anchor not found")
+    raise SystemExit("AyuSettingsStore decode assignment anchor not found")
 
 if "private static func mergeLegacyDefaults(defaults: Any, stored: Any) throws -> Any" not in settings_store_text:
     method = """
