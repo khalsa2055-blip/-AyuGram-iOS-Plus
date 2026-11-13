@@ -2203,3 +2203,115 @@ if not interactive_delete.exists() or "ayuAccountID: account.peerId.toInt64()" n
 if "ayuAccountID: ayuAccountID ?? stateManager?.accountPeerId.toInt64()" not in interactive_delete.read_text():
     raise SystemExit("Interactive delete helper does not pass the active account into capture")
 print("AyuGram History v6 applied: per-dialog History + fail-closed media archive + truthful manual Save + direct/interactive deletion wiring checks.")
+
+
+# 10) Migrate old AyuGram settings files without discarding user preferences.
+# Synthesized Codable decoding fails when a previously saved JSON file is missing
+# even one newly-added non-optional property. Capture/deletion paths intentionally
+# use try? for settings lookup, so this otherwise disables deleted-message saving
+# silently. Merge new defaults recursively, preserve stored values, then persist
+# the migrated JSON once so future launches decode normally.
+settings_store = root / "submodules/AyuGramIOS/Sources/AyuSettingsStore.swift"
+if not settings_store.is_file():
+    raise SystemExit(f"Missing AyuGram settings store: {settings_store}")
+settings_store_text = settings_store.read_text(encoding="utf-8")
+old_store_decode = """        if FileManager.default.fileExists(atPath: url.path) {
+            let data = try Data(contentsOf: url)
+            self.cached = try decoder.decode(AyuSettings.self, from: data)
+        } else {"""
+new_store_decode = """        if FileManager.default.fileExists(atPath: url.path) {
+            let data = try Data(contentsOf: url)
+            let storedObject = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
+            let defaultsData = try encoder.encode(initial)
+            let defaultsObject = try JSONSerialization.jsonObject(with: defaultsData, options: [.fragmentsAllowed])
+            let migratedObject = try Self.mergeLegacyDefaults(defaults: defaultsObject, stored: storedObject)
+            let migratedData = try JSONSerialization.data(withJSONObject: migratedObject, options: [.sortedKeys])
+            self.cached = try decoder.decode(AyuSettings.self, from: migratedData)
+            if migratedData != data {
+                try migratedData.write(to: url, options: .atomic)
+            }
+        } else {"""
+if old_store_decode in settings_store_text:
+    settings_store_text = settings_store_text.replace(old_store_decode, new_store_decode, 1)
+elif "Self.mergeLegacyDefaults(defaults: defaultsObject, stored: storedObject)" not in settings_store_text:
+    raise SystemExit("AyuSettingsStore decode initializer anchor not found")
+
+if "private static func mergeLegacyDefaults(defaults: Any, stored: Any) throws -> Any" not in settings_store_text:
+    method = """
+    private static func mergeLegacyDefaults(defaults: Any, stored: Any) throws -> Any {
+        if stored is NSNull {
+            return defaults
+        }
+
+        if let defaultObject = defaults as? [String: Any],
+           let storedObject = stored as? [String: Any] {
+            var merged = defaultObject
+            for (key, value) in storedObject {
+                switch key {
+                case "ghostByAccount":
+                    if let accounts = value as? [String: Any] {
+                        let ghostData = try JSONEncoder().encode(GhostModeSettings())
+                        let ghostDefaults = try JSONSerialization.jsonObject(with: ghostData, options: [.fragmentsAllowed])
+                        var migratedAccounts: [String: Any] = [:]
+                        for (accountID, accountSettings) in accounts {
+                            migratedAccounts[accountID] = try Self.mergeLegacyDefaults(defaults: ghostDefaults, stored: accountSettings)
+                        }
+                        merged[key] = migratedAccounts
+                        continue
+                    }
+                case "regexFilters":
+                    if let filters = value as? [[String: Any]] {
+                        let filterData = try JSONEncoder().encode(RegexFilter(text: ""))
+                        let filterDefaults = try JSONSerialization.jsonObject(with: filterData, options: [.fragmentsAllowed])
+                        merged[key] = try filters.map {
+                            try Self.mergeLegacyDefaults(defaults: filterDefaults, stored: $0)
+                        }
+                        continue
+                    }
+                case "regexFilterExclusions":
+                    if let exclusions = value as? [[String: Any]] {
+                        let exclusionData = try JSONEncoder().encode(
+                            RegexFilterExclusion(dialogID: 0, filterID: UUID())
+                        )
+                        let exclusionDefaults = try JSONSerialization.jsonObject(with: exclusionData, options: [.fragmentsAllowed])
+                        merged[key] = try exclusions.map {
+                            try Self.mergeLegacyDefaults(defaults: exclusionDefaults, stored: $0)
+                        }
+                        continue
+                    }
+                default:
+                    break
+                }
+
+                if let defaultValue = defaultObject[key] {
+                    merged[key] = try Self.mergeLegacyDefaults(defaults: defaultValue, stored: value)
+                } else {
+                    // Unknown keys are harmless to Codable and are preserved until
+                    // the normalized AyuSettings value is encoded below.
+                    merged[key] = value
+                }
+            }
+            return merged
+        }
+
+        if let defaultValues = defaults as? [Any],
+           let storedValues = stored as? [Any],
+           let template = defaultValues.first {
+            return try storedValues.map {
+                try Self.mergeLegacyDefaults(defaults: template, stored: $0)
+            }
+        }
+
+        return stored
+    }
+
+"""
+    const anchor = "    public var settings: AyuSettings {";
+    if (settings_store_text.split(anchor).length !== 2) throw new Error("Settings store method insertion anchor is not unique");
+    settings_store_text = settings_store_text.replace(anchor, method + anchor, 1);
+}
+settings_store.write_text(settings_store_text, encoding="utf-8")
+if "Self.mergeLegacyDefaults(defaults: defaultsObject, stored: storedObject)" not in settings_store_text
+    or "public static func" in settings_store_text.split("private static func mergeLegacyDefaults", 1)[1].split("public var settings", 1)[0]:
+    raise SystemExit("AyuSettingsStore legacy migration code was not applied as expected")
+print("PASS: old AyuGram settings are merged with defaults and migrated without dropping existing values.")
