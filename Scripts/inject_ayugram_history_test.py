@@ -250,7 +250,8 @@ standalone_hook = """        if ProcessInfo.processInfo.arguments.contains("-Ayu
                     "saveMessagesHistory": false,
                     "translationProvider": "google",
                     "ghostByAccount": [
-                        "7": ["sendReadMessages": false]
+                        Int64(7) as Any,
+                        ["sendReadMessages": false] as [String: Any] as Any
                     ],
                     "regexFilters": [
                         ["id": UUID().uuidString, "text": "legacy-filter"]
