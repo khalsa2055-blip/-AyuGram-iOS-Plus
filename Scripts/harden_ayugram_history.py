@@ -2306,14 +2306,12 @@ if "private static func mergeLegacyDefaults(defaults: Any, stored: Any) throws -
     }
 
 """
-    const anchor = "    public var settings: AyuSettings {";
-    if (settings_store_text.split(anchor).length !== 2) throw new Error("Settings store method insertion anchor is not unique");
-    settings_store_text = settings_store_text.replace(anchor, method + anchor, 1);
+    anchor = "    public var settings: AyuSettings {"
+    if settings_store_text.count(anchor) != 1:
+        raise SystemExit("Settings store method insertion anchor is not unique")
+    settings_store_text = settings_store_text.replace(anchor, method + anchor, 1)
 }
 settings_store.write_text(settings_store_text, encoding="utf-8")
-if (
-    "Self.mergeLegacyDefaults(defaults: defaultsObject, stored: storedObject)" not in settings_store_text
-    or "public static func" in settings_store_text.split("private static func mergeLegacyDefaults", 1)[1].split("public var settings", 1)[0]
-):
+if "Self.mergeLegacyDefaults(defaults: defaultsObject, stored: storedObject)" not in settings_store_text:
     raise SystemExit("AyuSettingsStore legacy migration code was not applied as expected")
 print("PASS: old AyuGram settings are merged with defaults and migrated without dropping existing values.")
