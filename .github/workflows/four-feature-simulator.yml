@@ -3166,3 +3166,4 @@ jobs:
           name: AyuGram-iOS-Plus-four-feature-simulator-${{ github.run_number }}
           path: telegram-ios/ci-artifacts
           if-no-files-found: error
+# Device IPA trigger documentation: build only after the validated simulator and compatibility checks.
