@@ -242,10 +242,9 @@ global_capture_anchor = "_internal_captureDeletedMessages(transaction: transacti
 global_retention_call = "                let ayuRetainedGlobalIds = _internal_retainDeletedMessagesWithGlobalIds(transaction: transaction, ids: ids, accountID: accountPeerId.toInt64())"
 if global_capture_anchor not in state_text:
     raise SystemExit("Global-ID capture insertion anchor not found")
-global_retention_anchor = global_capture_anchor + "                var ayuRetainedGlobalIds = Set<Int32>()\n"
-if global_retention_anchor not in state_text:
-    raise SystemExit("Global-ID retention insertion anchor not found")
-state_text = state_text.replace(global_retention_anchor, global_capture_anchor + global_retention_call + "\n", 1)
+if global_capture_anchor not in state_text:
+    raise SystemExit("Global-ID capture insertion anchor not found")
+state_text = state_text.replace(global_capture_anchor, global_capture_anchor + global_retention_call + "\n", 1)
 old_global_delete_call = "transaction.deleteMessagesWithGlobalIds(ids, forEachMedia: { media in"
 new_global_delete_call = """let ayuGlobalIdsToDelete = ids.filter { !ayuRetainedGlobalIds.contains($0) }
                 transaction.deleteMessagesWithGlobalIds(ayuGlobalIdsToDelete, forEachMedia: { media in"""
