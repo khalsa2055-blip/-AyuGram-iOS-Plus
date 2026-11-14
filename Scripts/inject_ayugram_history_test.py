@@ -144,7 +144,7 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                             try? settingsStore.update { $0.saveDeletedMessages = true }
                         }
 
-                        let captureSignal = account.postbox.transaction { transaction -> (AyuMessage?, Bool, Bool, Bool) in
+                        let captureSignal = account.postbox.transaction { transaction -> (AyuMessage?, Bool, Bool, Bool, Bool, Bool, Bool, Bool, Bool) in
                             let storeMessage = StoreMessage(
                                 id: messageID,
                                 customStableId: nil,
@@ -184,13 +184,62 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                                 limit: 100
                             ).first { $0.messageID == messageID.id && $0.text == messageText }
 
-                            return (captured, retainedInChat, hasDeletedMarker, retainedIDs.contains(messageID))
+                            let globalTestPeerId = PeerId(933000002)
+                            let globalMessageID = MessageId(peerId: globalTestPeerId, namespace: Namespaces.Message.Cloud, id: 1700000125)
+                            let globalMessageText = "Synthetic message routed through Global ID deleted retention"
+                            let globalStoreMessage = StoreMessage(
+                                id: globalMessageID,
+                                customStableId: nil,
+                                globallyUniqueId: nil,
+                                groupingKey: nil,
+                                threadId: nil,
+                                timestamp: now,
+                                flags: [],
+                                tags: [],
+                                globalTags: [],
+                                localTags: [],
+                                forwardInfo: nil,
+                                authorId: nil,
+                                text: globalMessageText,
+                                attributes: [],
+                                media: []
+                            )
+                            transaction.addMessages([globalStoreMessage], location: .Random)
+
+                            let resolvedGlobalMessageID = transaction.messageIdsForGlobalIds([globalMessageID.id]).first
+                            let globalLookupSucceeded = resolvedGlobalMessageID == globalMessageID
+                            let retainedGlobalIDs = _internal_retainDeletedMessagesWithGlobalIds(
+                                transaction: transaction,
+                                ids: [globalMessageID.id],
+                                accountID: accountID
+                            )
+                            let globalIDsToDelete = [globalMessageID.id].filter { !retainedGlobalIDs.contains($0) }
+                            transaction.deleteMessagesWithGlobalIds(globalIDsToDelete, forEachMedia: { _ in })
+                            let retainedGlobalMessage = transaction.getMessage(globalMessageID)
+                            let globalRetainedInChat = retainedGlobalMessage?.text == globalMessageText
+                            let globalHasDeletedMarker = retainedGlobalMessage?.attributes.contains(where: {
+                                ($0 as? EditedMessageAttribute)?.date == Int32.min
+                            }) ?? false
+                            let globalReturnedRetainedID = retainedGlobalIDs.contains(globalMessageID.id)
+                            let globalDeletionFiltered = globalIDsToDelete.isEmpty && retainedGlobalMessage != nil
+
+                            return (
+                                captured,
+                                retainedInChat,
+                                hasDeletedMarker,
+                                retainedIDs.contains(messageID),
+                                globalLookupSucceeded,
+                                globalRetainedInChat,
+                                globalHasDeletedMarker,
+                                globalReturnedRetainedID,
+                                globalDeletionFiltered
+                            )
                         }
 
                         _ = (captureSignal |> deliverOnMainQueue).start(next: { result in
                             let captureEnabled = settingsStore?.settings.saveDeletedMessages ?? false
                             let historyCaptured = result.0?.isDeleted == true && result.0?.text == messageText
-                            let passed = captureEnabled && historyCaptured && result.1 && result.2 && result.3
+                            let passed = captureEnabled && historyCaptured && result.1 && result.2 && result.3 && result.4 && result.5 && result.6 && result.7 && result.8
                             if let settingsStore, let originalSaveDeletedMessages {
                                 try? settingsStore.update { $0.saveDeletedMessages = originalSaveDeletedMessages }
                             }
@@ -204,7 +253,12 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                                 "dialogID": dialogID,
                                 "messageID": Int(messageID.id),
                                 "capturedText": result.0?.text ?? "",
-                                "isDeleted": result.0?.isDeleted ?? false
+                                "isDeleted": result.0?.isDeleted ?? false,
+                                "globalLookupSucceeded": result.4,
+                                "globalRetainedInChat": result.5,
+                                "globalHasDeletedMarker": result.6,
+                                "globalReturnedRetainedID": result.7,
+                                "globalDeletionFiltered": result.8
                             ]
                             guard let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
                                 print("AyuGram deleted-retention smoke test has no Documents directory")

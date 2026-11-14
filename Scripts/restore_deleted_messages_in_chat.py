@@ -207,6 +207,12 @@ delete_text = replace_once(
 DELETE.write_text(delete_text, encoding="utf-8")
 
 state_text = STATE.read_text(encoding="utf-8")
+global_helper_signature = "public func _internal_retainDeletedMessagesWithGlobalIds("
+if global_helper_signature not in state_text:
+    state_import_anchor = "import AyuGramIOS\n"
+    if state_import_anchor not in state_text:
+        raise SystemExit("AccountStateManagementUtils AyuGramIOS import anchor not found")
+    state_text = state_text.replace(state_import_anchor, state_import_anchor + "\n" + "public func _internal_retainDeletedMessagesWithGlobalIds(transaction: Transaction, ids: [Int32], accountID: Int64) -> Set<Int32> {\n    var retainedGlobalIds = Set<Int32>()\n    guard (try? AyuGramRuntime.makeSettingsStore(accountID: accountID))?.settings.saveDeletedMessages == true else {\n        return retainedGlobalIds\n    }\n\n    for globalID in ids {\n        guard let messageID = transaction.messageIdsForGlobalIds([globalID]).first,\n              let message = transaction.getMessage(messageID),\n              !message.isCopyProtected(),\n              !message.containsSecretMedia else {\n            continue\n        }\n        transaction.updateMessage(messageID, update: { currentMessage in\n            var attributes = currentMessage.attributes\n            if attributes.contains(where: { ($0 as? EditedMessageAttribute)?.date == Int32.min }) {\n                return .skip\n            }\n            attributes.append(EditedMessageAttribute(date: Int32.min, isHidden: true))\n\n            var storeForwardInfo: StoreMessageForwardInfo?\n            if let forwardInfo = currentMessage.forwardInfo {\n                storeForwardInfo = StoreMessageForwardInfo(\n                    authorId: forwardInfo.author?.id,\n                    sourceId: forwardInfo.source?.id,\n                    sourceMessageId: forwardInfo.sourceMessageId,\n                    date: forwardInfo.date,\n                    authorSignature: forwardInfo.authorSignature,\n                    psaType: forwardInfo.psaType,\n                    flags: forwardInfo.flags\n                )\n            }\n            return .update(StoreMessage(\n                id: currentMessage.id,\n                customStableId: nil,\n                globallyUniqueId: currentMessage.globallyUniqueId,\n                groupingKey: currentMessage.groupingKey,\n                threadId: currentMessage.threadId,\n                timestamp: currentMessage.timestamp,\n                flags: StoreMessageFlags(currentMessage.flags),\n                tags: currentMessage.tags,\n                globalTags: currentMessage.globalTags,\n                localTags: currentMessage.localTags,\n                forwardInfo: storeForwardInfo,\n                authorId: currentMessage.author?.id,\n                text: currentMessage.text,\n                attributes: attributes,\n                media: currentMessage.media\n            ))\n        })\n        retainedGlobalIds.insert(globalID)\n    }\n    return retainedGlobalIds\n}" + "\n", 1)
 state_text = replace_once(
     state_text,
     "}, ayuAccountID: accountPeerId.toInt64())",
@@ -233,59 +239,13 @@ direct_delete_block = replace_once(
 state_text = state_text[:direct_delete_start] + direct_delete_block + state_text[direct_delete_end:]
 
 global_capture_anchor = "_internal_captureDeletedMessages(transaction: transaction, mediaBox: mediaBox, ids: messageIds, ayuAccountID: accountPeerId.toInt64())\n"
-global_retention_block = r'''                var ayuRetainedGlobalIds = Set<Int32>()
-                if (try? AyuGramRuntime.makeSettingsStore(accountID: accountPeerId.toInt64()))?.settings.saveDeletedMessages == true {
-                    for globalID in ids {
-                        guard let messageID = transaction.messageIdsForGlobalIds([globalID]).first,
-                              let message = transaction.getMessage(messageID),
-                              !message.isCopyProtected(),
-                              !message.containsSecretMedia else {
-                            continue
-                        }
-                        transaction.updateMessage(messageID, update: { currentMessage in
-                            var attributes = currentMessage.attributes
-                            if attributes.contains(where: { ($0 as? EditedMessageAttribute)?.date == Int32.min }) {
-                                return .skip
-                            }
-                            attributes.append(EditedMessageAttribute(date: Int32.min, isHidden: true))
-
-                            var storeForwardInfo: StoreMessageForwardInfo?
-                            if let forwardInfo = currentMessage.forwardInfo {
-                                storeForwardInfo = StoreMessageForwardInfo(
-                                    authorId: forwardInfo.author?.id,
-                                    sourceId: forwardInfo.source?.id,
-                                    sourceMessageId: forwardInfo.sourceMessageId,
-                                    date: forwardInfo.date,
-                                    authorSignature: forwardInfo.authorSignature,
-                                    psaType: forwardInfo.psaType,
-                                    flags: forwardInfo.flags
-                                )
-                            }
-                            return .update(StoreMessage(
-                                id: currentMessage.id,
-                                customStableId: nil,
-                                globallyUniqueId: currentMessage.globallyUniqueId,
-                                groupingKey: currentMessage.groupingKey,
-                                threadId: currentMessage.threadId,
-                                timestamp: currentMessage.timestamp,
-                                flags: StoreMessageFlags(currentMessage.flags),
-                                tags: currentMessage.tags,
-                                globalTags: currentMessage.globalTags,
-                                localTags: currentMessage.localTags,
-                                forwardInfo: storeForwardInfo,
-                                authorId: currentMessage.author?.id,
-                                text: currentMessage.text,
-                                attributes: attributes,
-                                media: currentMessage.media
-                            ))
-                        })
-                        ayuRetainedGlobalIds.insert(globalID)
-                    }
-                }
-'''
+global_retention_call = "                let ayuRetainedGlobalIds = _internal_retainDeletedMessagesWithGlobalIds(transaction: transaction, ids: ids, accountID: accountPeerId.toInt64())"
 if global_capture_anchor not in state_text:
     raise SystemExit("Global-ID capture insertion anchor not found")
-state_text = state_text.replace(global_capture_anchor, global_capture_anchor + global_retention_block, 1)
+global_retention_anchor = global_capture_anchor + "                var ayuRetainedGlobalIds = Set<Int32>()\n"
+if global_retention_anchor not in state_text:
+    raise SystemExit("Global-ID retention insertion anchor not found")
+state_text = state_text.replace(global_retention_anchor, global_capture_anchor + global_retention_call + "\n", 1)
 old_global_delete_call = "transaction.deleteMessagesWithGlobalIds(ids, forEachMedia: { media in"
 new_global_delete_call = """let ayuGlobalIdsToDelete = ids.filter { !ayuRetainedGlobalIds.contains($0) }
                 transaction.deleteMessagesWithGlobalIds(ayuGlobalIdsToDelete, forEachMedia: { media in"""
@@ -513,7 +473,8 @@ assert "let idsToDelete = ids.filter { !ayuRetainedDeletedMessageIds.contains($0
 assert "preserveDeletedMessagesInChat: true" in state_check
 assert "ayuRetainedGlobalIds" in state_check
 assert "ayuGlobalIdsToDelete = ids.filter" in state_check
-assert "var ayuRetainedGlobalIds = Set<Int32>()" in state_check
+assert "_internal_retainDeletedMessagesWithGlobalIds(transaction: transaction, ids: ids, accountID: accountPeerId.toInt64())" in state_check
+assert "public func _internal_retainDeletedMessagesWithGlobalIds" in state_check
 assert ".global($0)" in state_check
 assert "return _internal_deleteMessages(" not in ENGINE.read_text(encoding="utf-8")
 assert "-> Set<MessageId>" in delete_check
