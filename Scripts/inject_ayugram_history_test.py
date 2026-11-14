@@ -129,12 +129,13 @@ if "AyuGram History ready" not in s:
     s = s.replace(anchor, hook, 1)
 
 
-deleted_capture_hook = """                    if ProcessInfo.processInfo.arguments.contains("-AyuGramDeletedCaptureSmokeTest") {
-                        let account = context.context.account
-                        let accountID = account.peerId.toInt64()
-                        let dialogID = accountID
+deleted_capture_hook = """                    if ProcessInfo.processInfo.arguments.contains("-AyuGramDeletedCaptureSmokeTest"), let context = context {
+                        let account = context.account
+                        let accountID = account.id.int64
+                        let testPeerId = PeerId(933000001)
+                        let dialogID = testPeerId.toInt64()
                         let now = Int32(Date().timeIntervalSince1970)
-                        let messageID = MessageId(peerId: account.peerId, namespace: Namespaces.Message.Cloud, id: 1700000124)
+                        let messageID = MessageId(peerId: testPeerId, namespace: Namespaces.Message.Cloud, id: 1700000124)
                         let messageText = "Synthetic message routed through deleted retention helper"
 
                         let settingsStore = try? AyuGramRuntime.cachedSettingsStore(accountID: accountID)
@@ -183,7 +184,6 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                                 limit: 100
                             ).first { $0.messageID == messageID.id && $0.text == messageText }
 
-                            transaction.deleteMessages([messageID], forEachMedia: { _ in })
                             return (captured, retainedInChat, hasDeletedMarker, retainedIDs.contains(messageID))
                         }
 
@@ -222,10 +222,10 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                     }
 """
 
-deleted_capture_anchor = '                    if ProcessInfo.processInfo.arguments.contains("-AyuGramFullSmokeTest") {'
+deleted_capture_anchor = "            self.authContextValue = context\n"
 if "AyuGramDeletedCaptureSmokeTest" not in s:
     if s.count(deleted_capture_anchor) != 1:
-        raise SystemExit("Deleted-capture smoke-test insertion anchor is not unique")
+        raise SystemExit("Unauthorized-account deleted-capture insertion anchor is not unique")
     s = s.replace(deleted_capture_anchor, deleted_capture_hook + deleted_capture_anchor, 1)
 
 launch_anchor = "        let launchStartTime = CFAbsoluteTimeGetCurrent()"
