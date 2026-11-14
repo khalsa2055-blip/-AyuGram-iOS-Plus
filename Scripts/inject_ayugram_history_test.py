@@ -220,6 +220,7 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                             }
                         })
                     }
+"""
 
 deleted_capture_anchor = '                    if ProcessInfo.processInfo.arguments.contains("-AyuGramFullSmokeTest") {'
 if "AyuGramDeletedCaptureSmokeTest" not in s:
