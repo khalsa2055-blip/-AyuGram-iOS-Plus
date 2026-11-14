@@ -129,7 +129,98 @@ if "AyuGram History ready" not in s:
     s = s.replace(anchor, hook, 1)
 
 
-deleted_capture_hook = "                    if ProcessInfo.processInfo.arguments.contains(\"-AyuGramDeletedCaptureSmokeTest\") {\n                        let account = context.context.account\n                        let accountID = account.peerId.toInt64()\n                        let dialogID = accountID\n                        let now = Int32(Date().timeIntervalSince1970)\n                        let messageID = MessageId(peerId: account.peerId, namespace: Namespaces.Message.Cloud, id: 1700000124)\n                        let messageText = \"Synthetic message routed through deleted capture service\"\n\n                        let captureSignal = account.postbox.transaction { transaction -> AyuMessage? in\n                            let storeMessage = StoreMessage(\n                                id: messageID,\n                                customStableId: nil,\n                                globallyUniqueId: nil,\n                                groupingKey: nil,\n                                threadId: nil,\n                                timestamp: now,\n                                flags: [],\n                                tags: [],\n                                globalTags: [],\n                                localTags: [],\n                                forwardInfo: nil,\n                                authorId: nil,\n                                text: messageText,\n                                attributes: [],\n                                media: []\n                            )\n                            transaction.addMessages([storeMessage], location: .Random)\n                            _internal_captureDeletedMessages(\n                                transaction: transaction,\n                                mediaBox: account.postbox.mediaBox,\n                                ids: [messageID],\n                                ayuAccountID: accountID\n                            )\n                            let captured = AyuGramPostboxHistoryStore.filtered(\n                                transaction: transaction,\n                                userID: accountID,\n                                dialogID: dialogID,\n                                kind: .deleted,\n                                limit: 100\n                            ).first { $0.messageID == messageID.id && $0.text == messageText }\n                            transaction.deleteMessages([messageID], forEachMedia: { _ in })\n                            return captured\n                        }\n\n                        _ = (captureSignal |> deliverOnMainQueue).start(next: { captured in\n                            let captureEnabled = (try? AyuGramRuntime.cachedSettingsStore(accountID: accountID).settings.saveDeletedMessages) ?? false\n                            let passed = captureEnabled && captured?.isDeleted == true && captured?.text == messageText\n                            let report: [String: Any] = [\n                                \"passed\": passed,\n                                \"captureEnabled\": captureEnabled,\n                                \"dialogID\": dialogID,\n                                \"messageID\": Int(messageID.id),\n                                \"capturedText\": captured?.text ?? \"\",\n                                \"isDeleted\": captured?.isDeleted ?? false\n                            ]\n                            guard let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {\n                                print(\"AyuGram deleted-capture smoke test has no Documents directory\")\n                                return\n                            }\n                            let reportURL = documents.appendingPathComponent(\"AyuGramDeletedCaptureSmokeReport.json\")\n                            do {\n                                let data = try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])\n                                try data.write(to: reportURL, options: .atomic)\n                                print(\"AyuGram deleted-capture smoke test: \\(passed ? \"PASS\" : \"FAIL\")\")\n                            } catch {\n                                print(\"AyuGram deleted-capture smoke report write failed: \\(error)\")\n                            }\n                        })\n                    }\n\n"
+deleted_capture_hook = """                    if ProcessInfo.processInfo.arguments.contains("-AyuGramDeletedCaptureSmokeTest") {
+                        let account = context.context.account
+                        let accountID = account.peerId.toInt64()
+                        let dialogID = accountID
+                        let now = Int32(Date().timeIntervalSince1970)
+                        let messageID = MessageId(peerId: account.peerId, namespace: Namespaces.Message.Cloud, id: 1700000124)
+                        let messageText = "Synthetic message routed through deleted retention helper"
+
+                        let settingsStore = try? AyuGramRuntime.cachedSettingsStore(accountID: accountID)
+                        let originalSaveDeletedMessages = settingsStore?.settings.saveDeletedMessages
+                        if let settingsStore {
+                            try? settingsStore.update { $0.saveDeletedMessages = true }
+                        }
+
+                        let captureSignal = account.postbox.transaction { transaction -> (AyuMessage?, Bool, Bool, Bool) in
+                            let storeMessage = StoreMessage(
+                                id: messageID,
+                                customStableId: nil,
+                                globallyUniqueId: nil,
+                                groupingKey: nil,
+                                threadId: nil,
+                                timestamp: now,
+                                flags: [],
+                                tags: [],
+                                globalTags: [],
+                                localTags: [],
+                                forwardInfo: nil,
+                                authorId: nil,
+                                text: messageText,
+                                attributes: [],
+                                media: []
+                            )
+                            transaction.addMessages([storeMessage], location: .Random)
+
+                            let retainedIDs = _internal_deleteMessages(
+                                transaction: transaction,
+                                mediaBox: account.postbox.mediaBox,
+                                ids: [messageID],
+                                ayuAccountID: accountID,
+                                preserveDeletedMessagesInChat: true
+                            )
+                            let retainedMessage = transaction.getMessage(messageID)
+                            let retainedInChat = retainedMessage?.text == messageText
+                            let hasDeletedMarker = retainedMessage?.attributes.contains(where: {
+                                ($0 as? EditedMessageAttribute)?.date == Int32.min
+                            }) ?? false
+                            let captured = AyuGramPostboxHistoryStore.filtered(
+                                transaction: transaction,
+                                userID: accountID,
+                                dialogID: dialogID,
+                                kind: .deleted,
+                                limit: 100
+                            ).first { $0.messageID == messageID.id && $0.text == messageText }
+
+                            transaction.deleteMessages([messageID], forEachMedia: { _ in })
+                            return (captured, retainedInChat, hasDeletedMarker, retainedIDs.contains(messageID))
+                        }
+
+                        _ = (captureSignal |> deliverOnMainQueue).start(next: { result in
+                            let captureEnabled = settingsStore?.settings.saveDeletedMessages ?? false
+                            let historyCaptured = result.0?.isDeleted == true && result.0?.text == messageText
+                            let passed = captureEnabled && historyCaptured && result.1 && result.2 && result.3
+                            if let settingsStore, let originalSaveDeletedMessages {
+                                try? settingsStore.update { $0.saveDeletedMessages = originalSaveDeletedMessages }
+                            }
+                            let report: [String: Any] = [
+                                "passed": passed,
+                                "captureEnabled": captureEnabled,
+                                "historyCaptured": historyCaptured,
+                                "retainedInChat": result.1,
+                                "hasDeletedMarker": result.2,
+                                "returnedRetainedID": result.3,
+                                "dialogID": dialogID,
+                                "messageID": Int(messageID.id),
+                                "capturedText": result.0?.text ?? "",
+                                "isDeleted": result.0?.isDeleted ?? false
+                            ]
+                            guard let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+                                print("AyuGram deleted-retention smoke test has no Documents directory")
+                                return
+                            }
+                            let reportURL = documents.appendingPathComponent("AyuGramDeletedCaptureSmokeReport.json")
+                            do {
+                                let data = try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])
+                                try data.write(to: reportURL, options: .atomic)
+                                print("AyuGram deleted-retention smoke test: \\(passed ? "PASS" : "FAIL")")
+                            } catch {
+                                print("AyuGram deleted-retention smoke report write failed: \\(error)")
+                            }
+                        })
+                    }
+
 deleted_capture_anchor = '                    if ProcessInfo.processInfo.arguments.contains("-AyuGramFullSmokeTest") {'
 if "AyuGramDeletedCaptureSmokeTest" not in s:
     if s.count(deleted_capture_anchor) != 1:

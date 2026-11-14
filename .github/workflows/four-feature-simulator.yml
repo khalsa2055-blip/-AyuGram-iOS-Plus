@@ -2578,6 +2578,49 @@ jobs:
           APP_CONTAINER=$(xcrun simctl get_app_container "$DEVICE_UDID" "$bundle_id" data)
           DOCUMENTS="$APP_CONTAINER/Documents"
           mkdir -p "$DOCUMENTS"
+
+          # Exercise the real TelegramCore deletion helper, not a history-only capture.
+          # The test verifies that a server-style deletion leaves the original Postbox row
+          # in place with the AyuGram tombstone while also creating the History snapshot.
+          delete_capture_report="$DOCUMENTS/AyuGramDeletedCaptureSmokeReport.json"
+          rm -f "$delete_capture_report"
+          set +e
+          delete_capture_launch=$(xcrun simctl launch --terminate-running-process "$DEVICE_UDID" "$bundle_id" -AyuGramDeletedCaptureSmokeTest 2>&1)
+          delete_capture_rc=$?
+          set -e
+          echo "$delete_capture_launch"
+          test "$delete_capture_rc" -eq 0 || {
+            echo "AyuGram deleted-retention smoke-test launch failed." >&2
+            exit "$delete_capture_rc"
+          }
+          for attempt in $(seq 1 60); do
+            if [ -s "$delete_capture_report" ]; then
+              break
+            fi
+            sleep 1
+          done
+          if [ ! -s "$delete_capture_report" ]; then
+            echo "AyuGram deleted-retention runtime report was not created." >&2
+            xcrun simctl spawn "$DEVICE_UDID" log show --last 2m --style compact --predicate '(process == "Swiftgram" OR process == "Telegram")' | tail -250 || true
+            exit 1
+          fi
+          python3 - "$delete_capture_report" <<'PY'
+          import json, sys
+          with open(sys.argv[1], encoding="utf-8") as f:
+              report = json.load(f)
+          required = (
+              "captureEnabled",
+              "historyCaptured",
+              "retainedInChat",
+              "hasDeletedMarker",
+              "returnedRetainedID",
+          )
+          failures = [key for key in required if report.get(key) is not True]
+          if report.get("passed") is not True or failures:
+              raise SystemExit(f"Deleted-message retention regression failed: {report}")
+          print("PASS: real delete helper captured the message and retained its marked Postbox row.")
+          PY
+          xcrun simctl terminate "$DEVICE_UDID" "$bundle_id" >/dev/null 2>&1 || true
           rm -f "$DOCUMENTS/AyuGramHistoryMenuHarnessReady.txt" \
                 "$DOCUMENTS/AyuGramHistoryListHarnessReady.txt" \
                 "$DOCUMENTS/AyuGramHistoryListSmokeReport.json"
