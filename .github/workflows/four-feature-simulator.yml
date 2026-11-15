@@ -304,8 +304,11 @@ jobs:
 
           updates = state_path.read_text(encoding="utf-8")
           remote_delete = updates.split("case let .DeleteMessages(ids):", 1)[1].split("case let .UpdateMinAvailableMessage", 1)[0]
-          assert "ayuAccountID: accountPeerId.toInt64()" in remote_delete
-          assert "preserveDeletedMessagesInChat: true" in remote_delete
+          assert "_internal_applyAyuGramServerDeleteMessages(" in remote_delete
+          assert "public func _internal_applyAyuGramServerDeleteMessages(" in updates
+          local_handler = updates.split("public func _internal_applyAyuGramServerDeleteMessages(", 1)[1].split("public func _internal_applyAyuGramServerDeleteMessagesWithGlobalIds(", 1)[0]
+          assert "preserveDeletedMessagesInChat: true" in local_handler
+          assert "_internal_deleteMessages(" in local_handler
           assert "preserveDeletedMessagesInChat: Bool = false" in delete_path.read_text(encoding="utf-8")
           assert "-> Set<MessageId>" in delete_path.read_text(encoding="utf-8")
           assert "@discardableResult" in delete_path.read_text(encoding="utf-8")
@@ -313,14 +316,19 @@ jobs:
           global_delete = updates.split("case let .DeleteMessagesWithGlobalIds(ids):", 1)[1].split("case let .DeleteMessages(ids):", 1)[0]
           assert "transaction.messageIdsForGlobalIds([globalID])" in updates
           assert "public func _internal_retainDeletedMessagesWithGlobalIds" in updates
-          assert "_internal_captureDeletedMessages(" in global_delete
-          assert global_delete.index("_internal_captureDeletedMessages(") < global_delete.index("deleteMessagesWithGlobalIds(")
-          assert "_internal_retainDeletedMessagesWithGlobalIds(" in global_delete
-          assert global_delete.index("_internal_captureDeletedMessages(") < global_delete.index("_internal_retainDeletedMessagesWithGlobalIds(")
+          assert "_internal_applyAyuGramServerDeleteMessagesWithGlobalIds(" in global_delete
+          assert "public func _internal_applyAyuGramServerDeleteMessagesWithGlobalIds(" in updates
+          global_handler = updates.split("public func _internal_applyAyuGramServerDeleteMessagesWithGlobalIds(", 1)[1].split("\\n}", 1)[0]
+          assert "transaction.messageIdsForGlobalIds(ids)" in global_handler
+          assert "_internal_captureDeletedMessages(" in global_handler
+          assert "_internal_retainDeletedMessagesWithGlobalIds(" in global_handler
+          assert global_handler.index("_internal_captureDeletedMessages(") < global_handler.index("_internal_retainDeletedMessagesWithGlobalIds(")
           assert "ayuRetainedGlobalIds" in global_delete
           assert "ayuGlobalIdsToDelete = ids.filter" in global_delete
           assert "ids.filter { !ayuRetainedDeletedMessageIds.contains($0) }" in remote_delete
           assert "ids.filter { !ayuRetainedGlobalIds.contains($0) }" in global_delete
+          assert "case let .updateDeleteChannelMessages(" in updates
+          assert "updatedState.deleteMessages(" in updates
 
           print("PASS: deleted-message capture is default-on, routed before local/server deletion, and committed through Postbox.")
           PY
