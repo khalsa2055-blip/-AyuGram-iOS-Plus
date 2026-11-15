@@ -360,6 +360,35 @@ if "private static func mergeLegacyDefaults(defaults: Any, stored: Any) throws -
     settings_store_text = settings_store_text.replace(anchor, migration_method + anchor, 1)
 settings_store.write_text(settings_store_text, encoding="utf-8")
 
+# One-time per-account migration: deleted-message capture must be ON by default
+# for existing installs too. Preserve the user's ability to switch it OFF later:
+# the marker is written only after the setting is persisted successfully.
+runtime = root / "submodules/AyuGramIOS/Sources/AyuGramRuntime.swift"
+if not runtime.exists():
+    raise SystemExit(f"Missing AyuGram runtime: {runtime}")
+runtime_text = runtime.read_text(encoding="utf-8")
+old_runtime_store = """        let store = try AyuSettingsStore(url: dir.appendingPathComponent("settings.json"))
+
+        settingsLock.lock()
+"""
+new_runtime_store = """        let store = try AyuSettingsStore(url: dir.appendingPathComponent("settings.json"))
+        let deletedMessagesAutoSaveMarker = dir.appendingPathComponent("deleted-messages-auto-enabled-v1")
+        if !FileManager.default.fileExists(atPath: deletedMessagesAutoSaveMarker.path) {
+            try store.update { $0.saveDeletedMessages = true }
+            try Data("1".utf8).write(to: deletedMessagesAutoSaveMarker, options: .atomic)
+        }
+
+        settingsLock.lock()
+"""
+if old_runtime_store in runtime_text:
+    runtime_text = runtime_text.replace(old_runtime_store, new_runtime_store, 1)
+elif "deleted-messages-auto-enabled-v1" not in runtime_text:
+    raise SystemExit("AyuGram runtime settings-store migration anchor not found")
+if "deletedMessagesAutoSaveMarker" not in runtime_text or 'try store.update { $0.saveDeletedMessages = true }' not in runtime_text:
+    raise SystemExit("One-time deleted-message auto-enable migration was not installed")
+runtime.write_text(runtime_text, encoding="utf-8")
+print("Verified existing accounts auto-enable deleted-message saving once; later user changes remain respected.")
+
 # Automatic History media stays in Application Support (private app data).
 # The visible Documents tree is reserved for explicit manual Save.
 # Support common audio/document/video extensions instead of collapsing them to .bin.
