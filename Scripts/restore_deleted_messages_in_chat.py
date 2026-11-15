@@ -213,22 +213,47 @@ if global_helper_signature not in state_text:
     if state_import_anchor not in state_text:
         raise SystemExit("AccountStateManagementUtils AyuGramIOS import anchor not found")
     state_text = state_text.replace(state_import_anchor, state_import_anchor + "\n" + "public func _internal_retainDeletedMessagesWithGlobalIds(transaction: Transaction, ids: [Int32], accountID: Int64) -> Set<Int32> {\n    var retainedGlobalIds = Set<Int32>()\n    guard (try? AyuGramRuntime.makeSettingsStore(accountID: accountID))?.settings.saveDeletedMessages == true else {\n        return retainedGlobalIds\n    }\n\n    for globalID in ids {\n        guard let messageID = transaction.messageIdsForGlobalIds([globalID]).first,\n              let message = transaction.getMessage(messageID),\n              !message.isCopyProtected(),\n              !message.containsSecretMedia else {\n            continue\n        }\n        transaction.updateMessage(messageID, update: { currentMessage in\n            var attributes = currentMessage.attributes\n            if attributes.contains(where: { ($0 as? EditedMessageAttribute)?.date == Int32.min }) {\n                return .skip\n            }\n            attributes.append(EditedMessageAttribute(date: Int32.min, isHidden: true))\n\n            var storeForwardInfo: StoreMessageForwardInfo?\n            if let forwardInfo = currentMessage.forwardInfo {\n                storeForwardInfo = StoreMessageForwardInfo(\n                    authorId: forwardInfo.author?.id,\n                    sourceId: forwardInfo.source?.id,\n                    sourceMessageId: forwardInfo.sourceMessageId,\n                    date: forwardInfo.date,\n                    authorSignature: forwardInfo.authorSignature,\n                    psaType: forwardInfo.psaType,\n                    flags: forwardInfo.flags\n                )\n            }\n            return .update(StoreMessage(\n                id: currentMessage.id,\n                customStableId: nil,\n                globallyUniqueId: currentMessage.globallyUniqueId,\n                groupingKey: currentMessage.groupingKey,\n                threadId: currentMessage.threadId,\n                timestamp: currentMessage.timestamp,\n                flags: StoreMessageFlags(currentMessage.flags),\n                tags: currentMessage.tags,\n                globalTags: currentMessage.globalTags,\n                localTags: currentMessage.localTags,\n                forwardInfo: storeForwardInfo,\n                authorId: currentMessage.author?.id,\n                text: currentMessage.text,\n                attributes: attributes,\n                media: currentMessage.media\n            ))\n        })\n        retainedGlobalIds.insert(globalID)\n    }\n    return retainedGlobalIds\n}" + "\n", 1)
-state_text = replace_once(
-    state_text,
-    "}, ayuAccountID: accountPeerId.toInt64())",
-    "}, ayuAccountID: accountPeerId.toInt64(), preserveDeletedMessagesInChat: true)",
-    "server deletion retention route"
-)
+# Share the exact server-delete operations between replayFinalState and its runtime test.
+server_handlers = r"""
+public func _internal_applyAyuGramServerDeleteMessages(transaction: Transaction, mediaBox: MediaBox, ids: [MessageId], accountID: Int64) -> Set<MessageId> {
+    return _internal_deleteMessages(
+        transaction: transaction,
+        mediaBox: mediaBox,
+        ids: ids,
+        ayuAccountID: accountID,
+        preserveDeletedMessagesInChat: true
+    )
+}
+
+public func _internal_applyAyuGramServerDeleteMessagesWithGlobalIds(transaction: Transaction, mediaBox: MediaBox, ids: [Int32], accountID: Int64) -> Set<Int32> {
+    let messageIds = transaction.messageIdsForGlobalIds(ids)
+    _internal_captureDeletedMessages(transaction: transaction, mediaBox: mediaBox, ids: messageIds, ayuAccountID: accountID)
+    return _internal_retainDeletedMessagesWithGlobalIds(transaction: transaction, ids: ids, accountID: accountID)
+}
+"""
+if "_internal_applyAyuGramServerDeleteMessages(" not in state_text:
+    helper_start = state_text.find(global_helper_signature)
+    if helper_start < 0:
+        raise SystemExit("Global-ID retention helper not found before shared server handlers")
+    helper_brace = state_text.find("{", helper_start)
+    helper_end = matching_delimiter(state_text, helper_brace, "{", "}") + 1
+    state_text = state_text[:helper_end] + "\n\n" + server_handlers + state_text[helper_end:]
+elif "_internal_applyAyuGramServerDeleteMessagesWithGlobalIds(" not in state_text:
+    raise SystemExit("Only one shared server-delete handler exists; refusing partial update")
 direct_delete_start = state_text.find("case let .DeleteMessages(ids):")
 direct_delete_end = state_text.find("case let .UpdateMinAvailableMessage", direct_delete_start)
 if direct_delete_start < 0 or direct_delete_end < 0:
     raise SystemExit("Server DeleteMessages source block boundaries not found")
 direct_delete_block = state_text[direct_delete_start:direct_delete_end]
+old_direct_delete_call = """                _internal_deleteMessages(transaction: transaction, mediaBox: mediaBox, ids: ids, manualAddMessageThreadStatsDifference: { id, add, remove in
+                    addMessageThreadStatsDifference(threadKey: id, remove: remove, addedMessagePeer: nil, addedMessageId: nil, isOutgoing: false)
+                }, ayuAccountID: accountPeerId.toInt64())"""
+new_direct_delete_call = """                let ayuRetainedDeletedMessageIds = _internal_applyAyuGramServerDeleteMessages(transaction: transaction, mediaBox: mediaBox, ids: ids, accountID: accountPeerId.toInt64())"""
 direct_delete_block = replace_once(
     direct_delete_block,
-    "                _internal_deleteMessages(",
-    "                let ayuRetainedDeletedMessageIds = _internal_deleteMessages(",
-    "capture retained IDs from server DeleteMessages"
+    old_direct_delete_call,
+    new_direct_delete_call,
+    "shared server DeleteMessages handler"
 )
 direct_delete_block = replace_once(
     direct_delete_block,
@@ -239,12 +264,14 @@ direct_delete_block = replace_once(
 state_text = state_text[:direct_delete_start] + direct_delete_block + state_text[direct_delete_end:]
 
 global_capture_anchor = "_internal_captureDeletedMessages(transaction: transaction, mediaBox: mediaBox, ids: messageIds, ayuAccountID: accountPeerId.toInt64())\n"
-global_retention_call = "                let ayuRetainedGlobalIds = _internal_retainDeletedMessagesWithGlobalIds(transaction: transaction, ids: ids, accountID: accountPeerId.toInt64())"
-if global_capture_anchor not in state_text:
-    raise SystemExit("Global-ID capture insertion anchor not found")
-if global_capture_anchor not in state_text:
-    raise SystemExit("Global-ID capture insertion anchor not found")
-state_text = state_text.replace(global_capture_anchor, global_capture_anchor + global_retention_call + "\n", 1)
+global_handler_call = "                let ayuRetainedGlobalIds = _internal_applyAyuGramServerDeleteMessagesWithGlobalIds(transaction: transaction, mediaBox: mediaBox, ids: ids, accountID: accountPeerId.toInt64())"
+if global_capture_anchor in state_text:
+    state_text = state_text.replace(global_capture_anchor, global_handler_call + "\n", 1)
+elif global_handler_call not in state_text:
+    raise SystemExit("Global-ID event is not routed through the shared production handler")
+unused_global_lookup = "                let messageIds = transaction.messageIdsForGlobalIds(ids)\n"
+if unused_global_lookup in state_text:
+    state_text = state_text.replace(unused_global_lookup, "", 1)
 old_global_delete_call = "transaction.deleteMessagesWithGlobalIds(ids, forEachMedia: { media in"
 new_global_delete_call = """let ayuGlobalIdsToDelete = ids.filter { !ayuRetainedGlobalIds.contains($0) }
                 transaction.deleteMessagesWithGlobalIds(ayuGlobalIdsToDelete, forEachMedia: { media in"""
@@ -472,7 +499,10 @@ assert "let idsToDelete = ids.filter { !ayuRetainedDeletedMessageIds.contains($0
 assert "preserveDeletedMessagesInChat: true" in state_check
 assert "ayuRetainedGlobalIds" in state_check
 assert "ayuGlobalIdsToDelete = ids.filter" in state_check
-assert "_internal_retainDeletedMessagesWithGlobalIds(transaction: transaction, ids: ids, accountID: accountPeerId.toInt64())" in state_check
+assert "_internal_applyAyuGramServerDeleteMessages(transaction: transaction, mediaBox: mediaBox, ids: ids, accountID: accountPeerId.toInt64())" in state_check
+assert "_internal_applyAyuGramServerDeleteMessagesWithGlobalIds(transaction: transaction, mediaBox: mediaBox, ids: ids, accountID: accountPeerId.toInt64())" in state_check
+assert "public func _internal_applyAyuGramServerDeleteMessages(" in state_check
+assert "public func _internal_applyAyuGramServerDeleteMessagesWithGlobalIds(" in state_check
 assert "public func _internal_retainDeletedMessagesWithGlobalIds" in state_check
 assert ".global($0)" in state_check
 assert "return _internal_deleteMessages(" not in ENGINE.read_text(encoding="utf-8")
