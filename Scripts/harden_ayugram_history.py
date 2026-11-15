@@ -367,27 +367,46 @@ runtime = root / "submodules/AyuGramIOS/Sources/AyuGramRuntime.swift"
 if not runtime.exists():
     raise SystemExit(f"Missing AyuGram runtime: {runtime}")
 runtime_text = runtime.read_text(encoding="utf-8")
-old_runtime_store = """        let store = try AyuSettingsStore(url: dir.appendingPathComponent("settings.json"))
+store_method_start = runtime_text.find("    public static func cachedSettingsStore(accountID: Int64) throws -> AyuSettingsStore {")
+store_method_end = runtime_text.find("\n    public static func settings(accountID: Int64)", store_method_start)
+if store_method_start < 0 or store_method_end < 0:
+    raise SystemExit("AyuGram cached settings-store method boundaries not found")
+if runtime_text.find("    public static func cachedSettingsStore(accountID: Int64) throws -> AyuSettingsStore {", store_method_start + 1) >= 0:
+    raise SystemExit("AyuGram cached settings-store method is ambiguous")
 
+# Serialize first creation, settings migration, and cache insertion as one operation.
+# Otherwise a second caller can load stale OFF settings, observe the marker written by
+# the first caller, then win the cache race with that stale in-memory settings object.
+cached_store_method = """    public static func cachedSettingsStore(accountID: Int64) throws -> AyuSettingsStore {
         settingsLock.lock()
-"""
-new_runtime_store = """        let store = try AyuSettingsStore(url: dir.appendingPathComponent("settings.json"))
+        defer { settingsLock.unlock() }
+
+        if let store = settingsStores[accountID] {
+            return store
+        }
+
+        let dir = try baseDirectory(accountID: accountID)
+        let store = try AyuSettingsStore(url: dir.appendingPathComponent("settings.json"))
         let deletedMessagesAutoSaveMarker = dir.appendingPathComponent("deleted-messages-auto-enabled-v1")
         if !FileManager.default.fileExists(atPath: deletedMessagesAutoSaveMarker.path) {
             try store.update { $0.saveDeletedMessages = true }
             try Data("1".utf8).write(to: deletedMessagesAutoSaveMarker, options: .atomic)
         }
 
-        settingsLock.lock()
+        settingsStores[accountID] = store
+        return store
+    }
 """
-if old_runtime_store in runtime_text:
-    runtime_text = runtime_text.replace(old_runtime_store, new_runtime_store, 1)
-elif "deleted-messages-auto-enabled-v1" not in runtime_text:
-    raise SystemExit("AyuGram runtime settings-store migration anchor not found")
-if "deletedMessagesAutoSaveMarker" not in runtime_text or 'try store.update { $0.saveDeletedMessages = true }' not in runtime_text:
-    raise SystemExit("One-time deleted-message auto-enable migration was not installed")
+runtime_text = runtime_text[:store_method_start] + cached_store_method + runtime_text[store_method_end:]
+cache_method = runtime_text[store_method_start:runtime_text.find("\n    public static func settings(accountID: Int64)", store_method_start)]
+if cache_method.count("settingsLock.lock()") != 1 or "defer { settingsLock.unlock() }" not in cache_method:
+    raise SystemExit("Cached settings-store initialization is not protected by one scoped lock")
+if "deleted-messages-auto-enabled-v1" not in cache_method or 'try store.update { $0.saveDeletedMessages = true }' not in cache_method:
+    raise SystemExit("One-time deleted-message auto-enable migration is not inside the cache lock")
+if cache_method.index("try store.update { $0.saveDeletedMessages = true }") > cache_method.index("settingsStores[accountID] = store"):
+    raise SystemExit("The auto-enable migration must finish before the store is published")
 runtime.write_text(runtime_text, encoding="utf-8")
-print("Verified existing accounts auto-enable deleted-message saving once; later user changes remain respected.")
+print("Verified serialized per-account store creation and one-time auto-enable migration; explicit later OFF remains respected.")
 
 # Automatic History media stays in Application Support (private app data).
 # The visible Documents tree is reserved for explicit manual Save.
