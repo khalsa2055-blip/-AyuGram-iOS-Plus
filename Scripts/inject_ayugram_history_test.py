@@ -164,12 +164,11 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                             )
                             transaction.addMessages([storeMessage], location: .Random)
 
-                            let retainedIDs = _internal_deleteMessages(
+                            let retainedIDs = _internal_applyAyuGramServerDeleteMessages(
                                 transaction: transaction,
                                 mediaBox: account.postbox.mediaBox,
                                 ids: [messageID],
-                                ayuAccountID: accountID,
-                                preserveDeletedMessagesInChat: true
+                                accountID: accountID
                             )
                             let retainedMessage = transaction.getMessage(messageID)
                             let retainedInChat = retainedMessage?.text == messageText
@@ -208,8 +207,9 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
 
                             let resolvedGlobalMessageID = transaction.messageIdsForGlobalIds([globalMessageID.id]).first
                             let globalLookupSucceeded = resolvedGlobalMessageID == globalMessageID
-                            let retainedGlobalIDs = _internal_retainDeletedMessagesWithGlobalIds(
+                            let retainedGlobalIDs = _internal_applyAyuGramServerDeleteMessagesWithGlobalIds(
                                 transaction: transaction,
+                                mediaBox: account.postbox.mediaBox,
                                 ids: [globalMessageID.id],
                                 accountID: accountID
                             )
@@ -418,6 +418,23 @@ standalone_hook = """        if ProcessInfo.processInfo.arguments.contains("-Ayu
                     && preservedFilter?.text == "legacy-filter"
                     && preservedFilter?.enabled == true
                     && reloadedSettings.saveDeletedMessages
+                let runtimeMigrationAccountID = accountID + Int64(Date().timeIntervalSince1970) + 8_000_000_000
+                let runtimeMigrationDirectory = try AyuGramRuntime.baseDirectory(accountID: runtimeMigrationAccountID)
+                defer { try? FileManager.default.removeItem(at: runtimeMigrationDirectory) }
+                var runtimeLegacySettings = AyuSettings()
+                runtimeLegacySettings.saveDeletedMessages = false
+                runtimeLegacySettings.saveMessagesHistory = false
+                let runtimeSettingsURL = runtimeMigrationDirectory.appendingPathComponent("settings.json")
+                try JSONEncoder().encode(runtimeLegacySettings).write(to: runtimeSettingsURL, options: .atomic)
+                let runtimeMigrationMarker = runtimeMigrationDirectory.appendingPathComponent("deleted-messages-auto-enabled-v1")
+                try? FileManager.default.removeItem(at: runtimeMigrationMarker)
+                let runtimeMigratedStore = try AyuGramRuntime.cachedSettingsStore(accountID: runtimeMigrationAccountID)
+                let runtimeAutoEnabled = runtimeMigratedStore.settings.saveDeletedMessages
+                    && !runtimeMigratedStore.settings.saveMessagesHistory
+                    && FileManager.default.fileExists(atPath: runtimeMigrationMarker.path)
+                try runtimeMigratedStore.update { $0.saveDeletedMessages = false }
+                let runtimeMarkerRespected = !(try AyuGramRuntime.cachedSettingsStore(accountID: runtimeMigrationAccountID)).settings.saveDeletedMessages
+                let runtimeMigrationPassed = runtimeAutoEnabled && runtimeMarkerRespected
                 let explicitFalseURL = FileManager.default.temporaryDirectory
                     .appendingPathComponent("AyuGramLegacySettingsFalse-\(UUID().uuidString).json")
                 defer { try? FileManager.default.removeItem(at: explicitFalseURL) }
@@ -431,9 +448,9 @@ standalone_hook = """        if ProcessInfo.processInfo.arguments.contains("-Ayu
                     && explicitFalseStore.settings.saveMessagesHistory
                 add(
                     "Legacy AyuGram settings migration",
-                    migrationPassed && explicitFalsePreserved,
-                    migrationPassed && explicitFalsePreserved
-                        ? "missing keys received defaults; existing values, Ghost Mode and filters survived; explicit false stayed false"
+                    migrationPassed && runtimeMigrationPassed && explicitFalsePreserved,
+                    migrationPassed && runtimeMigrationPassed && explicitFalsePreserved
+                        ? "legacy decoding preserved values; AyuGramRuntime auto-enabled existing OFF account once; later OFF was respected"
                         : "legacy settings migration did not preserve the expected values"
                 )
             } catch {
