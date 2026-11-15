@@ -428,13 +428,35 @@ standalone_hook = """        if ProcessInfo.processInfo.arguments.contains("-Ayu
                 try JSONEncoder().encode(runtimeLegacySettings).write(to: runtimeSettingsURL, options: .atomic)
                 let runtimeMigrationMarker = runtimeMigrationDirectory.appendingPathComponent("deleted-messages-auto-enabled-v1")
                 try? FileManager.default.removeItem(at: runtimeMigrationMarker)
-                let runtimeMigratedStore = try AyuGramRuntime.cachedSettingsStore(accountID: runtimeMigrationAccountID)
-                let runtimeAutoEnabled = runtimeMigratedStore.settings.saveDeletedMessages
-                    && !runtimeMigratedStore.settings.saveMessagesHistory
+                let concurrentStores = NSMutableArray()
+                let concurrentStoresLock = NSLock()
+                DispatchQueue.concurrentPerform(iterations: 32) { _ in
+                    if let candidate = try? AyuGramRuntime.cachedSettingsStore(accountID: runtimeMigrationAccountID) {
+                        concurrentStoresLock.lock()
+                        concurrentStores.add(candidate)
+                        concurrentStoresLock.unlock()
+                    }
+                }
+                let runtimeMigratedStore = concurrentStores.firstObject as? AyuSettingsStore
+                let runtimeAllCallsSharedOneStore = concurrentStores.count == 32
+                    && concurrentStores.allObjects.allSatisfy { entry in
+                        guard let entryStore = entry as? AyuSettingsStore,
+                              let runtimeMigratedStore else {
+                            return false
+                        }
+                        return entryStore === runtimeMigratedStore
+                    }
+                let runtimeAutoEnabled = runtimeMigratedStore?.settings.saveDeletedMessages == true
+                    && runtimeMigratedStore?.settings.saveMessagesHistory == false
                     && FileManager.default.fileExists(atPath: runtimeMigrationMarker.path)
-                try runtimeMigratedStore.update { $0.saveDeletedMessages = false }
-                let runtimeMarkerRespected = !(try AyuGramRuntime.cachedSettingsStore(accountID: runtimeMigrationAccountID)).settings.saveDeletedMessages
-                let runtimeMigrationPassed = runtimeAutoEnabled && runtimeMarkerRespected
+                let runtimeMarkerRespected: Bool
+                if let runtimeMigratedStore {
+                    try runtimeMigratedStore.update { $0.saveDeletedMessages = false }
+                    runtimeMarkerRespected = !(try AyuGramRuntime.cachedSettingsStore(accountID: runtimeMigrationAccountID)).settings.saveDeletedMessages
+                } else {
+                    runtimeMarkerRespected = false
+                }
+                let runtimeMigrationPassed = runtimeAutoEnabled && runtimeMarkerRespected && runtimeAllCallsSharedOneStore
                 let explicitFalseURL = FileManager.default.temporaryDirectory
                     .appendingPathComponent("AyuGramLegacySettingsFalse-\(UUID().uuidString).json")
                 defer { try? FileManager.default.removeItem(at: explicitFalseURL) }
@@ -450,7 +472,7 @@ standalone_hook = """        if ProcessInfo.processInfo.arguments.contains("-Ayu
                     "Legacy AyuGram settings migration",
                     migrationPassed && runtimeMigrationPassed && explicitFalsePreserved,
                     migrationPassed && runtimeMigrationPassed && explicitFalsePreserved
-                        ? "legacy decoding preserved values; AyuGramRuntime auto-enabled existing OFF account once; later OFF was respected"
+                        ? "legacy decoding preserved values; 32 concurrent first accesses shared one auto-enabled store; later OFF was respected"
                         : "legacy settings migration did not preserve the expected values"
                 )
             } catch {
