@@ -2621,6 +2621,7 @@ jobs:
               report = json.load(f)
           required = (
               "captureEnabled",
+              "captureEnabledOnEntry",
               "historyCaptured",
               "retainedInChat",
               "hasDeletedMarker",
