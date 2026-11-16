@@ -131,9 +131,10 @@ if "AyuGram History ready" not in s:
 
 deleted_capture_hook = """                    if ProcessInfo.processInfo.arguments.contains("-AyuGramDeletedCaptureSmokeTest"), let context = context {
                         let account = context.account
-                        // Production uses the logged-in peer ID for the AyuGram settings namespace.
-                        // The smoke test must use the same account key, not AccountRecordId.
-                        let accountID = account.peerId.toInt64()
+                        // This smoke hook runs in Telegram's logged-out UnauthorizedAccount fixture,
+                        // which has AccountRecordId but no peerId. Use its isolated record namespace here;
+                        // production deletion updates continue to key settings by accountPeerId.toInt64().
+                        let accountID = account.id.int64
                         let testPeerId = PeerId(933000001)
                         let dialogID = testPeerId.toInt64()
                         let now = Int32(Date().timeIntervalSince1970)
