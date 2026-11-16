@@ -70,6 +70,8 @@ jobs:
               "already-member handling": "case let .alreadyJoined(peer):",
               "already-member opens the confirmed peer without joining": "Open the existing chat normally; this is not a join action.",
               "approval-required invite metadata": "invite.flags.requestNeeded",
+              "accurate supergroup label": '"Supergroup"',
+              "basic-group no-peek fallback": "Telegram does not provide invite-link message previews for basic groups.",
               "connection-aware invite verification error": "or your connection may be unavailable.",
               "strict local invite parser": "ayuGramPrivateInviteHash(raw)",
           }
