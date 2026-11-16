@@ -339,6 +339,9 @@ if "AyuGramPrivateInvitePreviewController" not in settings:
         if let about = invite.about?.trimmingCharacters(in: .whitespacesAndNewlines), !about.isEmpty {
             details.append(about)
         }
+        if invite.flags.requestNeeded {
+            details.append("This invite requires admin approval.")
+        }
         details.append("Telegram did not grant message-preview access for this link. Group information is shown without joining.")
         infoLabel.text = details.joined(separator: "\n\n")
         infoLabel.isHidden = false
@@ -474,10 +477,25 @@ private final class AyuGramPrivateInvitePreviewController: ViewController {
                     // Telegram supplied metadata but did not grant message access.
                     // Show a safe information-only preview; never join or fetch history.
                     entryView.showInviteInfo(invite)
-                case .alreadyJoined:
-                    entryView.showStatus("You already belong to this group. Telegram did not provide a separate read-only invite preview. Open the existing chat to view its messages.")
+                case let .alreadyJoined(peer):
+                    guard let navigationController = self.context.sharedContext.mainWindow?.viewController as? NavigationController else {
+                        entryView.showStatus("You already belong to this group. Open it from your chat list to view its messages.")
+                        return
+                    }
+
+                    // Telegram confirmed this account is already a member.
+                    // Open the existing chat normally; this is not a join action.
+                    self.context.sharedContext.navigateToChatController(
+                        NavigateToChatControllerParams(
+                            navigationController: navigationController,
+                            context: self.context,
+                            chatLocation: .peer(peer),
+                            subject: nil
+                        )
+                    )
+                    self.dismiss()
                 case .invalidHash:
-                    entryView.showMessage("The invite link is invalid or has expired.")
+                    entryView.showMessage("Telegram could not verify this invite. It may be invalid or expired, or your connection may be unavailable. Check the link and connection, then try again.")
                 }
             }, error: { [weak self, weak entryView] error in
                 guard let self, let entryView else { return }
