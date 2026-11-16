@@ -315,6 +315,13 @@ if "AyuGramPrivateInvitePreviewController" not in settings:
         errorLabel.isHidden = false
     }
 
+    func showStatus(_ message: String) {
+        errorLabel.text = nil
+        errorLabel.isHidden = true
+        infoLabel.text = message
+        infoLabel.isHidden = false
+    }
+
     func showInviteInfo(_ invite: ExternalJoiningChatState.Invite) {
         errorLabel.text = nil
         errorLabel.isHidden = true
@@ -468,7 +475,7 @@ private final class AyuGramPrivateInvitePreviewController: ViewController {
                     // Show a safe information-only preview; never join or fetch history.
                     entryView.showInviteInfo(invite)
                 case .alreadyJoined:
-                    entryView.showMessage("This account already has access. Preview-only mode is not available for this link.")
+                    entryView.showStatus("You already belong to this group. Telegram did not provide a separate read-only invite preview. Open the existing chat to view its messages.")
                 case .invalidHash:
                     entryView.showMessage("The invite link is invalid or has expired.")
                 }
