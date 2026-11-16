@@ -67,8 +67,10 @@ jobs:
               "metadata-only fallback branch": "case let .invite(invite):",
               "metadata-only fallback renderer": "entryView.showInviteInfo(invite)",
               "neutral status renderer": "func showStatus(_ message: String)",
-              "already-member handling": "case .alreadyJoined:",
-              "already-member informational fallback": "entryView.showStatus(\"You already belong to this group.",
+              "already-member handling": "case let .alreadyJoined(peer):",
+              "already-member opens the confirmed peer without joining": "Open the existing chat normally; this is not a join action.",
+              "approval-required invite metadata": "invite.flags.requestNeeded",
+              "connection-aware invite verification error": "or your connection may be unavailable.",
               "strict local invite parser": "ayuGramPrivateInviteHash(raw)",
           }
           combined = patch + "\\n" + swift
