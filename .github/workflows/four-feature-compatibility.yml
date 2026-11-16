@@ -1,4 +1,5 @@
 name: AyuGram iOS — Swiftgram Compatibility Check
+# Revalidate current no-manual-enable delete smoke path and replayFinalState routing.
 
 on:
   workflow_dispatch:
