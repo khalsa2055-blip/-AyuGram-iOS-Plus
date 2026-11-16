@@ -500,6 +500,21 @@ jobs:
           bubble_node = Path("telegram-ios/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift").read_text(encoding="utf-8")
           text_bubble_node = Path("telegram-ios/submodules/TelegramUI/Components/Chat/ChatMessageTextBubbleContentNode/Sources/ChatMessageTextBubbleContentNode.swift").read_text(encoding="utf-8")
           assert "preserveDeletedMessagesInChat: true" in delete_updates
+          # Verify the actual Telegram update -> AccountMutableState -> replayFinalState route,
+          # not only the shared retention helper called by the synthetic smoke test.
+          global_update_start = delete_updates.index("case let .updateDeleteMessages(updateDeleteMessagesData):")
+          global_update_end = delete_updates.index("case let .updatePinnedMessages", global_update_start)
+          global_update_route = delete_updates[global_update_start:global_update_end]
+          assert "updatedState.deleteMessagesWithGlobalIds(updateDeleteMessagesData.messages)" in global_update_route
+          assert "updatedState.deleteMessages(updateDeleteChannelMessagesData.messages.map" in delete_updates
+          replay_start = delete_updates.index("func replayFinalState(")
+          replay_global_start = delete_updates.index("case let .DeleteMessagesWithGlobalIds(ids):", replay_start)
+          replay_direct_start = delete_updates.index("case let .DeleteMessages(ids):", replay_global_start)
+          replay_min_available_start = delete_updates.index("case let .UpdateMinAvailableMessage", replay_direct_start)
+          replay_global = delete_updates[replay_global_start:replay_direct_start]
+          replay_direct = delete_updates[replay_direct_start:replay_min_available_start]
+          assert "_internal_applyAyuGramServerDeleteMessagesWithGlobalIds(" in replay_global
+          assert "_internal_applyAyuGramServerDeleteMessages(" in replay_direct
           assert "-> Set<MessageId>" in delete_core
           assert "@discardableResult" in delete_core
           assert "idsToDelete = ids.filter" in delete_core
