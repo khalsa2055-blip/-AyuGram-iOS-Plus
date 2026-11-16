@@ -506,7 +506,7 @@ jobs:
           global_update_end = delete_updates.index("case let .updatePinnedMessages", global_update_start)
           global_update_route = delete_updates[global_update_start:global_update_end]
           assert "updatedState.deleteMessagesWithGlobalIds(updateDeleteMessagesData.messages)" in global_update_route
-          channel_update_start = delete_updates.index("case let .updateDeleteChannelMessages(updateDeleteChannelMessagesData):")
+          channel_update_start = delete_updates.index("let (channelId, messages, pts: pts, ptsCount) = (updateDeleteChannelMessagesData.channelId")
           channel_update_end = delete_updates.index("case let .updateEditChannelMessage(updateEditChannelMessageData):", channel_update_start)
           channel_update_route = delete_updates[channel_update_start:channel_update_end]
           assert "previousState.pts + ptsCount == pts" in channel_update_route
