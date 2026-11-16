@@ -438,14 +438,18 @@ standalone_hook = """        if ProcessInfo.processInfo.arguments.contains("-Ayu
                     }
                 }
                 let runtimeMigratedStore = concurrentStores.firstObject as? AyuSettingsStore
-                let runtimeAllCallsSharedOneStore = concurrentStores.count == 32
-                    && concurrentStores.allObjects.allSatisfy { entry in
-                        guard let entryStore = entry as? AyuSettingsStore,
-                              let runtimeMigratedStore else {
-                            return false
+                var runtimeAllCallsSharedOneStore = concurrentStores.count == 32
+                if let runtimeMigratedStore {
+                    for index in 0..<concurrentStores.count {
+                        guard let entryStore = concurrentStores.object(at: index) as? AyuSettingsStore,
+                              entryStore === runtimeMigratedStore else {
+                            runtimeAllCallsSharedOneStore = false
+                            break
                         }
-                        return entryStore === runtimeMigratedStore
                     }
+                } else {
+                    runtimeAllCallsSharedOneStore = false
+                }
                 let runtimeAutoEnabled = runtimeMigratedStore?.settings.saveDeletedMessages == true
                     && runtimeMigratedStore?.settings.saveMessagesHistory == false
                     && FileManager.default.fileExists(atPath: runtimeMigrationMarker.path)
