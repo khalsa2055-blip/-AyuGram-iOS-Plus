@@ -66,7 +66,9 @@ jobs:
               "native Telegram chat navigation": "navigateToChatController(",
               "metadata-only fallback branch": "case let .invite(invite):",
               "metadata-only fallback renderer": "entryView.showInviteInfo(invite)",
+              "neutral status renderer": "func showStatus(_ message: String)",
               "already-member handling": "case .alreadyJoined:",
+              "already-member informational fallback": "entryView.showStatus(\"You already belong to this group.",
               "strict local invite parser": "ayuGramPrivateInviteHash(raw)",
           }
           combined = patch + "\\n" + swift
