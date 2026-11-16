@@ -326,15 +326,20 @@ if "AyuGramPrivateInvitePreviewController" not in settings:
         errorLabel.text = nil
         errorLabel.isHidden = true
 
-        let isChannel = invite.flags.isChannel && !invite.flags.isMegagroup
-        let kind = isChannel ? "Channel" : "Group"
+        let isBroadcastChannel = invite.flags.isChannel && !invite.flags.isMegagroup
+        let kind: String
+        if invite.flags.isChannel {
+            kind = invite.flags.isMegagroup ? "Supergroup" : "Channel"
+        } else {
+            kind = "Basic group"
+        }
         var details = [invite.title, kind]
         if invite.participantsCount > 0 {
             let count = NumberFormatter.localizedString(
                 from: NSNumber(value: invite.participantsCount),
                 number: .decimal
             )
-            details.append("\(count) \(isChannel ? "subscribers" : "members")")
+            details.append("\(count) \(isBroadcastChannel ? "subscribers" : "members")")
         }
         if let about = invite.about?.trimmingCharacters(in: .whitespacesAndNewlines), !about.isEmpty {
             details.append(about)
@@ -342,7 +347,11 @@ if "AyuGramPrivateInvitePreviewController" not in settings:
         if invite.flags.requestNeeded {
             details.append("This invite requires admin approval.")
         }
-        details.append("Telegram did not grant message-preview access for this link. Group information is shown without joining.")
+        if !invite.flags.isChannel {
+            details.append("Telegram does not provide invite-link message previews for basic groups. Group information is shown without joining.")
+        } else {
+            details.append("Telegram did not grant message-preview access for this invite link. Only group information is shown without joining.")
+        }
         infoLabel.text = details.joined(separator: "\n\n")
         infoLabel.isHidden = false
     }
