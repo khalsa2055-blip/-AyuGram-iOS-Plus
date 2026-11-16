@@ -142,9 +142,9 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
 
                         let settingsStore = try? AyuGramRuntime.cachedSettingsStore(accountID: accountID)
                         let originalSaveDeletedMessages = settingsStore?.settings.saveDeletedMessages
-                        if let settingsStore {
-                            try? settingsStore.update { $0.saveDeletedMessages = true }
-                        }
+                        // Do not switch the feature ON inside this test: production must arrive here
+                        // with auto-save already enabled by defaults or the one-time account migration.
+                        let captureEnabledOnEntry = originalSaveDeletedMessages == true
 
                         let captureSignal = account.postbox.transaction { transaction -> (AyuMessage?, Bool, Bool, Bool, Bool, Bool, Bool, Bool, Bool) in
                             let storeMessage = StoreMessage(
@@ -241,13 +241,14 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                         _ = (captureSignal |> deliverOnMainQueue).start(next: { result in
                             let captureEnabled = settingsStore?.settings.saveDeletedMessages ?? false
                             let historyCaptured = result.0?.isDeleted == true && result.0?.text == messageText
-                            let passed = captureEnabled && historyCaptured && result.1 && result.2 && result.3 && result.4 && result.5 && result.6 && result.7 && result.8
+                            let passed = captureEnabledOnEntry && captureEnabled && historyCaptured && result.1 && result.2 && result.3 && result.4 && result.5 && result.6 && result.7 && result.8
                             if let settingsStore, let originalSaveDeletedMessages {
                                 try? settingsStore.update { $0.saveDeletedMessages = originalSaveDeletedMessages }
                             }
                             let report: [String: Any] = [
                                 "passed": passed,
                                 "captureEnabled": captureEnabled,
+                                "captureEnabledOnEntry": captureEnabledOnEntry,
                                 "historyCaptured": historyCaptured,
                                 "retainedInChat": result.1,
                                 "hasDeletedMarker": result.2,
