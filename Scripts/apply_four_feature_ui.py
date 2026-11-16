@@ -239,6 +239,7 @@ if "AyuGramPrivateInvitePreviewController" not in settings:
     private let field = UITextField()
     private let button = UIButton(type: .system)
     private let errorLabel = UILabel()
+    private let infoLabel = UILabel()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -271,13 +272,19 @@ if "AyuGramPrivateInvitePreviewController" not in settings:
         errorLabel.numberOfLines = 0
         errorLabel.isHidden = true
 
+        infoLabel.font = .preferredFont(forTextStyle: .body)
+        infoLabel.textColor = .secondaryLabel
+        infoLabel.numberOfLines = 0
+        infoLabel.textAlignment = .natural
+        infoLabel.isHidden = true
+
         let header = UIStackView(arrangedSubviews: [backButton, titleLabel])
         header.axis = .horizontal
         header.alignment = .center
         header.spacing = 8
         backButton.setContentHuggingPriority(.required, for: .horizontal)
 
-        let stack = UIStackView(arrangedSubviews: [header, field, button, errorLabel])
+        let stack = UIStackView(arrangedSubviews: [header, field, button, errorLabel, infoLabel])
         stack.axis = .vertical
         stack.spacing = 16
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -302,13 +309,39 @@ if "AyuGramPrivateInvitePreviewController" not in settings:
     }
 
     func showMessage(_ message: String) {
+        infoLabel.text = nil
+        infoLabel.isHidden = true
         errorLabel.text = message
         errorLabel.isHidden = false
+    }
+
+    func showInviteInfo(_ invite: ExternalJoiningChatState.Invite) {
+        errorLabel.text = nil
+        errorLabel.isHidden = true
+
+        let isChannel = invite.flags.isChannel && !invite.flags.isMegagroup
+        let kind = isChannel ? "Channel" : "Group"
+        var details = [invite.title, kind]
+        if invite.participantsCount > 0 {
+            let count = NumberFormatter.localizedString(
+                from: NSNumber(value: invite.participantsCount),
+                number: .decimal
+            )
+            details.append("\(count) \(isChannel ? "subscribers" : "members")")
+        }
+        if let about = invite.about?.trimmingCharacters(in: .whitespacesAndNewlines), !about.isEmpty {
+            details.append(about)
+        }
+        details.append("Telegram did not grant message-preview access for this link. Group information is shown without joining.")
+        infoLabel.text = details.joined(separator: "\n\n")
+        infoLabel.isHidden = false
     }
 
     func clearMessage() {
         errorLabel.text = nil
         errorLabel.isHidden = true
+        infoLabel.text = nil
+        infoLabel.isHidden = true
     }
 
     required init?(coder: NSCoder) {
@@ -430,9 +463,10 @@ private final class AyuGramPrivateInvitePreviewController: ViewController {
                         )
                     )
                     self.dismiss()
-                case .invite:
-                    // Intentionally do not display invite metadata/member identities or a Join action.
-                    entryView.showMessage("Telegram did not grant read-only message preview for this link.")
+                case let .invite(invite):
+                    // Telegram supplied metadata but did not grant message access.
+                    // Show a safe information-only preview; never join or fetch history.
+                    entryView.showInviteInfo(invite)
                 case .alreadyJoined:
                     entryView.showMessage("This account already has access. Preview-only mode is not available for this link.")
                 case .invalidHash:
