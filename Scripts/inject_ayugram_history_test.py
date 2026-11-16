@@ -131,7 +131,9 @@ if "AyuGram History ready" not in s:
 
 deleted_capture_hook = """                    if ProcessInfo.processInfo.arguments.contains("-AyuGramDeletedCaptureSmokeTest"), let context = context {
                         let account = context.account
-                        let accountID = account.id.int64
+                        // Production uses the logged-in peer ID for the AyuGram settings namespace.
+                        // The smoke test must use the same account key, not AccountRecordId.
+                        let accountID = account.peerId.toInt64()
                         let testPeerId = PeerId(933000001)
                         let dialogID = testPeerId.toInt64()
                         let now = Int32(Date().timeIntervalSince1970)
