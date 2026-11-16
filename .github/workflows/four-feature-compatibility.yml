@@ -506,7 +506,11 @@ jobs:
           global_update_end = delete_updates.index("case let .updatePinnedMessages", global_update_start)
           global_update_route = delete_updates[global_update_start:global_update_end]
           assert "updatedState.deleteMessagesWithGlobalIds(updateDeleteMessagesData.messages)" in global_update_route
-          assert "updatedState.deleteMessages(updateDeleteChannelMessagesData.messages.map" in delete_updates
+          channel_update_start = delete_updates.index("case let .updateDeleteChannelMessages(updateDeleteChannelMessagesData):")
+          channel_update_end = delete_updates.index("case let .updateEditChannelMessage(updateEditChannelMessageData):", channel_update_start)
+          channel_update_route = delete_updates[channel_update_start:channel_update_end]
+          assert "previousState.pts + ptsCount == pts" in channel_update_route
+          assert "updatedState.deleteMessages(messages.map" in channel_update_route
           replay_start = delete_updates.index("func replayFinalState(")
           replay_global_start = delete_updates.index("case let .DeleteMessagesWithGlobalIds(ids):", replay_start)
           replay_direct_start = delete_updates.index("case let .DeleteMessages(ids):", replay_global_start)
