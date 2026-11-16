@@ -3176,3 +3176,4 @@ jobs:
           path: telegram-ios/ci-artifacts
           if-no-files-found: error
 # Device IPA trigger documentation: build only after the validated simulator and compatibility checks.
+# One-time device IPA build request after simulator #312 delete-capture smoke and compatibility passed.
