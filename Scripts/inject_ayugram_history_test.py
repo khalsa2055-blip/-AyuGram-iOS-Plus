@@ -176,7 +176,7 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                             let retainedMessage = transaction.getMessage(messageID)
                             let retainedInChat = retainedMessage?.text == messageText
                             let hasDeletedMarker = retainedMessage?.attributes.contains(where: {
-                                ($0 as? EditedMessageAttribute)?.date == Int32.min
+                                ($0 as? EditedMessageAttribute).map { $0.isHidden && $0.date == now } ?? false
                             }) ?? false
                             let captured = AyuGramPostboxHistoryStore.filtered(
                                 transaction: transaction,
@@ -221,7 +221,7 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                             let retainedGlobalMessage = transaction.getMessage(globalMessageID)
                             let globalRetainedInChat = retainedGlobalMessage?.text == globalMessageText
                             let globalHasDeletedMarker = retainedGlobalMessage?.attributes.contains(where: {
-                                ($0 as? EditedMessageAttribute)?.date == Int32.min
+                                ($0 as? EditedMessageAttribute).map { $0.isHidden && $0.date == now } ?? false
                             }) ?? false
                             let globalReturnedRetainedID = retainedGlobalIDs.contains(globalMessageID.id)
                             let globalDeletionFiltered = globalIDsToDelete.isEmpty && retainedGlobalMessage != nil
