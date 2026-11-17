@@ -271,11 +271,11 @@ new_settings_load = """        if FileManager.default.fileExists(atPath: url.pat
                     self.cached = try decoder.decode(AyuSettings.self, from: migratedData)
                     try persist(self.cached)
                 } catch {
-                    let backupURL = url.deletingLastPathComponent().appendingPathComponent("\(url.lastPathComponent).corrupt-\(UUID().uuidString)")
+                    let backupURL = url.deletingLastPathComponent().appendingPathComponent("\\(url.lastPathComponent).corrupt-\\(UUID().uuidString)")
                     try? FileManager.default.copyItem(at: url, to: backupURL)
                     self.cached = initial
                     try persist(initial)
-                    print("AyuGram settings recovery: unreadable settings file; restored defaults and preserved \(backupURL.lastPathComponent)")
+                    print("AyuGram settings recovery: unreadable settings file; restored defaults and preserved \\(backupURL.lastPathComponent)")
                 }
             }
         } else {
@@ -550,7 +550,7 @@ new_capture_guard = """        guard !messages.isEmpty else {
         do {
             settingsStore = try AyuGramRuntime.makeSettingsStore(accountID: accountID)
         } catch {
-            print("[AyuGram] deleted capture could not load settings: \(error)")
+            print("[AyuGram] deleted capture could not load settings: \\(error)")
             return
         }
         guard settingsStore.settings.saveDeletedMessages else {
@@ -564,7 +564,7 @@ elif new_capture_guard not in capture_text:
 
 old_capture_append = "        _ = AyuGramPostboxHistoryStore.appendDeleted(transaction: transaction, messages: snapshots)"
 new_capture_append = """        let storedRows = AyuGramPostboxHistoryStore.appendDeleted(transaction: transaction, messages: snapshots)
-        print("[AyuGram] deleted capture persisted: messages=\(snapshots.count), newRows=\(storedRows.count)")"""
+        print("[AyuGram] deleted capture persisted: messages=\\(snapshots.count), newRows=\\(storedRows.count)")"""
 if old_capture_append in capture_text:
     capture_text = capture_text.replace(old_capture_append, new_capture_append, 1)
 elif new_capture_append not in capture_text:
@@ -814,13 +814,21 @@ old_delete_event = """            case let .DeleteMessages(ids):
                 })
                 deletedMessageIds.append(contentsOf: ids.map { .messageId($0) })"""
 new_delete_event = """            case let .DeleteMessages(ids):
-                print("[AyuGram] server DeleteMessages event: count=\(ids.count)")
+                print("[AyuGram] server DeleteMessages event: count=\\(ids.count)")
                 _internal_deleteMessages(transaction: transaction, mediaBox: mediaBox, ids: ids, manualAddMessageThreadStatsDifference: { id, add, remove in
                     addMessageThreadStatsDifference(threadKey: id, remove: remove, addedMessagePeer: nil, addedMessageId: nil, isOutgoing: false)
                 }, ayuAccountID: accountPeerId.toInt64())
                 deletedMessageIds.append(contentsOf: ids.map { .messageId($0) })"""
 if old_delete_event in state_utils_text:
     state_utils_text = state_utils_text.replace(old_delete_event, new_delete_event, 1)
+elif "ayuAccountID: accountPeerId.toInt64()" in state_utils_text.split("case let .DeleteMessages(ids):", 1)[1].split("case let .UpdateMinAvailableMessage", 1)[0]:
+    # The main AyuGram patch already wires the active account. Add diagnostics without rewriting that call.
+    if "server DeleteMessages event: count=" not in state_utils_text:
+        state_utils_text = state_utils_text.replace(
+            "case let .DeleteMessages(ids):\n",
+            "case let .DeleteMessages(ids):\n                print(\"[AyuGram] server DeleteMessages event: count=\\(ids.count)\")\n",
+            1
+        )
 elif new_delete_event not in state_utils_text:
     raise SystemExit("Could not wire account ID into server-delivered delete events")
 
@@ -830,7 +838,7 @@ old_global_delete = """            case let .DeleteMessagesWithGlobalIds(ids):
                 var resourceIds: [MediaResourceId] = []"""
 new_global_delete = """            case let .DeleteMessagesWithGlobalIds(ids):
                 let messageIds = transaction.messageIdsForGlobalIds(ids)
-                print("[AyuGram] server Global-ID delete event: ids=\(ids.count), matched=\(messageIds.count)")
+                print("[AyuGram] server Global-ID delete event: ids=\\(ids.count), matched=\\(messageIds.count)")
                 _internal_captureDeletedMessages(transaction: transaction, mediaBox: mediaBox, ids: messageIds, ayuAccountID: accountPeerId.toInt64())
                 var resourceIds: [MediaResourceId] = []"""
 if old_global_delete in state_utils_text:
@@ -994,7 +1002,7 @@ smoke_text = smoke.read_text(encoding="utf-8")
 if 'add("corrupt settings recovery")' not in smoke_text:
     recovery_test = """        add("corrupt settings recovery") {
             let recoveryDirectory = FileManager.default.temporaryDirectory
-                .appendingPathComponent("AyuGramSettingsRecovery-\(UUID().uuidString)", isDirectory: true)
+                .appendingPathComponent("AyuGramSettingsRecovery-\\(UUID().uuidString)", isDirectory: true)
             try FileManager.default.createDirectory(at: recoveryDirectory, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: recoveryDirectory) }
 
