@@ -222,6 +222,7 @@ retention_block = r'''    var ayuRetainedDeletedMessageIds = Set<MessageId>()
             ayuRetainedDeletedMessageIds.insert(id)
         }
     }
+    let idsToDelete = ids.filter { !ayuRetainedDeletedMessageIds.contains($0) }
 
 '''
 delete_function_start = delete_text.find("public func _internal_deleteMessages(")
@@ -239,12 +240,24 @@ delete_function = replace_once(
     "deleted-message local retention block"
 )
 delete_function = replace_message_reconstruction(delete_function, "local deleted-message retention")
+delete_function = replace_once(
+    delete_function,
+    "    if deleteMedia {\n        for id in ids {",
+    "    if deleteMedia {\n        for id in idsToDelete {",
+    "exclude retained rows from SecretChat media cleanup"
+)
+
+delete_function = replace_once(
+    delete_function,
+    "    for id in ids {\n        if id.peerId.namespace == Namespaces.Peer.CloudChannel",
+    "    for id in idsToDelete {\n        if id.peerId.namespace == Namespaces.Peer.CloudChannel",
+    "exclude retained rows from channel thread statistics"
+)
 delete_text = delete_text[:delete_function_start] + delete_function + delete_text[delete_function_end:]
 delete_text = replace_once(
     delete_text,
     "    transaction.deleteMessages(ids, forEachMedia: { _ in\n    })",
-    """    let idsToDelete = ids.filter { !ayuRetainedDeletedMessageIds.contains($0) }
-    transaction.deleteMessages(idsToDelete, forEachMedia: { _ in
+    """    transaction.deleteMessages(idsToDelete, forEachMedia: { _ in
     })
     return ayuRetainedDeletedMessageIds""",
     "filtered Postbox deletion"
