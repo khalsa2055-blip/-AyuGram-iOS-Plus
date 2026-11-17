@@ -819,18 +819,53 @@ new_delete_event = """            case let .DeleteMessages(ids):
                     addMessageThreadStatsDifference(threadKey: id, remove: remove, addedMessagePeer: nil, addedMessageId: nil, isOutgoing: false)
                 }, ayuAccountID: accountPeerId.toInt64())
                 deletedMessageIds.append(contentsOf: ids.map { .messageId($0) })"""
+# Locate the exact replayFinalState switch cases. A plain split() on the first
+# label is ambiguous because AccountStateManagementUtils contains more than one
+# DeleteMessages switch and can select a neighbouring, unrelated operation.
+def find_case_block(source: str, case_label: str, required: str):
+    pattern = re.compile(r"(?m)^(?P<indent> *)" + re.escape(case_label) + r"\n")
+    for match in pattern.finditer(source):
+        indent = match.group("indent")
+        sibling_pattern = re.compile(r"(?m)^" + re.escape(indent) + r"case ")
+        sibling = sibling_pattern.search(source, match.end())
+        end = sibling.start() if sibling else len(source)
+        block = source[match.start():end]
+        if required in block:
+            return match.start(), end, block
+    return None
+
+
+def ensure_case_log(source: str, start: int, block: str, message: str) -> str:
+    if message in block:
+        return source
+    line_end = source.find("\n", start)
+    if line_end < 0:
+        raise SystemExit("Could not locate the end of the server-delete case label")
+    case_line = source[start:line_end]
+    indent = case_line[:len(case_line) - len(case_line.lstrip())]
+    log_line = indent + "    print(" + message + ")"
+    return source[:line_end + 1] + log_line + "\n" + source[line_end + 1:]
+
+
 if old_delete_event in state_utils_text:
     state_utils_text = state_utils_text.replace(old_delete_event, new_delete_event, 1)
-elif "ayuAccountID: accountPeerId.toInt64()" in state_utils_text.split("case let .DeleteMessages(ids):", 1)[1].split("case let .UpdateMinAvailableMessage", 1)[0]:
-    # The main AyuGram patch already wires the active account. Add diagnostics without rewriting that call.
-    if "server DeleteMessages event: count=" not in state_utils_text:
-        state_utils_text = state_utils_text.replace(
-            "case let .DeleteMessages(ids):\n",
-            "case let .DeleteMessages(ids):\n                print(\"[AyuGram] server DeleteMessages event: count=\\(ids.count)\")\n",
-            1
-        )
-elif new_delete_event not in state_utils_text:
-    raise SystemExit("Could not wire account ID into server-delivered delete events")
+else:
+    delete_case = find_case_block(
+        state_utils_text,
+        "case let .DeleteMessages(ids):",
+        "_internal_deleteMessages("
+    )
+    if delete_case is None:
+        raise SystemExit("Server DeleteMessages replay case was not found")
+    delete_case_start, _, delete_case_block = delete_case
+    if "ayuAccountID: accountPeerId.toInt64()" not in delete_case_block:
+        raise SystemExit("Existing server DeleteMessages replay case does not pass the account ID")
+    state_utils_text = ensure_case_log(
+        state_utils_text,
+        delete_case_start,
+        delete_case_block,
+        '"[AyuGram] server DeleteMessages event: count=\\\\(ids.count)"'
+    )
 
 # Telegram also reports some private-chat deletions through global message IDs.
 # The stock branch deletes those messages without going through _internal_deleteMessages.
@@ -843,26 +878,51 @@ new_global_delete = """            case let .DeleteMessagesWithGlobalIds(ids):
                 var resourceIds: [MediaResourceId] = []"""
 if old_global_delete in state_utils_text:
     state_utils_text = state_utils_text.replace(old_global_delete, new_global_delete, 1)
-elif new_global_delete not in state_utils_text:
-    raise SystemExit("Could not wire global-ID server deletions into automatic History")
-state_utils.write_text(state_utils_text)
+else:
+    global_case = find_case_block(
+        state_utils_text,
+        "case let .DeleteMessagesWithGlobalIds(ids):",
+        "_internal_captureDeletedMessages("
+    )
+    if global_case is None:
+        raise SystemExit("Server Global-ID DeleteMessages replay case was not wired for History capture")
+    global_case_start, _, global_case_block = global_case
+    if "transaction.messageIdsForGlobalIds(ids)" not in global_case_block:
+        raise SystemExit("Existing Global-ID delete replay case does not resolve messages before deletion")
+    state_utils_text = ensure_case_log(
+        state_utils_text,
+        global_case_start,
+        global_case_block,
+        '"[AyuGram] server Global-ID delete event: ids=\\\\(ids.count)"'
+    )
 
-# Guard against regressions in the actual server-update deletion path.
-case_marker = "case let .DeleteMessages(ids):"
-if case_marker not in state_utils_text:
-    raise SystemExit("Server-delivered DeleteMessages event handler not found")
-delete_event_block = state_utils_text.split(case_marker, 1)[1].split("case let .UpdateMinAvailableMessage", 1)[0]
+# Verify the exact handlers that replayFinalState executes, not the first textual
+# occurrence of a case label elsewhere in this large source file.
+delete_case = find_case_block(
+    state_utils_text,
+    "case let .DeleteMessages(ids):",
+    "_internal_deleteMessages("
+)
+if delete_case is None:
+    raise SystemExit("Server-delivered DeleteMessages replay handler not found")
+_, _, delete_event_block = delete_case
 delete_source = root / "submodules/TelegramCore/Sources/TelegramEngine/Messages/DeleteMessages.swift"
 if not delete_source.exists() or "AyuGramCaptureService.captureDeleted(" not in delete_source.read_text():
     raise SystemExit("Automatic deleted-message capture service is not integrated")
 if "ayuAccountID: accountPeerId.toInt64()" not in delete_event_block:
     raise SystemExit("Automatic History is not enabled for server-delivered deleted-message updates")
-global_delete_marker = "case let .DeleteMessagesWithGlobalIds(ids):"
-if global_delete_marker not in state_utils_text:
-    raise SystemExit("Global-ID server deletion handler not found")
-global_delete_block = state_utils_text.split(global_delete_marker, 1)[1].split("case let .DeleteMessages(ids):", 1)[0]
+
+global_delete_case = find_case_block(
+    state_utils_text,
+    "case let .DeleteMessagesWithGlobalIds(ids):",
+    "_internal_captureDeletedMessages("
+)
+if global_delete_case is None:
+    raise SystemExit("Global-ID server deletion handler is not wired to History")
+_, _, global_delete_block = global_delete_case
 if "transaction.messageIdsForGlobalIds(ids)" not in global_delete_block or "_internal_captureDeletedMessages(" not in global_delete_block:
     raise SystemExit("Global-ID server deletion events are not captured before Postbox removes their messages")
+state_utils.write_text(state_utils_text)
 if "_internal_captureDeletedMessages(transaction: transaction, mediaBox: mediaBox, ids: ids, ayuAccountID: ayuAccountID)" not in delete_source.read_text(encoding="utf-8"):
     raise SystemExit("Normal deletion path is not using the shared deleted-message capture helper")
 print("Verified both direct/server DeleteMessages and server DeleteMessagesWithGlobalIds capture before deletion.")
