@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Keep server-deleted Telegram messages in their original chat, with a local deleted mark."""
 from pathlib import Path
+import re
 
 
 ROOT = Path("telegram-ios") if Path("telegram-ios").is_dir() else Path(".")
