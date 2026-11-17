@@ -4,7 +4,7 @@ name: AyuGram iOS — Swiftgram Compatibility Check
 on:
   workflow_dispatch:
   push:
-    branches: [ "feature/four-feature-integration" ]
+    branches: [ "feature/four-feature-integration", "build/preview-fix-4e24b36" ]
     paths:
       - "patches/**"
       - "Scripts/harden_ayugram_history.py"
