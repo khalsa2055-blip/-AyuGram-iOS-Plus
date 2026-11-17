@@ -98,6 +98,19 @@ def replace_message_reconstruction(source: str, label: str) -> str:
     return source[:line_start] + replacement + source[end:]
 
 
+def find_case_block(source: str, case_label: str, required: str):
+    pattern = re.compile(r"(?m)^(?P<indent> *)" + re.escape(case_label) + r"\n")
+    for match in pattern.finditer(source):
+        indent = match.group("indent")
+        sibling_pattern = re.compile(r"(?m)^" + re.escape(indent) + r"case ")
+        sibling = sibling_pattern.search(source, match.end())
+        end = sibling.start() if sibling else len(source)
+        block = source[match.start():end]
+        if required in block:
+            return match.start(), end, block
+    return None
+
+
 def remove_swift_action(source: str, marker: str, append_prefix: str, label: str) -> str:
     marker_pos = source.find(marker)
     if marker_pos < 0:
@@ -283,11 +296,16 @@ if "_internal_applyAyuGramServerDeleteMessages(" not in state_text:
     state_text = state_text[:helper_end] + "\n\n" + server_handlers + state_text[helper_end:]
 elif "_internal_applyAyuGramServerDeleteMessagesWithGlobalIds(" not in state_text:
     raise SystemExit("Only one shared server-delete handler exists; refusing partial update")
-direct_delete_start = state_text.find("case let .DeleteMessages(ids):")
-direct_delete_end = state_text.find("case let .UpdateMinAvailableMessage", direct_delete_start)
-if direct_delete_start < 0 or direct_delete_end < 0:
-    raise SystemExit("Server DeleteMessages source block boundaries not found")
-direct_delete_block = state_text[direct_delete_start:direct_delete_end]
+direct_delete_case = find_case_block(
+    state_text,
+    "case let .DeleteMessages(ids):",
+    "_internal_deleteMessages("
+)
+if direct_delete_case is None:
+    raise SystemExit("Server replayFinalState DeleteMessages case was not found")
+direct_delete_start, direct_delete_end, direct_delete_block = direct_delete_case
+if "ayuAccountID: accountPeerId.toInt64()" not in direct_delete_block:
+    raise SystemExit("Server replayFinalState DeleteMessages case does not pass the active account ID")
 old_direct_delete_call = """                _internal_deleteMessages(transaction: transaction, mediaBox: mediaBox, ids: ids, manualAddMessageThreadStatsDifference: { id, add, remove in
                     addMessageThreadStatsDifference(threadKey: id, remove: remove, addedMessagePeer: nil, addedMessageId: nil, isOutgoing: false)
                 }, ayuAccountID: accountPeerId.toInt64())"""
