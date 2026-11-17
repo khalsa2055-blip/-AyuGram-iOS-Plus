@@ -33,6 +33,29 @@ final class InvitePreviewTests: XCTestCase {
         )
     }
 
+    func testParsesOfficialTelegramSchemeInvite() {
+        XCTAssertEqual(
+            InviteLinkParser.parse("tg://join?invite=Abc_123-x"),
+            .success(TelegramInvite(hash: "Abc_123-x"))
+        )
+    }
+
+    func testRejectsMalformedTelegramSchemeInvite() {
+        let invalidLinks = [
+            "tg://join",
+            "tg://join?domain=public_group",
+            "tg://join?invite=bad.hash",
+            "tg://join?invite=first&invite=second",
+            "tg://resolve?invite=secret",
+            "tg://join/path?invite=secret"
+        ]
+        for link in invalidLinks {
+            if case .success = InviteLinkParser.parse(link) {
+                XCTFail("Malformed Telegram deep link must be rejected: \(link)")
+            }
+        }
+    }
+
     func testRejectsNonTelegramHost() {
         XCTAssertEqual(InviteLinkParser.parse("https://example.com/+secret"), .failure(.unsupportedHost))
     }
@@ -42,7 +65,7 @@ final class InvitePreviewTests: XCTestCase {
     }
 
     func testRejectsNonASCIIAndPercentEncodedHashCharacters() {
-        for link in ["https://t.me/+секрет", "https://t.me/+secret%24other"] {
+        for link in ["https://t.me/+секрет", "https://t.me/+secret%24other", "https://t.me/+bad.hash", "https://t.me/+bad hash"] {
             if case .success = InviteLinkParser.parse(link) {
                 XCTFail("Invite hashes must use only the Telegram-safe ASCII alphabet: \\(link)")
             }
@@ -60,8 +83,20 @@ final class InvitePreviewTests: XCTestCase {
         let expiry = Date(timeIntervalSince1970: 2_000_000_000)
         let chat = PeekChat(id: 42, title: "Test", expiresAt: expiry)
         XCTAssertEqual(try PeekSession.start(from: .peek(chat)), PeekSession(chat: chat))
-        XCTAssertThrowsError(try PeekSession.start(from: .basicInfo(title: "Test", participantCount: 10)))
-        XCTAssertThrowsError(try PeekSession.start(from: .approvalRequired))
+
+        let deniedResults: [InviteCheckResult] = [
+            .basicInfo(title: "Test", participantCount: 10),
+            .alreadyMember,
+            .approvalRequired,
+            .expired,
+            .invalid,
+            .accessDenied
+        ]
+        for result in deniedResults {
+            XCTAssertThrowsError(try PeekSession.start(from: result)) { error in
+                XCTAssertEqual(error as? PeekAccessError, .serverDidNotGrantPeek)
+            }
+        }
     }
 
     func testPeekSessionExpires() throws {
