@@ -1045,3 +1045,4 @@ print("PASS: added Telegram-resolved private invite preview under Settings > My 
 print("PASS: non-member channel chat composer and reactions are read-only.")
 print("PASS: native peek expiry no longer offers Join.")
 print("PASS: added Before action backed by the pre-edit archive.")
+# Device IPA opt-in: isolated 4e24b36 baseline plus private group preview repair only.
