@@ -139,11 +139,16 @@ retention_block = r'''    var ayuRetainedDeletedMessageIds = Set<MessageId>()
             }
             transaction.updateMessage(id, update: { currentMessage in
                 var attributes = currentMessage.attributes
-                if attributes.contains(where: { ($0 as? EditedMessageAttribute)?.date == Int32.min }) {
+                if attributes.contains(where: { attribute in
+                    guard let edited = attribute as? EditedMessageAttribute else {
+                        return false
+                    }
+                    return edited.isHidden && (edited.date == Int32.min || edited.date == currentMessage.timestamp)
+                }) {
                     return .skip
                 }
-                // Hidden sentinel: it identifies a local tombstone without changing Telegram's edit date.
-                attributes.append(EditedMessageAttribute(date: Int32.min, isHidden: true))
+                // Keep this hidden marker in a valid timestamp field; editedTime ignores hidden attributes.
+                attributes.append(EditedMessageAttribute(date: currentMessage.timestamp, isHidden: true))
 
                 var storeForwardInfo: StoreMessageForwardInfo?
                 if let forwardInfo = currentMessage.forwardInfo {
@@ -212,7 +217,7 @@ if global_helper_signature not in state_text:
     state_import_anchor = "import AyuGramIOS\n"
     if state_import_anchor not in state_text:
         raise SystemExit("AccountStateManagementUtils AyuGramIOS import anchor not found")
-    state_text = state_text.replace(state_import_anchor, state_import_anchor + "\n" + "public func _internal_retainDeletedMessagesWithGlobalIds(transaction: Transaction, ids: [Int32], accountID: Int64) -> Set<Int32> {\n    var retainedGlobalIds = Set<Int32>()\n    guard (try? AyuGramRuntime.makeSettingsStore(accountID: accountID))?.settings.saveDeletedMessages == true else {\n        return retainedGlobalIds\n    }\n\n    for globalID in ids {\n        guard let messageID = transaction.messageIdsForGlobalIds([globalID]).first,\n              let message = transaction.getMessage(messageID),\n              !message.isCopyProtected(),\n              !message.containsSecretMedia else {\n            continue\n        }\n        transaction.updateMessage(messageID, update: { currentMessage in\n            var attributes = currentMessage.attributes\n            if attributes.contains(where: { ($0 as? EditedMessageAttribute)?.date == Int32.min }) {\n                return .skip\n            }\n            attributes.append(EditedMessageAttribute(date: Int32.min, isHidden: true))\n\n            var storeForwardInfo: StoreMessageForwardInfo?\n            if let forwardInfo = currentMessage.forwardInfo {\n                storeForwardInfo = StoreMessageForwardInfo(\n                    authorId: forwardInfo.author?.id,\n                    sourceId: forwardInfo.source?.id,\n                    sourceMessageId: forwardInfo.sourceMessageId,\n                    date: forwardInfo.date,\n                    authorSignature: forwardInfo.authorSignature,\n                    psaType: forwardInfo.psaType,\n                    flags: forwardInfo.flags\n                )\n            }\n            return .update(StoreMessage(\n                id: currentMessage.id,\n                customStableId: nil,\n                globallyUniqueId: currentMessage.globallyUniqueId,\n                groupingKey: currentMessage.groupingKey,\n                threadId: currentMessage.threadId,\n                timestamp: currentMessage.timestamp,\n                flags: StoreMessageFlags(currentMessage.flags),\n                tags: currentMessage.tags,\n                globalTags: currentMessage.globalTags,\n                localTags: currentMessage.localTags,\n                forwardInfo: storeForwardInfo,\n                authorId: currentMessage.author?.id,\n                text: currentMessage.text,\n                attributes: attributes,\n                media: currentMessage.media\n            ))\n        })\n        retainedGlobalIds.insert(globalID)\n    }\n    return retainedGlobalIds\n}" + "\n", 1)
+    state_text = state_text.replace(state_import_anchor, state_import_anchor + "\n" + "public func _internal_retainDeletedMessagesWithGlobalIds(transaction: Transaction, ids: [Int32], accountID: Int64) -> Set<Int32> {\n    var retainedGlobalIds = Set<Int32>()\n    guard (try? AyuGramRuntime.makeSettingsStore(accountID: accountID))?.settings.saveDeletedMessages == true else {\n        return retainedGlobalIds\n    }\n\n    for globalID in ids {\n        guard let messageID = transaction.messageIdsForGlobalIds([globalID]).first,\n              let message = transaction.getMessage(messageID),\n              !message.isCopyProtected(),\n              !message.containsSecretMedia else {\n            continue\n        }\n        transaction.updateMessage(messageID, update: { currentMessage in\n            var attributes = currentMessage.attributes\n            if attributes.contains(where: { attribute in\n                guard let edited = attribute as? EditedMessageAttribute else {\n                    return false\n                }\n                return edited.isHidden && (edited.date == Int32.min || edited.date == currentMessage.timestamp)\n            }) {\n                return .skip\n            }\n            attributes.append(EditedMessageAttribute(date: currentMessage.timestamp, isHidden: true))\n\n            var storeForwardInfo: StoreMessageForwardInfo?\n            if let forwardInfo = currentMessage.forwardInfo {\n                storeForwardInfo = StoreMessageForwardInfo(\n                    authorId: forwardInfo.author?.id,\n                    sourceId: forwardInfo.source?.id,\n                    sourceMessageId: forwardInfo.sourceMessageId,\n                    date: forwardInfo.date,\n                    authorSignature: forwardInfo.authorSignature,\n                    psaType: forwardInfo.psaType,\n                    flags: forwardInfo.flags\n                )\n            }\n            return .update(StoreMessage(\n                id: currentMessage.id,\n                customStableId: nil,\n                globallyUniqueId: currentMessage.globallyUniqueId,\n                groupingKey: currentMessage.groupingKey,\n                threadId: currentMessage.threadId,\n                timestamp: currentMessage.timestamp,\n                flags: StoreMessageFlags(currentMessage.flags),\n                tags: currentMessage.tags,\n                globalTags: currentMessage.globalTags,\n                localTags: currentMessage.localTags,\n                forwardInfo: storeForwardInfo,\n                authorId: currentMessage.author?.id,\n                text: currentMessage.text,\n                attributes: attributes,\n                media: currentMessage.media\n            ))\n        })\n        retainedGlobalIds.insert(globalID)\n    }\n    return retainedGlobalIds\n}" + "\n", 1)
 # Share the exact server-delete operations between replayFinalState and its runtime test.
 server_handlers = r"""
 public func _internal_applyAyuGramServerDeleteMessages(transaction: Transaction, mediaBox: MediaBox, ids: [MessageId], accountID: Int64) -> Set<MessageId> {
@@ -345,7 +350,7 @@ bubble_text = replace_once(
                         edited = !attribute.isHidden
 """,
     """                    if let attribute = attribute as? EditedMessageAttribute {
-                        if attribute.date == Int32.min {
+                        if attribute.isHidden && (attribute.date == Int32.min || attribute.date == message.timestamp) {
                             isAyuGramDeleted = true
                             edited = false
                         } else {
@@ -384,7 +389,7 @@ text_bubble_text = replace_once(
                         edited = !attribute.isHidden
 """,
     """                    if let attribute = attribute as? EditedMessageAttribute {
-                        if attribute.date == Int32.min {
+                        if attribute.isHidden && (attribute.date == Int32.min || attribute.date == message.timestamp) {
                             isAyuGramDeleted = true
                             edited = false
                         } else {
@@ -510,10 +515,13 @@ assert "-> Set<MessageId>" in delete_check
 assert "@discardableResult" in delete_check
 assert "ids.filter { !ayuRetainedDeletedMessageIds.contains($0) }.map { .messageId($0) }" in state_check
 assert "ids.filter { !ayuRetainedGlobalIds.contains($0) }.map { .global($0) }" in state_check
-assert "EditedMessageAttribute(date: Int32.min, isHidden: true)" in delete_check
+assert "EditedMessageAttribute(date: currentMessage.timestamp, isHidden: true)" in delete_check
+assert "edited.date == Int32.min || edited.date == currentMessage.timestamp" in delete_check
 assert "isAyuGramDeleted: Bool" in date_check
 assert 'updatedDateText = "🧹 \\(updatedDateText)"' in date_check
 assert "isAyuGramDeleted = true" in bubble_check
+assert "attribute.date == Int32.min || attribute.date == message.timestamp" in bubble_check
+assert "attribute.date == Int32.min || attribute.date == message.timestamp" in text_bubble_check
 print("PASS: server-deleted messages remain as local rows in their original chat.")
 print("PASS: the original text/media/timestamp stay on the Telegram message; the timestamp carries the 🧹 mark.")
 print("PASS: interactive deletion still uses Telegram's normal deletion path.")
