@@ -234,12 +234,15 @@ if "AyuGramPrivateInvitePreviewController" not in settings:
         r'''private final class AyuGramPrivateInviteEntryView: UIView {
     var onPreview: ((String) -> Void)?
     var onBack: (() -> Void)?
+    var onOpenInvite: ((String) -> Void)?
     private let backButton = UIButton(type: .system)
     private let titleLabel = UILabel()
     private let field = UITextField()
     private let button = UIButton(type: .system)
     private let errorLabel = UILabel()
     private let infoLabel = UILabel()
+    private let fallbackButton = UIButton(type: .system)
+    private var pendingInviteLink: String?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -278,13 +281,19 @@ if "AyuGramPrivateInvitePreviewController" not in settings:
         infoLabel.textAlignment = .natural
         infoLabel.isHidden = true
 
+        fallbackButton.setTitle("Open invitation in Telegram", for: .normal)
+        fallbackButton.titleLabel?.font = .preferredFont(forTextStyle: .headline)
+        fallbackButton.accessibilityIdentifier = "privateInviteOpenInTelegramButton"
+        fallbackButton.addTarget(self, action: #selector(openInvitePressed), for: .touchUpInside)
+        fallbackButton.isHidden = true
+
         let header = UIStackView(arrangedSubviews: [backButton, titleLabel])
         header.axis = .horizontal
         header.alignment = .center
         header.spacing = 8
         backButton.setContentHuggingPriority(.required, for: .horizontal)
 
-        let stack = UIStackView(arrangedSubviews: [header, field, button, errorLabel, infoLabel])
+        let stack = UIStackView(arrangedSubviews: [header, field, button, errorLabel, infoLabel, fallbackButton])
         stack.axis = .vertical
         stack.spacing = 16
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -302,6 +311,11 @@ if "AyuGramPrivateInvitePreviewController" not in settings:
         onBack?()
     }
 
+    @objc private func openInvitePressed() {
+        guard let pendingInviteLink else { return }
+        onOpenInvite?(pendingInviteLink)
+    }
+
     func setLoading(_ loading: Bool) {
         button.isEnabled = !loading
         field.isEnabled = !loading
@@ -309,6 +323,8 @@ if "AyuGramPrivateInvitePreviewController" not in settings:
     }
 
     func showMessage(_ message: String) {
+        pendingInviteLink = nil
+        fallbackButton.isHidden = true
         infoLabel.text = nil
         infoLabel.isHidden = true
         errorLabel.text = message
@@ -316,13 +332,17 @@ if "AyuGramPrivateInvitePreviewController" not in settings:
     }
 
     func showStatus(_ message: String) {
+        pendingInviteLink = nil
+        fallbackButton.isHidden = true
         errorLabel.text = nil
         errorLabel.isHidden = true
         infoLabel.text = message
         infoLabel.isHidden = false
     }
 
-    func showInviteInfo(_ invite: ExternalJoiningChatState.Invite) {
+    func showInviteInfo(_ invite: ExternalJoiningChatState.Invite, rawLink: String) {
+        pendingInviteLink = rawLink
+        fallbackButton.isHidden = false
         errorLabel.text = nil
         errorLabel.isHidden = true
 
@@ -348,15 +368,17 @@ if "AyuGramPrivateInvitePreviewController" not in settings:
             details.append("This invite requires admin approval.")
         }
         if !invite.flags.isChannel {
-            details.append("Telegram does not provide invite-link message previews for basic groups. Group information is shown without joining.")
+            details.append("Telegram does not provide invite-link message previews for basic groups. The second option opens Telegram's official invitation screen; it will not join automatically. Viewing messages may still require membership.")
         } else {
-            details.append("Telegram did not grant message-preview access for this invite link. Only group information is shown without joining.")
+            details.append("Telegram did not grant message-preview access for this invite link. The second option opens Telegram's official invitation screen; it will not join automatically. Telegram may require membership or admin approval before showing messages.")
         }
         infoLabel.text = details.joined(separator: "\n\n")
         infoLabel.isHidden = false
     }
 
     func clearMessage() {
+        pendingInviteLink = nil
+        fallbackButton.isHidden = true
         errorLabel.text = nil
         errorLabel.isHidden = true
         infoLabel.text = nil
@@ -380,12 +402,8 @@ if "AyuGramPrivateInvitePreviewController" not in settings:
 }
 
 private func ayuGramPrivateInviteHash(_ raw: String) -> String? {
-    guard let components = URLComponents(string: raw),
+    guard let components = URLComponents(string: raw.trimmingCharacters(in: .whitespacesAndNewlines)),
           let scheme = components.scheme?.lowercased(),
-          scheme == "https" || scheme == "http",
-          let host = components.host?.lowercased(),
-          ["t.me", "www.t.me", "telegram.me", "www.telegram.me", "t.dog", "telegram.dog"].contains(host),
-          components.query == nil,
           components.fragment == nil,
           components.user == nil,
           components.password == nil,
@@ -393,14 +411,34 @@ private func ayuGramPrivateInviteHash(_ raw: String) -> String? {
         return nil
     }
 
-    let parts = components.path.split(separator: "/", omittingEmptySubsequences: true)
     let hash: String
-    if parts.count == 1, parts[0].hasPrefix("+") {
-        hash = String(parts[0].dropFirst())
-    } else if parts.count == 2, parts[0].lowercased() == "joinchat" {
-        hash = String(parts[1])
+    if scheme == "tg" {
+        // Official Telegram deep link: tg://join?invite=HASH.
+        guard components.host?.lowercased() == "join",
+              components.path.isEmpty,
+              let items = components.queryItems,
+              items.count == 1,
+              items[0].name == "invite",
+              let value = items[0].value else {
+            return nil
+        }
+        hash = value
     } else {
-        return nil
+        guard (scheme == "https" || scheme == "http"),
+              let host = components.host?.lowercased(),
+              ["t.me", "www.t.me", "telegram.me", "www.telegram.me", "t.dog", "telegram.dog"].contains(host),
+              components.query == nil else {
+            return nil
+        }
+
+        let parts = components.path.split(separator: "/", omittingEmptySubsequences: true)
+        if parts.count == 1, parts[0].hasPrefix("+") {
+            hash = String(parts[0].dropFirst())
+        } else if parts.count == 2, parts[0].lowercased() == "joinchat" {
+            hash = String(parts[1])
+        } else {
+            return nil
+        }
     }
 
     // Keep runtime validation identical to InviteLinkParser's ASCII allowlist.
@@ -446,6 +484,21 @@ private final class AyuGramPrivateInvitePreviewController: ViewController {
         entryView.onBack = { [weak self] in
             self?.dismiss()
         }
+        entryView.onOpenInvite = { [weak self, weak entryView] raw in
+            guard let self, let entryView, URL(string: raw) != nil else { return }
+            // Plan B: hand the original invite to Telegram's own resolver only
+            // after the user taps the secondary button. This does not join or
+            // request access; Telegram presents its standard invite screen.
+            self.context.sharedContext.openExternalUrl(
+                context: self.context,
+                urlContext: .generic,
+                url: raw,
+                forceExternal: false,
+                presentationData: self.context.sharedContext.currentPresentationData.with { $0 },
+                navigationController: self.context.sharedContext.mainWindow?.viewController as? NavigationController,
+                dismissInput: { entryView.endEditing(true) }
+            )
+        }
         entryView.onPreview = { [weak self, weak entryView] raw in
             guard let self, let entryView else { return }
             guard let hash = ayuGramPrivateInviteHash(raw) else {
@@ -485,7 +538,7 @@ private final class AyuGramPrivateInvitePreviewController: ViewController {
                 case let .invite(invite):
                     // Telegram supplied metadata but did not grant message access.
                     // Show a safe information-only preview; never join or fetch history.
-                    entryView.showInviteInfo(invite)
+                    entryView.showInviteInfo(invite, rawLink: raw)
                 case let .alreadyJoined(peer):
                     guard let navigationController = self.context.sharedContext.mainWindow?.viewController as? NavigationController else {
                         entryView.showStatus("You already belong to this group. Open it from your chat list to view its messages.")
