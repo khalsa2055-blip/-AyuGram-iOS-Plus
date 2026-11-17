@@ -33,6 +33,29 @@ final class InvitePreviewTests: XCTestCase {
         )
     }
 
+    func testParsesOfficialTelegramSchemeInvite() {
+        XCTAssertEqual(
+            InviteLinkParser.parse("tg://join?invite=Abc_123-x"),
+            .success(TelegramInvite(hash: "Abc_123-x"))
+        )
+    }
+
+    func testRejectsMalformedTelegramSchemeInvite() {
+        let invalidLinks = [
+            "tg://join",
+            "tg://join?domain=public_group",
+            "tg://join?invite=bad.hash",
+            "tg://join?invite=first&invite=second",
+            "tg://resolve?invite=secret",
+            "tg://join/path?invite=secret"
+        ]
+        for link in invalidLinks {
+            if case .success = InviteLinkParser.parse(link) {
+                XCTFail("Malformed Telegram deep link must be rejected: \(link)")
+            }
+        }
+    }
+
     func testRejectsNonTelegramHost() {
         XCTAssertEqual(InviteLinkParser.parse("https://example.com/+secret"), .failure(.unsupportedHost))
     }
