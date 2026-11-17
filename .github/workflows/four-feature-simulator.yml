@@ -15,6 +15,7 @@ on:
   push:
     branches:
       - feature/four-feature-integration
+      - build/preview-fix-4e24b36
     paths:
       - '.github/workflows/four-feature-simulator.yml'
       - '.github/history-menu-smoke.py'
