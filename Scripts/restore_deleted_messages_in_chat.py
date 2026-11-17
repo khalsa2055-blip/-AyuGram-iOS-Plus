@@ -91,7 +91,7 @@ def replace_message_reconstruction(source: str, label: str) -> str:
         raise SystemExit(f"{label}: StoreMessage initializer opening parenthesis missing")
     store_close = matching_delimiter(source, store_open, "(", ")")
     end = store_close + 2
-    if source[store_close + 1:end] != "))":
+    if source[store_close:end] != "))":
         raise SystemExit(f"{label}: expected StoreMessage and update closing parentheses")
     indent = source[line_start:marker_pos]
     replacement = indent + "return .update(currentMessage.withUpdatedAttributes(attributes))"
