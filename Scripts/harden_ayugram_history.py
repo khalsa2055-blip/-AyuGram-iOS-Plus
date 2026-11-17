@@ -262,13 +262,21 @@ new_settings_load = """        if FileManager.default.fileExists(atPath: url.pat
             if let decoded = try? decoder.decode(AyuSettings.self, from: data) {
                 self.cached = decoded
             } else {
-                let defaultsData = try encoder.encode(initial)
-                let defaultsObject = try JSONSerialization.jsonObject(with: defaultsData, options: [.fragmentsAllowed])
-                let storedObject = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
-                let migratedObject = try Self.mergeLegacyDefaults(defaults: defaultsObject, stored: storedObject)
-                let migratedData = try JSONSerialization.data(withJSONObject: migratedObject, options: [.sortedKeys])
-                self.cached = try decoder.decode(AyuSettings.self, from: migratedData)
-                try persist(self.cached)
+                do {
+                    let defaultsData = try encoder.encode(initial)
+                    let defaultsObject = try JSONSerialization.jsonObject(with: defaultsData, options: [.fragmentsAllowed])
+                    let storedObject = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
+                    let migratedObject = try Self.mergeLegacyDefaults(defaults: defaultsObject, stored: storedObject)
+                    let migratedData = try JSONSerialization.data(withJSONObject: migratedObject, options: [.sortedKeys])
+                    self.cached = try decoder.decode(AyuSettings.self, from: migratedData)
+                    try persist(self.cached)
+                } catch {
+                    let backupURL = url.deletingLastPathComponent().appendingPathComponent("\(url.lastPathComponent).corrupt-\(UUID().uuidString)")
+                    try? FileManager.default.copyItem(at: url, to: backupURL)
+                    self.cached = initial
+                    try persist(initial)
+                    print("AyuGram settings recovery: unreadable settings file; restored defaults and preserved \(backupURL.lastPathComponent)")
+                }
             }
         } else {
             self.cached = initial
@@ -525,6 +533,44 @@ if "existing.mediaPath == value.mediaPath" not in store_text:
     store_text = store_text.replace(duplicate_anchor, duplicate_replacement, 1)
 store.write_text(store_text, encoding="utf-8")
 
+# Make automatic deleted-message capture failures observable instead of silently returning.
+capture_text = capture.read_text(encoding="utf-8")
+old_capture_guard = """        guard !messages.isEmpty else {
+            return
+        }
+        let settingsStore = try? AyuGramRuntime.makeSettingsStore(accountID: accountID)
+        guard settingsStore?.settings.saveDeletedMessages == true else {
+            return
+        }"""
+new_capture_guard = """        guard !messages.isEmpty else {
+            print("[AyuGram] deleted capture reached with no matching Postbox rows")
+            return
+        }
+        let settingsStore: AyuSettingsStore
+        do {
+            settingsStore = try AyuGramRuntime.makeSettingsStore(accountID: accountID)
+        } catch {
+            print("[AyuGram] deleted capture could not load settings: \(error)")
+            return
+        }
+        guard settingsStore.settings.saveDeletedMessages else {
+            print("[AyuGram] deleted capture is disabled in account settings")
+            return
+        }"""
+if old_capture_guard in capture_text:
+    capture_text = capture_text.replace(old_capture_guard, new_capture_guard, 1)
+elif new_capture_guard not in capture_text:
+    raise SystemExit("Deleted capture settings guard anchor not found")
+
+old_capture_append = "        _ = AyuGramPostboxHistoryStore.appendDeleted(transaction: transaction, messages: snapshots)"
+new_capture_append = """        let storedRows = AyuGramPostboxHistoryStore.appendDeleted(transaction: transaction, messages: snapshots)
+        print("[AyuGram] deleted capture persisted: messages=\(snapshots.count), newRows=\(storedRows.count)")"""
+if old_capture_append in capture_text:
+    capture_text = capture_text.replace(old_capture_append, new_capture_append, 1)
+elif new_capture_append not in capture_text:
+    raise SystemExit("Deleted capture persistence anchor not found")
+capture.write_text(capture_text, encoding="utf-8")
+
 # Confirm the History path is connected end-to-end, including metadata and immutable revisions.
 store_text = store.read_text(encoding="utf-8")
 archive_text = archive.read_text(encoding="utf-8")
@@ -768,6 +814,7 @@ old_delete_event = """            case let .DeleteMessages(ids):
                 })
                 deletedMessageIds.append(contentsOf: ids.map { .messageId($0) })"""
 new_delete_event = """            case let .DeleteMessages(ids):
+                print("[AyuGram] server DeleteMessages event: count=\(ids.count)")
                 _internal_deleteMessages(transaction: transaction, mediaBox: mediaBox, ids: ids, manualAddMessageThreadStatsDifference: { id, add, remove in
                     addMessageThreadStatsDifference(threadKey: id, remove: remove, addedMessagePeer: nil, addedMessageId: nil, isOutgoing: false)
                 }, ayuAccountID: accountPeerId.toInt64())
@@ -783,6 +830,7 @@ old_global_delete = """            case let .DeleteMessagesWithGlobalIds(ids):
                 var resourceIds: [MediaResourceId] = []"""
 new_global_delete = """            case let .DeleteMessagesWithGlobalIds(ids):
                 let messageIds = transaction.messageIdsForGlobalIds(ids)
+                print("[AyuGram] server Global-ID delete event: ids=\(ids.count), matched=\(messageIds.count)")
                 _internal_captureDeletedMessages(transaction: transaction, mediaBox: mediaBox, ids: messageIds, ayuAccountID: accountPeerId.toInt64())
                 var resourceIds: [MediaResourceId] = []"""
 if old_global_delete in state_utils_text:
@@ -940,6 +988,31 @@ test += '''        add("History → Saved media set") {
 if anchor not in smoke_text:
     raise SystemExit("Smoke test insertion anchor not found")
 smoke.write_text(smoke_text.replace(anchor, test + anchor, 1))
+
+# Exercise recovery from a malformed settings file without touching the live account store.
+smoke_text = smoke.read_text(encoding="utf-8")
+if 'add("corrupt settings recovery")' not in smoke_text:
+    recovery_test = """        add("corrupt settings recovery") {
+            let recoveryDirectory = FileManager.default.temporaryDirectory
+                .appendingPathComponent("AyuGramSettingsRecovery-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: recoveryDirectory, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: recoveryDirectory) }
+
+            let settingsURL = recoveryDirectory.appendingPathComponent("settings.json")
+            try Data("{invalid-json".utf8).write(to: settingsURL, options: .atomic)
+            let recovered = try AyuSettingsStore(url: settingsURL)
+            let files = (try? FileManager.default.contentsOfDirectory(atPath: recoveryDirectory.path)) ?? []
+            let backupExists = files.contains { $0.hasPrefix("settings.json.corrupt-") }
+            let ok = recovered.settings.saveDeletedMessages && backupExists
+            return (ok, ok ? "invalid settings recovered with backup and auto-save default ON" : "invalid settings recovery failed")
+        }
+
+"""
+    smoke_anchor = '        add("history display labels") {'
+    if smoke_anchor not in smoke_text:
+        raise SystemExit("Settings recovery smoke-test anchor missing")
+    smoke.write_text(smoke_text.replace(smoke_anchor, recovery_test + smoke_anchor, 1), encoding="utf-8")
+
 
 # Runtime regression coverage for false-positive saves and same-time media-only edits.
 smoke_text = smoke.read_text(encoding="utf-8")

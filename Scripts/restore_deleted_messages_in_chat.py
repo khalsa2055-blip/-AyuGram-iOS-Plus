@@ -73,6 +73,31 @@ def matching_delimiter(source: str, start: int, opening: str, closing: str) -> i
     raise SystemExit(f"Could not find matching {closing!r} for Swift block at offset {start}")
 
 
+def replace_message_reconstruction(source: str, label: str) -> str:
+    marker = "var storeForwardInfo: StoreMessageForwardInfo?"
+    if marker not in source:
+        if "currentMessage.withUpdatedAttributes(attributes)" in source:
+            return source
+        raise SystemExit(f"{label}: message reconstruction anchor not found")
+    if source.count(marker) != 1:
+        raise SystemExit(f"{label}: expected one message reconstruction, found {source.count(marker)}")
+    marker_pos = source.find(marker)
+    line_start = source.rfind("\n", 0, marker_pos) + 1
+    return_start = source.find("return .update(StoreMessage(", marker_pos)
+    if return_start < 0:
+        raise SystemExit(f"{label}: StoreMessage update return not found")
+    store_open = source.find("(", return_start + len("return .update(StoreMessage"))
+    if store_open < 0:
+        raise SystemExit(f"{label}: StoreMessage initializer opening parenthesis missing")
+    store_close = matching_delimiter(source, store_open, "(", ")")
+    end = store_close + 2
+    if source[store_close + 1:end] != "))":
+        raise SystemExit(f"{label}: expected StoreMessage and update closing parentheses")
+    indent = source[line_start:marker_pos]
+    replacement = indent + "return .update(currentMessage.withUpdatedAttributes(attributes))"
+    return source[:line_start] + replacement + source[end:]
+
+
 def remove_swift_action(source: str, marker: str, append_prefix: str, label: str) -> str:
     marker_pos = source.find(marker)
     if marker_pos < 0:
@@ -199,6 +224,7 @@ delete_function = replace_once(
     retention_block + "    var resourceIds: [MediaResourceId] = []\n",
     "deleted-message local retention block"
 )
+delete_function = replace_message_reconstruction(delete_function, "local deleted-message retention")
 delete_text = delete_text[:delete_function_start] + delete_function + delete_text[delete_function_end:]
 delete_text = replace_once(
     delete_text,
@@ -218,6 +244,18 @@ if global_helper_signature not in state_text:
     if state_import_anchor not in state_text:
         raise SystemExit("AccountStateManagementUtils AyuGramIOS import anchor not found")
     state_text = state_text.replace(state_import_anchor, state_import_anchor + "\n" + "public func _internal_retainDeletedMessagesWithGlobalIds(transaction: Transaction, ids: [Int32], accountID: Int64) -> Set<Int32> {\n    var retainedGlobalIds = Set<Int32>()\n    guard (try? AyuGramRuntime.makeSettingsStore(accountID: accountID))?.settings.saveDeletedMessages == true else {\n        return retainedGlobalIds\n    }\n\n    for globalID in ids {\n        guard let messageID = transaction.messageIdsForGlobalIds([globalID]).first,\n              let message = transaction.getMessage(messageID),\n              !message.isCopyProtected(),\n              !message.containsSecretMedia else {\n            continue\n        }\n        transaction.updateMessage(messageID, update: { currentMessage in\n            var attributes = currentMessage.attributes\n            if attributes.contains(where: { attribute in\n                guard let edited = attribute as? EditedMessageAttribute else {\n                    return false\n                }\n                return edited.isHidden && (edited.date == Int32.min || edited.date == currentMessage.timestamp)\n            }) {\n                return .skip\n            }\n            attributes.append(EditedMessageAttribute(date: currentMessage.timestamp, isHidden: true))\n\n            var storeForwardInfo: StoreMessageForwardInfo?\n            if let forwardInfo = currentMessage.forwardInfo {\n                storeForwardInfo = StoreMessageForwardInfo(\n                    authorId: forwardInfo.author?.id,\n                    sourceId: forwardInfo.source?.id,\n                    sourceMessageId: forwardInfo.sourceMessageId,\n                    date: forwardInfo.date,\n                    authorSignature: forwardInfo.authorSignature,\n                    psaType: forwardInfo.psaType,\n                    flags: forwardInfo.flags\n                )\n            }\n            return .update(StoreMessage(\n                id: currentMessage.id,\n                customStableId: nil,\n                globallyUniqueId: currentMessage.globallyUniqueId,\n                groupingKey: currentMessage.groupingKey,\n                threadId: currentMessage.threadId,\n                timestamp: currentMessage.timestamp,\n                flags: StoreMessageFlags(currentMessage.flags),\n                tags: currentMessage.tags,\n                globalTags: currentMessage.globalTags,\n                localTags: currentMessage.localTags,\n                forwardInfo: storeForwardInfo,\n                authorId: currentMessage.author?.id,\n                text: currentMessage.text,\n                attributes: attributes,\n                media: currentMessage.media\n            ))\n        })\n        retainedGlobalIds.insert(globalID)\n    }\n    return retainedGlobalIds\n}" + "\n", 1)
+# Preserve all Postbox metadata when setting the local deleted marker.
+global_helper_start = state_text.find("public func _internal_retainDeletedMessagesWithGlobalIds(")
+if global_helper_start < 0:
+    raise SystemExit("Global-ID retention helper was not inserted")
+global_helper_brace = state_text.find("{", global_helper_start)
+global_helper_end = matching_delimiter(state_text, global_helper_brace, "{", "}") + 1
+global_helper = replace_message_reconstruction(
+    state_text[global_helper_start:global_helper_end],
+    "global-ID deleted-message retention"
+)
+state_text = state_text[:global_helper_start] + global_helper + state_text[global_helper_end:]
+
 # Share the exact server-delete operations between replayFinalState and its runtime test.
 server_handlers = r"""
 public func _internal_applyAyuGramServerDeleteMessages(transaction: Transaction, mediaBox: MediaBox, ids: [MessageId], accountID: Int64) -> Set<MessageId> {
@@ -515,6 +553,8 @@ assert "-> Set<MessageId>" in delete_check
 assert "@discardableResult" in delete_check
 assert "ids.filter { !ayuRetainedDeletedMessageIds.contains($0) }.map { .messageId($0) }" in state_check
 assert "ids.filter { !ayuRetainedGlobalIds.contains($0) }.map { .global($0) }" in state_check
+assert "currentMessage.withUpdatedAttributes(attributes)" in delete_check
+assert "currentMessage.withUpdatedAttributes(attributes)" in state_check
 assert "EditedMessageAttribute(date: currentMessage.timestamp, isHidden: true)" in delete_check
 assert "edited.date == Int32.min || edited.date == currentMessage.timestamp" in delete_check
 assert "isAyuGramDeleted: Bool" in date_check
