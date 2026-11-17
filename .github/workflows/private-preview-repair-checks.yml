@@ -65,7 +65,7 @@ jobs:
               "native read-only chat timeout": "ChatPeekTimeout(deadline: deadline, linkData: hash)",
               "native Telegram chat navigation": "navigateToChatController(",
               "metadata-only fallback branch": "case let .invite(invite):",
-              "metadata-only fallback renderer": "entryView.showInviteInfo(invite)",
+              "metadata-only fallback renderer": "entryView.showInviteInfo(invite, rawLink: raw)",
               "neutral status renderer": "func showStatus(_ message: String)",
               "already-member handling": "case let .alreadyJoined(peer):",
               "already-member opens the confirmed peer without joining": "Open the existing chat normally; this is not a join action.",
