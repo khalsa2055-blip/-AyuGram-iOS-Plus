@@ -64,9 +64,21 @@ jobs:
               "server-authorized peek branch": "case let .peek(peer, deadline):",
               "native read-only chat timeout": "ChatPeekTimeout(deadline: deadline, linkData: hash)",
               "native Telegram chat navigation": "navigateToChatController(",
-              "non-peek denial branch": "case .invite:",
-              "already-member handling": "case .alreadyJoined:",
+              "metadata-only fallback branch": "case let .invite(invite):",
+              "metadata-only fallback renderer": "entryView.showInviteInfo(invite, rawLink: raw)",
+              "neutral status renderer": "func showStatus(_ message: String)",
+              "already-member handling": "case let .alreadyJoined(peer):",
+              "already-member opens the confirmed peer without joining": "Open the existing chat normally; this is not a join action.",
+              "approval-required invite metadata": "invite.flags.requestNeeded",
+              "accurate supergroup label": '"Supergroup"',
+              "basic-group no-peek fallback": "Telegram does not provide invite-link message previews for basic groups.",
+              "connection-aware invite verification error": "or your connection may be unavailable.",
               "strict local invite parser": "ayuGramPrivateInviteHash(raw)",
+              "Telegram tg:// invite parser": 'scheme == "tg"',
+              "Telegram invite query validation": 'items[0].name == "invite"',
+              "user-controlled fallback button": "privateInviteOpenInTelegramButton",
+              "manual native invitation handler": "openExternalUrl(",
+              "fallback does not auto-join": "it will not join automatically.",
           }
           combined = patch + "\\n" + swift
           missing = [name for name, marker in required.items() if marker not in combined]
@@ -103,10 +115,11 @@ jobs:
               raise SystemExit("Missing scoped read-only permission gates: " + ", ".join(missing_scoped))
           if "ChatPresentationInterfaceState.swift" in patch or "case .member = channel.participationStatus" in patch:
               raise SystemExit("Preview must not globally change Telegram permissions for ordinary chats")
-          print("PASS: settings entry and safe invite parsing")
+          print("PASS: settings entry, HTTPS invite parsing and official tg://join invite parsing")
+          print("PASS: denied-preview fallback opens Telegram's standard invite screen only after a user tap; no automatic join")
           print("PASS: Telegram MTProto checkChatInvite path via joinLinkInformation")
           print("PASS: only server-issued .peek opens ChatController with ChatPeekTimeout")
-          print("PASS: invite metadata/member identities are not exposed; no join/send APIs")
+          print("PASS: invite metadata-only fallback is displayed without participant identities; no join/send APIs")
           print("PASS: peek-only send/reaction gates delegate to native Telegram permissions otherwise")
           print("PASS: native Telegram chat timeline and media rendering are used")
           PY
