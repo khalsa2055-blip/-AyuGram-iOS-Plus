@@ -2,7 +2,7 @@ name: AyuGram-iOS-Plus CI
 
 on:
   push:
-    branches: [main, feature/media-edit-archive, feature/four-feature-integration]
+    branches: [main, feature/media-edit-archive, feature/four-feature-integration, build/preview-fix-4e24b36]
   pull_request:
     branches: [main]
   workflow_dispatch:
