@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - feature/four-feature-integration
+      - build/preview-fix-4e24b36
     paths:
       - 'Experiments/PrivateInviteLinkInspector/**'
       - 'Scripts/apply_four_feature_ui.py'
