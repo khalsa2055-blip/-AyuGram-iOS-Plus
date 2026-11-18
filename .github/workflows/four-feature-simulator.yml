@@ -287,7 +287,7 @@ jobs:
 
           capture = capture_path.read_text(encoding="utf-8")
           deleted_body = capture.split("public static func captureDeleted(", 1)[1].split("public static func saveNow(", 1)[0]
-          assert "guard settingsStore?.settings.saveDeletedMessages == true else" in deleted_body
+          assert "guard settingsStore?.settings.saveDeletedMessages != false else" in deleted_body
           assert "AyuGramPostboxHistoryStore.appendDeleted(transaction: transaction, messages: snapshots)" in deleted_body
 
           store = store_path.read_text(encoding="utf-8")
@@ -2631,6 +2631,7 @@ jobs:
               "globalHasDeletedMarker",
               "globalReturnedRetainedID",
               "globalDeletionFiltered",
+              "settingsFallbackCapture",
           )
           failures = [key for key in required if report.get(key) is not True]
           if report.get("passed") is not True or failures:

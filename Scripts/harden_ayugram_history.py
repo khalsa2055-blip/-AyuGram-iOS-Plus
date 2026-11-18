@@ -387,7 +387,7 @@ cached_store_method = """    public static func cachedSettingsStore(accountID: I
 
         let dir = try baseDirectory(accountID: accountID)
         let store = try AyuSettingsStore(url: dir.appendingPathComponent("settings.json"))
-        let deletedMessagesAutoSaveMarker = dir.appendingPathComponent("deleted-messages-auto-enabled-v1")
+        let deletedMessagesAutoSaveMarker = dir.appendingPathComponent("deleted-messages-auto-enabled-v2")
         if !FileManager.default.fileExists(atPath: deletedMessagesAutoSaveMarker.path) {
             try store.update { $0.saveDeletedMessages = true }
             try Data("1".utf8).write(to: deletedMessagesAutoSaveMarker, options: .atomic)
@@ -401,7 +401,7 @@ runtime_text = runtime_text[:store_method_start] + cached_store_method + runtime
 cache_method = runtime_text[store_method_start:runtime_text.find("\n    public static func settings(accountID: Int64)", store_method_start)]
 if cache_method.count("settingsLock.lock()") != 1 or "defer { settingsLock.unlock() }" not in cache_method:
     raise SystemExit("Cached settings-store initialization is not protected by one scoped lock")
-if "deleted-messages-auto-enabled-v1" not in cache_method or 'try store.update { $0.saveDeletedMessages = true }' not in cache_method:
+if "deleted-messages-auto-enabled-v2" not in cache_method or 'try store.update { $0.saveDeletedMessages = true }' not in cache_method:
     raise SystemExit("One-time deleted-message auto-enable migration is not inside the cache lock")
 if cache_method.index("try store.update { $0.saveDeletedMessages = true }") > cache_method.index("settingsStores[accountID] = store"):
     raise SystemExit("The auto-enable migration must finish before the store is published")
@@ -2274,6 +2274,13 @@ if 'Deleted \\($0)' not in u:
 # Automatic History must archive media privately and persist message/text history in Postbox.
 # It must never write text into the visible Saved files unless the user explicitly taps Save.
 capture_text = capture.read_text()
+old_deleted_capture_guard = "guard settingsStore?.settings.saveDeletedMessages == true else {"
+new_deleted_capture_guard = "guard settingsStore?.settings.saveDeletedMessages != false else {"
+if old_deleted_capture_guard in capture_text:
+    capture_text = capture_text.replace(old_deleted_capture_guard, new_deleted_capture_guard, 1)
+elif new_deleted_capture_guard not in capture_text:
+    raise SystemExit("Deleted-message capture settings guard anchor not found")
+capture.write_text(capture_text, encoding="utf-8")
 deleted_capture = capture_text.split("public static func saveNow", 1)[0]
 edited_capture = capture_text.split("public static func captureEdited", 1)[1]
 
@@ -2281,6 +2288,8 @@ if "AyuGramMediaArchive.archive(" not in deleted_capture:
     raise SystemExit("Automatic deleted-media History archive call is missing")
 if "AyuGramPostboxHistoryStore.appendDeleted" not in deleted_capture:
     raise SystemExit("Deleted-message Postbox History persistence is missing")
+if "settingsStore?.settings.saveDeletedMessages != false" not in deleted_capture:
+    raise SystemExit("Deleted-message capture must default ON when settings cannot be read")
 if "saveToSaved" in deleted_capture:
     raise SystemExit("Automatic deleted-message capture must not write to Saved")
 if "AyuGramMediaArchive.archive(" not in edited_capture:
@@ -2319,5 +2328,5 @@ if not interactive_delete.exists() or "ayuAccountID: account.peerId.toInt64()" n
     raise SystemExit("Interactive user deletion is not wired to automatic History capture")
 if "ayuAccountID: ayuAccountID ?? stateManager?.accountPeerId.toInt64()" not in interactive_delete.read_text():
     raise SystemExit("Interactive delete helper does not pass the active account into capture")
-print("AyuGram History v6 applied: per-dialog History + fail-closed media archive + truthful manual Save + direct/interactive deletion wiring checks.")
+print("AyuGram History v7 applied: default-on deletion capture recovery + per-dialog History + unchanged Manual Save and saved/king.")
 

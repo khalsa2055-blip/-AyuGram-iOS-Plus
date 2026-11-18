@@ -147,7 +147,7 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                         // with auto-save already enabled by defaults or the one-time account migration.
                         let captureEnabledOnEntry = originalSaveDeletedMessages == true
 
-                        let captureSignal = account.postbox.transaction { transaction -> (AyuMessage?, Bool, Bool, Bool, Bool, Bool, Bool, Bool, Bool) in
+                        let captureSignal = account.postbox.transaction { transaction -> (AyuMessage?, Bool, Bool, Bool, Bool, Bool, Bool, Bool, Bool, Bool) in
                             let storeMessage = StoreMessage(
                                 id: messageID,
                                 customStableId: nil,
@@ -224,7 +224,68 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                                 ($0 as? EditedMessageAttribute)?.date == Int32.min
                             }) ?? false
                             let globalReturnedRetainedID = retainedGlobalIDs.contains(globalMessageID.id)
-                            let globalDeletionFiltered = globalIDsToDelete.isEmpty && retainedGlobalMessage != nil
+                            let globalDeletionFiltered = globalIDsToDelete.isEmpty && globalRetainedGlobalMessage != nil
+
+                            let fallbackAccountID = accountID + Int64(now) + 9_000_000_000
+                            let fallbackPeerId = PeerId(933000003)
+                            let fallbackDialogID = fallbackPeerId.toInt64()
+                            let fallbackMessageID = MessageId(peerId: fallbackPeerId, namespace: Namespaces.Message.Cloud, id: 1700000126)
+                            let fallbackMessageText = "Synthetic deletion with unreadable settings must default ON"
+                            let fallbackSettingsURL = (try? AyuGramRuntime.baseDirectory(accountID: fallbackAccountID))?
+                                .appendingPathComponent("settings.json")
+                            let fallbackSettingsPrepared: Bool
+                            if let fallbackSettingsURL {
+                                do {
+                                    try Data("invalid-settings-json".utf8).write(to: fallbackSettingsURL, options: .atomic)
+                                    fallbackSettingsPrepared = true
+                                } catch {
+                                    fallbackSettingsPrepared = false
+                                }
+                            } else {
+                                fallbackSettingsPrepared = false
+                            }
+                            let fallbackStoreMessage = StoreMessage(
+                                id: fallbackMessageID,
+                                customStableId: nil,
+                                globallyUniqueId: nil,
+                                groupingKey: nil,
+                                threadId: nil,
+                                timestamp: now,
+                                flags: [],
+                                tags: [],
+                                globalTags: [],
+                                localTags: [],
+                                forwardInfo: nil,
+                                authorId: nil,
+                                text: fallbackMessageText,
+                                attributes: [],
+                                media: []
+                            )
+                            transaction.addMessages([fallbackStoreMessage], location: .Random)
+                            let fallbackRetainedIDs = _internal_applyAyuGramServerDeleteMessages(
+                                transaction: transaction,
+                                mediaBox: account.postbox.mediaBox,
+                                ids: [fallbackMessageID],
+                                accountID: fallbackAccountID
+                            )
+                            let fallbackPostboxMessage = transaction.getMessage(fallbackMessageID)
+                            let fallbackHasDeletedMarker = fallbackPostboxMessage?.attributes.contains(where: {
+                                ($0 as? EditedMessageAttribute)?.date == Int32.min
+                            }) ?? false
+                            let fallbackHistoryCaptured = AyuGramPostboxHistoryStore.filtered(
+                                transaction: transaction,
+                                userID: fallbackAccountID,
+                                dialogID: fallbackDialogID,
+                                kind: .deleted,
+                                limit: 100
+                            ).contains { $0.messageID == fallbackMessageID.id && $0.text == fallbackMessageText }
+                            let fallbackSettingsUnavailable = (try? AyuGramRuntime.makeSettingsStore(accountID: fallbackAccountID)) == nil
+                            let fallbackCasePassed = fallbackSettingsPrepared
+                                && fallbackSettingsUnavailable
+                                && fallbackRetainedIDs.contains(fallbackMessageID)
+                                && fallbackPostboxMessage?.text == fallbackMessageText
+                                && fallbackHasDeletedMarker
+                                && fallbackHistoryCaptured
 
                             return (
                                 captured,
@@ -235,14 +296,15 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                                 globalRetainedInChat,
                                 globalHasDeletedMarker,
                                 globalReturnedRetainedID,
-                                globalDeletionFiltered
+                                globalDeletionFiltered,
+                                fallbackCasePassed
                             )
                         }
 
                         _ = (captureSignal |> deliverOnMainQueue).start(next: { result in
                             let captureEnabled = settingsStore?.settings.saveDeletedMessages ?? false
                             let historyCaptured = result.0?.isDeleted == true && result.0?.text == messageText
-                            let passed = captureEnabledOnEntry && captureEnabled && historyCaptured && result.1 && result.2 && result.3 && result.4 && result.5 && result.6 && result.7 && result.8
+                            let passed = captureEnabledOnEntry && captureEnabled && historyCaptured && result.1 && result.2 && result.3 && result.4 && result.5 && result.6 && result.7 && result.8 && result.9
                             if let settingsStore, let originalSaveDeletedMessages {
                                 try? settingsStore.update { $0.saveDeletedMessages = originalSaveDeletedMessages }
                             }
@@ -262,7 +324,8 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                                 "globalRetainedInChat": result.5,
                                 "globalHasDeletedMarker": result.6,
                                 "globalReturnedRetainedID": result.7,
-                                "globalDeletionFiltered": result.8
+                                "globalDeletionFiltered": result.8,
+                                "settingsFallbackCapture": result.9
                             ]
                             guard let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
                                 print("AyuGram deleted-retention smoke test has no Documents directory")
@@ -430,7 +493,7 @@ standalone_hook = """        if ProcessInfo.processInfo.arguments.contains("-Ayu
                 runtimeLegacySettings.saveMessagesHistory = false
                 let runtimeSettingsURL = runtimeMigrationDirectory.appendingPathComponent("settings.json")
                 try JSONEncoder().encode(runtimeLegacySettings).write(to: runtimeSettingsURL, options: .atomic)
-                let runtimeMigrationMarker = runtimeMigrationDirectory.appendingPathComponent("deleted-messages-auto-enabled-v1")
+                let runtimeMigrationMarker = runtimeMigrationDirectory.appendingPathComponent("deleted-messages-auto-enabled-v2")
                 try? FileManager.default.removeItem(at: runtimeMigrationMarker)
                 let concurrentStores = NSMutableArray()
                 let concurrentStoresLock = NSLock()
