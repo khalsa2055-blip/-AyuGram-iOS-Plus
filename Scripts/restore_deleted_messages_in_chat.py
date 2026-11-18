@@ -571,6 +571,14 @@ date_check = DATE_STATUS.read_text(encoding="utf-8")
 text_bubble_check = TEXT_BUBBLE.read_text(encoding="utf-8")
 assert "preserveDeletedMessagesInChat: Bool = false" in delete_check
 assert "let idsToDelete = ids.filter { !ayuRetainedDeletedMessageIds.contains($0) }" in delete_check
+# Telegram routes basic-group deletes through updateDeleteMessages (global IDs),
+# while supergroup/channel deletes arrive as updateDeleteChannelMessages (peer-scoped IDs).
+assert "updatedState.deleteMessagesWithGlobalIds(updateDeleteMessagesData.messages)" in state_check
+assert re.search(
+    r"case let \.updateDeleteChannelMessages\(updateDeleteChannelMessagesData\):(?:(?!case let \.update).)*?updatedState\.deleteMessages\(messages\.map",
+    state_check,
+    re.DOTALL,
+), "Supergroup/channel delete updates must reach the peer-scoped DeleteMessages replay path"
 assert "preserveDeletedMessagesInChat: true" in state_check
 assert "ayuRetainedGlobalIds" in state_check
 assert "ayuGlobalIdsToDelete = ids.filter" in state_check
