@@ -74,29 +74,15 @@ def matching_delimiter(source: str, start: int, opening: str, closing: str) -> i
     raise SystemExit(f"Could not find matching {closing!r} for Swift block at offset {start}")
 
 
-def replace_message_reconstruction(source: str, label: str) -> str:
-    marker = "var storeForwardInfo: StoreMessageForwardInfo?"
-    if marker not in source:
-        if "currentMessage.withUpdatedAttributes(attributes)" in source:
-            return source
-        raise SystemExit(f"{label}: message reconstruction anchor not found")
-    if source.count(marker) != 1:
-        raise SystemExit(f"{label}: expected one message reconstruction, found {source.count(marker)}")
-    marker_pos = source.find(marker)
-    line_start = source.rfind("\n", 0, marker_pos) + 1
-    return_start = source.find("return .update(StoreMessage(", marker_pos)
-    if return_start < 0:
+def keep_store_message_reconstruction(source: str, label: str) -> str:
+    # transaction.updateMessage expects StoreMessage in its update closure.
+    # Message.withUpdatedAttributes returns Message, so preserve the explicit
+    # StoreMessage reconstruction rather than replacing it with the wrong type.
+    if "return .update(StoreMessage(" not in source:
         raise SystemExit(f"{label}: StoreMessage update return not found")
-    store_open = source.find("(", return_start + len("return .update(StoreMessage"))
-    if store_open < 0:
-        raise SystemExit(f"{label}: StoreMessage initializer opening parenthesis missing")
-    store_close = matching_delimiter(source, store_open, "(", ")")
-    end = store_close + 2
-    if source[store_close:end] != "))":
-        raise SystemExit(f"{label}: expected StoreMessage and update closing parentheses")
-    indent = source[line_start:marker_pos]
-    replacement = indent + "return .update(currentMessage.withUpdatedAttributes(attributes))"
-    return source[:line_start] + replacement + source[end:]
+    if "currentMessage.withUpdatedAttributes(attributes)" in source:
+        raise SystemExit(f"{label}: invalid Message return remains in StoreMessage update closure")
+    return source
 
 
 def find_case_block(source: str, case_label: str, required: str):
@@ -239,7 +225,7 @@ delete_function = replace_once(
     retention_block + "    var resourceIds: [MediaResourceId] = []\n",
     "deleted-message local retention block"
 )
-delete_function = replace_message_reconstruction(delete_function, "local deleted-message retention")
+delete_function = keep_store_message_reconstruction(delete_function, "local deleted-message retention")
 delete_function = replace_once(
     delete_function,
     "    if deleteMedia {\n        for id in ids {",
@@ -277,7 +263,7 @@ if global_helper_start < 0:
     raise SystemExit("Global-ID retention helper was not inserted")
 global_helper_brace = state_text.find("{", global_helper_start)
 global_helper_end = matching_delimiter(state_text, global_helper_brace, "{", "}") + 1
-global_helper = replace_message_reconstruction(
+global_helper = keep_store_message_reconstruction(
     state_text[global_helper_start:global_helper_end],
     "global-ID deleted-message retention"
 )
@@ -344,7 +330,16 @@ if global_capture_anchor in state_text:
     state_text = state_text.replace(global_capture_anchor, global_handler_call + "\n", 1)
 elif global_handler_call not in state_text:
     raise SystemExit("Global-ID event is not routed through the shared production handler")
-unused_global_lookup = "                let messageIds = transaction.messageIdsForGlobalIds(ids)\n"
+# The History patch adds this diagnostic before the shared handler is installed.
+# The handler now performs its own lookup; remove the diagnostic together with
+# the redundant lookup below so it cannot refer to an out-of-scope local.
+state_text = re.sub(
+    r'(?m)^[ \\t]*print\\("\\[AyuGram\\] server Global-ID delete event:.*messageIds\\.count.*\\)\\n',
+    "",
+    state_text,
+    count=1,
+)
+unused_global_lookup = "                let messageIds = transaction.messageIdsForGlobalIds(ids)\\n"
 if unused_global_lookup in state_text:
     state_text = state_text.replace(unused_global_lookup, "", 1)
 old_global_delete_call = "transaction.deleteMessagesWithGlobalIds(ids, forEachMedia: { media in"
@@ -585,8 +580,11 @@ assert "-> Set<MessageId>" in delete_check
 assert "@discardableResult" in delete_check
 assert "ids.filter { !ayuRetainedDeletedMessageIds.contains($0) }.map { .messageId($0) }" in state_check
 assert "ids.filter { !ayuRetainedGlobalIds.contains($0) }.map { .global($0) }" in state_check
-assert "currentMessage.withUpdatedAttributes(attributes)" in delete_check
-assert "currentMessage.withUpdatedAttributes(attributes)" in state_check
+assert "return .update(StoreMessage(" in delete_check
+assert "return .update(StoreMessage(" in state_check
+assert "currentMessage.withUpdatedAttributes(attributes)" not in delete_check
+assert "currentMessage.withUpdatedAttributes(attributes)" not in state_check
+assert "messageIds.count" not in state_check
 assert "EditedMessageAttribute(date: currentMessage.timestamp, isHidden: true)" in delete_check
 assert "edited.date == Int32.min || edited.date == currentMessage.timestamp" in delete_check
 assert "isAyuGramDeleted: Bool" in date_check
