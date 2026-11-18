@@ -147,7 +147,7 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                         // with auto-save already enabled by defaults or the one-time account migration.
                         let captureEnabledOnEntry = originalSaveDeletedMessages == true
 
-                        let captureSignal = account.postbox.transaction { transaction -> (AyuMessage?, Bool, Bool, Bool, Bool, Bool, Bool, Bool, Bool, Bool) in
+                        let captureSignal = account.postbox.transaction { transaction -> (AyuMessage?, Bool, Bool, Bool, Bool, Bool, Bool, Bool, Bool, Bool, Bool, Bool) in
                             let storeMessage = StoreMessage(
                                 id: messageID,
                                 customStableId: nil,
@@ -289,6 +289,113 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                                 && fallbackHasDeletedMarker
                                 && fallbackHistoryCaptured
 
+                            // Basic groups use CloudGroup peers and the server Global-ID delete route.
+                            let basicGroupPeerId = PeerId(
+                                namespace: Namespaces.Peer.CloudGroup,
+                                id: PeerId.Id._internalFromInt64Value(933000004)
+                            )
+                            let basicGroupMessageID = MessageId(
+                                peerId: basicGroupPeerId,
+                                namespace: Namespaces.Message.Cloud,
+                                id: 1700000127
+                            )
+                            let basicGroupText = "Synthetic CloudGroup deletion must stay in the original group"
+                            let basicGroupStoreMessage = StoreMessage(
+                                id: basicGroupMessageID,
+                                customStableId: nil,
+                                globallyUniqueId: nil,
+                                groupingKey: nil,
+                                threadId: nil,
+                                timestamp: now,
+                                flags: [],
+                                tags: [],
+                                globalTags: [],
+                                localTags: [],
+                                forwardInfo: nil,
+                                authorId: nil,
+                                text: basicGroupText,
+                                attributes: [],
+                                media: []
+                            )
+                            transaction.addMessages([basicGroupStoreMessage], location: .Random)
+                            let basicGroupLookup = transaction.messageIdsForGlobalIds([basicGroupMessageID.id]).first == basicGroupMessageID
+                            let basicGroupRetainedIDs = _internal_applyAyuGramServerDeleteMessagesWithGlobalIds(
+                                transaction: transaction,
+                                mediaBox: account.postbox.mediaBox,
+                                ids: [basicGroupMessageID.id],
+                                accountID: accountID
+                            )
+                            let basicGroupIDsToDelete = [basicGroupMessageID.id].filter { !basicGroupRetainedIDs.contains($0) }
+                            transaction.deleteMessagesWithGlobalIds(basicGroupIDsToDelete, forEachMedia: { _ in })
+                            let basicGroupRetainedMessage = transaction.getMessage(basicGroupMessageID)
+                            let basicGroupHasMarker = basicGroupRetainedMessage?.attributes.contains(where: {
+                                ($0 as? EditedMessageAttribute).map { $0.isHidden && $0.date == now } ?? false
+                            }) ?? false
+                            let basicGroupHistory = AyuGramPostboxHistoryStore.filtered(
+                                transaction: transaction,
+                                userID: accountID,
+                                dialogID: basicGroupPeerId.toInt64(),
+                                kind: .deleted,
+                                limit: 100
+                            ).contains { $0.messageID == basicGroupMessageID.id && $0.text == basicGroupText }
+                            let basicGroupCasePassed = basicGroupLookup
+                                && basicGroupRetainedIDs.contains(basicGroupMessageID.id)
+                                && basicGroupIDsToDelete.isEmpty
+                                && basicGroupRetainedMessage?.text == basicGroupText
+                                && basicGroupHasMarker
+                                && basicGroupHistory
+
+                            // Supergroups use CloudChannel peers and the channel-pts DeleteMessages route.
+                            let supergroupPeerId = PeerId(
+                                namespace: Namespaces.Peer.CloudChannel,
+                                id: PeerId.Id._internalFromInt64Value(933000005)
+                            )
+                            let supergroupMessageID = MessageId(
+                                peerId: supergroupPeerId,
+                                namespace: Namespaces.Message.Cloud,
+                                id: 1700000128
+                            )
+                            let supergroupText = "Synthetic CloudChannel deletion must stay in the supergroup"
+                            let supergroupStoreMessage = StoreMessage(
+                                id: supergroupMessageID,
+                                customStableId: nil,
+                                globallyUniqueId: nil,
+                                groupingKey: nil,
+                                threadId: nil,
+                                timestamp: now,
+                                flags: [],
+                                tags: [],
+                                globalTags: [],
+                                localTags: [],
+                                forwardInfo: nil,
+                                authorId: nil,
+                                text: supergroupText,
+                                attributes: [],
+                                media: []
+                            )
+                            transaction.addMessages([supergroupStoreMessage], location: .Random)
+                            let supergroupRetainedIDs = _internal_applyAyuGramServerDeleteMessages(
+                                transaction: transaction,
+                                mediaBox: account.postbox.mediaBox,
+                                ids: [supergroupMessageID],
+                                accountID: accountID
+                            )
+                            let supergroupRetainedMessage = transaction.getMessage(supergroupMessageID)
+                            let supergroupHasMarker = supergroupRetainedMessage?.attributes.contains(where: {
+                                ($0 as? EditedMessageAttribute).map { $0.isHidden && $0.date == now } ?? false
+                            }) ?? false
+                            let supergroupHistory = AyuGramPostboxHistoryStore.filtered(
+                                transaction: transaction,
+                                userID: accountID,
+                                dialogID: supergroupPeerId.toInt64(),
+                                kind: .deleted,
+                                limit: 100
+                            ).contains { $0.messageID == supergroupMessageID.id && $0.text == supergroupText }
+                            let supergroupCasePassed = supergroupRetainedIDs.contains(supergroupMessageID)
+                                && supergroupRetainedMessage?.text == supergroupText
+                                && supergroupHasMarker
+                                && supergroupHistory
+
                             return (
                                 captured,
                                 retainedInChat,
@@ -299,14 +406,16 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                                 globalHasDeletedMarker,
                                 globalReturnedRetainedID,
                                 globalDeletionFiltered,
-                                fallbackCasePassed
+                                fallbackCasePassed,
+                                basicGroupCasePassed,
+                                supergroupCasePassed
                             )
                         }
 
                         _ = (captureSignal |> deliverOnMainQueue).start(next: { result in
                             let captureEnabled = settingsStore?.settings.saveDeletedMessages ?? false
                             let historyCaptured = result.0?.isDeleted == true && result.0?.text == messageText
-                            let passed = captureEnabledOnEntry && captureEnabled && historyCaptured && result.1 && result.2 && result.3 && result.4 && result.5 && result.6 && result.7 && result.8 && result.9
+                            let passed = captureEnabledOnEntry && captureEnabled && historyCaptured && result.1 && result.2 && result.3 && result.4 && result.5 && result.6 && result.7 && result.8 && result.9 && result.10 && result.11
                             if let settingsStore, let originalSaveDeletedMessages {
                                 try? settingsStore.update { $0.saveDeletedMessages = originalSaveDeletedMessages }
                             }
@@ -327,7 +436,9 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                                 "globalHasDeletedMarker": result.6,
                                 "globalReturnedRetainedID": result.7,
                                 "globalDeletionFiltered": result.8,
-                                "settingsFallbackCapture": result.9
+                                "settingsFallbackCapture": result.9,
+                                "basicGroupGlobalDelete": result.10,
+                                "supergroupChannelDelete": result.11
                             ]
                             guard let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
                                 print("AyuGram deleted-retention smoke test has no Documents directory")
