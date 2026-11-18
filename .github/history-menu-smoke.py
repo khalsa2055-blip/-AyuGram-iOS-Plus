@@ -1,3 +1,4 @@
+# Device IPA opt-in marker commit; this comment does not change the simulator smoke test.
 from pathlib import Path
 
 p = Path("submodules/TelegramUI/Sources/AppDelegate.swift")
