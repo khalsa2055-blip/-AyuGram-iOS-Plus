@@ -395,7 +395,7 @@ cached_store_method = """    public static func cachedSettingsStore(accountID: I
 
         let dir = try baseDirectory(accountID: accountID)
         let store = try AyuSettingsStore(url: dir.appendingPathComponent("settings.json"))
-        let deletedMessagesAutoSaveMarker = dir.appendingPathComponent("deleted-messages-auto-enabled-v1")
+        let deletedMessagesAutoSaveMarker = dir.appendingPathComponent("deleted-messages-auto-enabled-v2")
         if !FileManager.default.fileExists(atPath: deletedMessagesAutoSaveMarker.path) {
             try store.update { $0.saveDeletedMessages = true }
             try Data("1".utf8).write(to: deletedMessagesAutoSaveMarker, options: .atomic)
@@ -409,7 +409,7 @@ runtime_text = runtime_text[:store_method_start] + cached_store_method + runtime
 cache_method = runtime_text[store_method_start:runtime_text.find("\n    public static func settings(accountID: Int64)", store_method_start)]
 if cache_method.count("settingsLock.lock()") != 1 or "defer { settingsLock.unlock() }" not in cache_method:
     raise SystemExit("Cached settings-store initialization is not protected by one scoped lock")
-if "deleted-messages-auto-enabled-v1" not in cache_method or 'try store.update { $0.saveDeletedMessages = true }' not in cache_method:
+if "deleted-messages-auto-enabled-v2" not in cache_method or 'try store.update { $0.saveDeletedMessages = true }' not in cache_method:
     raise SystemExit("One-time deleted-message auto-enable migration is not inside the cache lock")
 if cache_method.index("try store.update { $0.saveDeletedMessages = true }") > cache_method.index("settingsStores[accountID] = store"):
     raise SystemExit("The auto-enable migration must finish before the store is published")
@@ -539,21 +539,15 @@ old_capture_guard = """        guard !messages.isEmpty else {
             return
         }
         let settingsStore = try? AyuGramRuntime.makeSettingsStore(accountID: accountID)
-        guard settingsStore?.settings.saveDeletedMessages == true else {
+        guard settingsStore?.settings.saveDeletedMessages != false else {
             return
         }"""
 new_capture_guard = """        guard !messages.isEmpty else {
             print("[AyuGram] deleted capture reached with no matching Postbox rows")
             return
         }
-        let settingsStore: AyuSettingsStore
-        do {
-            settingsStore = try AyuGramRuntime.makeSettingsStore(accountID: accountID)
-        } catch {
-            print("[AyuGram] deleted capture could not load settings: \\(error)")
-            return
-        }
-        guard settingsStore.settings.saveDeletedMessages else {
+        let settingsStore = try? AyuGramRuntime.makeSettingsStore(accountID: accountID)
+        guard settingsStore?.settings.saveDeletedMessages != false else {
             print("[AyuGram] deleted capture is disabled in account settings")
             return
         }"""
@@ -2422,6 +2416,8 @@ if "AyuGramMediaArchive.archive(" not in deleted_capture:
     raise SystemExit("Automatic deleted-media History archive call is missing")
 if "AyuGramPostboxHistoryStore.appendDeleted" not in deleted_capture:
     raise SystemExit("Deleted-message Postbox History persistence is missing")
+if "settingsStore?.settings.saveDeletedMessages != false" not in deleted_capture:
+    raise SystemExit("Deleted-message capture must default ON when settings cannot be read")
 if "saveToSaved" in deleted_capture:
     raise SystemExit("Automatic deleted-message capture must not write to Saved")
 if "AyuGramMediaArchive.archive(" not in edited_capture:

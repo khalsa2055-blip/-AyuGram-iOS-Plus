@@ -155,7 +155,7 @@ delete_text = replace_once(delete_text, old_signature, new_signature, "deleted-m
 retention_block = r'''    var ayuRetainedDeletedMessageIds = Set<MessageId>()
     if preserveDeletedMessagesInChat,
        let ayuAccountID,
-       (try? AyuGramRuntime.makeSettingsStore(accountID: ayuAccountID))?.settings.saveDeletedMessages == true {
+       (try? AyuGramRuntime.makeSettingsStore(accountID: ayuAccountID))?.settings.saveDeletedMessages != false {
         for id in ids {
             guard let message = transaction.getMessage(id),
                   !message.isCopyProtected(),
@@ -587,6 +587,8 @@ assert "ids.filter { !ayuRetainedDeletedMessageIds.contains($0) }.map { .message
 assert "ids.filter { !ayuRetainedGlobalIds.contains($0) }.map { .global($0) }" in state_check
 assert "return .update(StoreMessage(" in delete_check
 assert "return .update(StoreMessage(" in state_check
+assert "?.settings.saveDeletedMessages != false" in delete_check
+assert "?.settings.saveDeletedMessages != false" in state_check
 assert "currentMessage.withUpdatedAttributes(attributes)" not in delete_check
 assert "currentMessage.withUpdatedAttributes(attributes)" not in state_check
 assert "messageIds.count" not in state_check

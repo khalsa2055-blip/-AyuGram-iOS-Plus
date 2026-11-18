@@ -21,7 +21,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: four-feature-swiftgram-compatibility-recovery-20261111
+  group: four-feature-swiftgram-compatibility-recovery-20261111-${{ github.ref_name }}
   cancel-in-progress: true
 
 jobs:
