@@ -333,12 +333,17 @@ elif global_handler_call not in state_text:
 # The History patch adds this diagnostic before the shared handler is installed.
 # The handler now performs its own lookup; remove the diagnostic together with
 # the redundant lookup below so it cannot refer to an out-of-scope local.
-state_text = re.sub(
-    r'(?m)^[ \\t]*print\\("\\[AyuGram\\] server Global-ID delete event:.*messageIds\\.count.*\\)\\n',
-    "",
-    state_text,
-    count=1,
-)
+global_id_diagnostic_lines = [
+    line for line in state_text.splitlines()
+    if "[AyuGram] server Global-ID delete event:" in line and "messageIds.count" in line
+]
+if len(global_id_diagnostic_lines) > 1:
+    raise SystemExit("Found multiple stale Global-ID diagnostics; refusing ambiguous cleanup")
+if global_id_diagnostic_lines:
+    state_text = "\\n".join(
+        line for line in state_text.splitlines()
+        if not ("[AyuGram] server Global-ID delete event:" in line and "messageIds.count" in line)
+    ) + "\\n"
 unused_global_lookup = "                let messageIds = transaction.messageIdsForGlobalIds(ids)\\n"
 if unused_global_lookup in state_text:
     state_text = state_text.replace(unused_global_lookup, "", 1)
