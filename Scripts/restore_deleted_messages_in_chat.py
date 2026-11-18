@@ -387,13 +387,13 @@ channel_delete_block = replace_once(
 channel_delete_block = replace_once(
     channel_delete_block,
     "} else {\n                        if !missingUpdatesFromChannels.contains(peerId) {",
-    "} else {\n                        updatedState.deleteMessages(channelDeletedMessageIds)\n                        print(\"[AyuGram] queued channel deletion before PTS repair: channel=\\\\(channelId), count=\\\\(messages.count), previousPts=\\\\(previousState.pts), pts=\\\\(pts), ptsCount=\\\\(ptsCount)\")\n                        if !missingUpdatesFromChannels.contains(peerId) {",
+    "} else {\n                        updatedState.deleteMessages(channelDeletedMessageIds)\n                        print(\"[AyuGram] queued channel deletion before PTS repair: channel=\\(channelId), count=\\(messages.count), previousPts=\\(previousState.pts), pts=\\(pts), ptsCount=\\(ptsCount)\")\n                        if !missingUpdatesFromChannels.contains(peerId) {",
     "channel deletion when PTS has a gap"
 )
 channel_delete_block = replace_once(
     channel_delete_block,
     "} else {\n                    if case .none = channelsToPoll[peerId] {",
-    "} else {\n                    updatedState.deleteMessages(channelDeletedMessageIds)\n                    print(\"[AyuGram] queued channel deletion with unknown PTS state: channel=\\\\(channelId), count=\\\\(messages.count), pts=\\\\(pts)\")\n                    if case .none = channelsToPoll[peerId] {",
+    "} else {\n                    updatedState.deleteMessages(channelDeletedMessageIds)\n                    print(\"[AyuGram] queued channel deletion with unknown PTS state: channel=\\(channelId), count=\\(messages.count), pts=\\(pts)\")\n                    if case .none = channelsToPoll[peerId] {",
     "channel deletion when PTS state is unknown"
 )
 state_text = state_text[:channel_delete_start] + channel_delete_block + state_text[channel_delete_end:]
@@ -614,7 +614,7 @@ assert "let idsToDelete = ids.filter { !ayuRetainedDeletedMessageIds.contains($0
 # while supergroup/channel deletes arrive as updateDeleteChannelMessages (peer-scoped IDs).
 assert "updatedState.deleteMessagesWithGlobalIds(updateDeleteMessagesData.messages)" in state_check
 assert re.search(
-    r"case let \.updateDeleteChannelMessages\(updateDeleteChannelMessagesData\):(?:(?!case let \.update).)*?updatedState\.deleteMessages\(messages\.map",
+    r"case let \.updateDeleteChannelMessages\(updateDeleteChannelMessagesData\):(?:(?!case let \.update).)*?updatedState\.deleteMessages\(channelDeletedMessageIds\)",
     state_check,
     re.DOTALL,
 ), "Supergroup/channel delete updates must reach the peer-scoped DeleteMessages replay path"
@@ -648,6 +648,7 @@ assert channel_delete_case is not None
 _, _, channel_delete_block = channel_delete_case
 assert "let channelDeletedMessageIds = messages.map" in channel_delete_block
 assert "updatedState.deleteMessages(channelDeletedMessageIds)" in channel_delete_block
+assert channel_delete_block.index("updatedState.deleteMessages(channelDeletedMessageIds)") < channel_delete_block.index("if previousState.pts + ptsCount == pts")
 assert "queued channel deletion before PTS repair" in channel_delete_block
 assert "queued channel deletion with unknown PTS state" in channel_delete_block
 assert "EditedMessageAttribute(date: currentMessage.timestamp, isHidden: true)" in delete_check
