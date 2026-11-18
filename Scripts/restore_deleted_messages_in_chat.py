@@ -359,6 +359,45 @@ state_text = replace_once(
     "deletedMessageIds.append(contentsOf: ids.filter { !ayuRetainedGlobalIds.contains($0) }.map { .global($0) })",
     "exclude retained global IDs from removed-message notifications"
 )
+
+# Channel/supergroup updates have a PTS gate. The stock code queued DeleteMessages
+# only for contiguous PTS. When the PTS had a gap or channel state was unknown,
+# it polled the channel without queuing the deletion operation, bypassing our
+# replayFinalState retention handler. Queue every non-stale channel deletion.
+channel_delete_case = find_case_block(
+    state_text,
+    "case let .updateDeleteChannelMessages(updateDeleteChannelMessagesData):",
+    "previousState.pts + ptsCount == pts"
+)
+if channel_delete_case is None:
+    raise SystemExit("Channel/supergroup updateDeleteChannelMessages PTS handler was not found")
+channel_delete_start, channel_delete_end, channel_delete_block = channel_delete_case
+channel_delete_block = replace_once(
+    channel_delete_block,
+    "let peerId = PeerId(namespace: Namespaces.Peer.CloudChannel, id: PeerId.Id._internalFromInt64Value(channelId))\n",
+    "let peerId = PeerId(namespace: Namespaces.Peer.CloudChannel, id: PeerId.Id._internalFromInt64Value(channelId))\n                let channelDeletedMessageIds = messages.map({ MessageId(peerId: peerId, namespace: Namespaces.Message.Cloud, id: $0) })\n",
+    "channel deletion message IDs"
+)
+channel_delete_block = replace_once(
+    channel_delete_block,
+    "updatedState.deleteMessages(messages.map({ MessageId(peerId: peerId, namespace: Namespaces.Message.Cloud, id: $0) }))",
+    "updatedState.deleteMessages(channelDeletedMessageIds)",
+    "contiguous channel delete operation"
+)
+channel_delete_block = replace_once(
+    channel_delete_block,
+    "} else {\n                        if !missingUpdatesFromChannels.contains(peerId) {",
+    "} else {\n                        updatedState.deleteMessages(channelDeletedMessageIds)\n                        print(\"[AyuGram] queued channel deletion before PTS repair: channel=\\\\(channelId), count=\\\\(messages.count), previousPts=\\\\(previousState.pts), pts=\\\\(pts), ptsCount=\\\\(ptsCount)\")\n                        if !missingUpdatesFromChannels.contains(peerId) {",
+    "channel deletion when PTS has a gap"
+)
+channel_delete_block = replace_once(
+    channel_delete_block,
+    "} else {\n                    if case .none = channelsToPoll[peerId] {",
+    "} else {\n                    updatedState.deleteMessages(channelDeletedMessageIds)\n                    print(\"[AyuGram] queued channel deletion with unknown PTS state: channel=\\\\(channelId), count=\\\\(messages.count), pts=\\\\(pts)\")\n                    if case .none = channelsToPoll[peerId] {",
+    "channel deletion when PTS state is unknown"
+)
+state_text = state_text[:channel_delete_start] + channel_delete_block + state_text[channel_delete_end:]
+
 STATE.write_text(state_text, encoding="utf-8")
 
 # The engine-facing helper is Void; its call must not return the retained-ID set.
@@ -600,6 +639,17 @@ assert "?.settings.saveDeletedMessages != false" in state_check
 assert "currentMessage.withUpdatedAttributes(attributes)" not in delete_check
 assert "currentMessage.withUpdatedAttributes(attributes)" not in state_check
 assert "messageIds.count" not in state_check
+channel_delete_case = find_case_block(
+    state_check,
+    "case let .updateDeleteChannelMessages(updateDeleteChannelMessagesData):",
+    "previousState.pts + ptsCount == pts"
+)
+assert channel_delete_case is not None
+_, _, channel_delete_block = channel_delete_case
+assert "let channelDeletedMessageIds = messages.map" in channel_delete_block
+assert "updatedState.deleteMessages(channelDeletedMessageIds)" in channel_delete_block
+assert "queued channel deletion before PTS repair" in channel_delete_block
+assert "queued channel deletion with unknown PTS state" in channel_delete_block
 assert "EditedMessageAttribute(date: currentMessage.timestamp, isHidden: true)" in delete_check
 assert "edited.date == Int32.min || edited.date == currentMessage.timestamp" in delete_check
 assert "isAyuGramDeleted: Bool" in date_check
