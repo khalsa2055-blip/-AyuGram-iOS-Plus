@@ -224,7 +224,7 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                                 ($0 as? EditedMessageAttribute)?.date == Int32.min
                             }) ?? false
                             let globalReturnedRetainedID = retainedGlobalIDs.contains(globalMessageID.id)
-                            let globalDeletionFiltered = globalIDsToDelete.isEmpty && globalRetainedGlobalMessage != nil
+                            let globalDeletionFiltered = globalIDsToDelete.isEmpty && globalRetainedMessage != nil
 
                             let fallbackAccountID = accountID + Int64(now) + 9_000_000_000
                             let fallbackPeerId = PeerId(933000003)
