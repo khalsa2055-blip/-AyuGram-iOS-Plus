@@ -492,7 +492,7 @@ jobs:
           assert "deletedAt: snapshot.deletedAt" in save_now, "Manual Saved metadata dropped deletion time"
           assert "guard let archivedPath = archived.path" in save_now, "Manual Save must reject incomplete media archives"
           assert "else if snapshot.text.isEmpty" in save_now, "Manual Save must reject empty/no-media snapshots"
-          assert "saveDeletedMessages == true" in capture_service
+          assert "settingsStore?.settings.saveDeletedMessages != false" in capture_service, "Deleted-message capture must default on unless explicitly disabled"
           assert "AyuGramPostboxHistoryStore.appendDeleted" in capture_service
           assert "AyuGramPostboxHistoryStore.appendEdited" in capture_service
           delete_core = Path("telegram-ios/submodules/TelegramCore/Sources/TelegramEngine/Messages/DeleteMessages.swift").read_text(encoding="utf-8")
