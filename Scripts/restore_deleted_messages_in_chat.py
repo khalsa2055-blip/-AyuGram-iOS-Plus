@@ -648,7 +648,7 @@ assert channel_delete_case is not None
 _, _, channel_delete_block = channel_delete_case
 assert "let channelDeletedMessageIds = messages.map" in channel_delete_block
 assert "updatedState.deleteMessages(channelDeletedMessageIds)" in channel_delete_block
-assert channel_delete_block.index("updatedState.deleteMessages(channelDeletedMessageIds)") < channel_delete_block.index("if previousState.pts + ptsCount == pts")
+assert "} else {\n                        updatedState.deleteMessages(channelDeletedMessageIds)" in channel_delete_block
 assert "queued channel deletion before PTS repair" in channel_delete_block
 assert "queued channel deletion with unknown PTS state" in channel_delete_block
 assert "EditedMessageAttribute(date: currentMessage.timestamp, isHidden: true)" in delete_check
