@@ -340,11 +340,11 @@ global_id_diagnostic_lines = [
 if len(global_id_diagnostic_lines) > 1:
     raise SystemExit("Found multiple stale Global-ID diagnostics; refusing ambiguous cleanup")
 if global_id_diagnostic_lines:
-    state_text = "\\n".join(
+    state_text = "\n".join(
         line for line in state_text.splitlines()
         if not ("[AyuGram] server Global-ID delete event:" in line and "messageIds.count" in line)
-    ) + "\\n"
-unused_global_lookup = "                let messageIds = transaction.messageIdsForGlobalIds(ids)\\n"
+    ) + "\n"
+unused_global_lookup = "                let messageIds = transaction.messageIdsForGlobalIds(ids)\n"
 if unused_global_lookup in state_text:
     state_text = state_text.replace(unused_global_lookup, "", 1)
 old_global_delete_call = "transaction.deleteMessagesWithGlobalIds(ids, forEachMedia: { media in"
