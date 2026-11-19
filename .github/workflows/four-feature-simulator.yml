@@ -2631,12 +2631,22 @@ jobs:
               "globalHasDeletedMarker",
               "globalReturnedRetainedID",
               "globalDeletionFiltered",
+              "cloudGroupLookupSucceeded",
+              "cloudGroupRetainedInChat",
+              "cloudGroupHasDeletedMarker",
+              "cloudGroupReturnedRetainedID",
+              "cloudGroupDeletionFiltered",
+              "cloudGroupHistoryCaptured",
+              "cloudChannelRetainedInChat",
+              "cloudChannelHasDeletedMarker",
+              "cloudChannelReturnedRetainedID",
+              "cloudChannelHistoryCaptured",
               "settingsFallbackCapture",
           )
           failures = [key for key in required if report.get(key) is not True]
           if report.get("passed") is not True or failures:
               raise SystemExit(f"Deleted-message retention regression failed: {report}")
-          print("PASS: local-ID and Global-ID delete paths retained marked Postbox rows; local capture and History snapshot passed.")
+          print("PASS: private, CloudGroup Global-ID, and CloudChannel local-ID delete paths retained marked Postbox rows; History snapshots passed.")
           PY
           xcrun simctl terminate "$DEVICE_UDID" "$bundle_id" >/dev/null 2>&1 || true
           rm -f "$DOCUMENTS/AyuGramHistoryMenuHarnessReady.txt" \
