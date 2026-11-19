@@ -147,7 +147,7 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                         // with auto-save already enabled by defaults or the one-time account migration.
                         let captureEnabledOnEntry = originalSaveDeletedMessages == true
 
-                        let captureSignal = account.postbox.transaction { transaction -> (AyuMessage?, Bool, Bool, Bool, Bool, Bool, Bool, Bool, Bool, Bool) in
+                        let captureSignal = account.postbox.transaction { transaction -> (AyuMessage?, [String: Bool]) in
                             let storeMessage = StoreMessage(
                                 id: messageID,
                                 customStableId: nil,
@@ -226,6 +226,109 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                             let globalReturnedRetainedID = retainedGlobalIDs.contains(globalMessageID.id)
                             let globalDeletionFiltered = globalIDsToDelete.isEmpty && globalRetainedMessage != nil
 
+                            // Basic groups use GlobalMessageIdsTable (CloudGroup); test that namespace,
+                            // not only the private-chat CloudUser namespace used above.
+                            let cloudGroupPeerId = PeerId(
+                                namespace: Namespaces.Peer.CloudGroup,
+                                id: PeerId.Id._internalFromInt64Value(933000004)
+                            )
+                            let cloudGroupMessageID = MessageId(
+                                peerId: cloudGroupPeerId,
+                                namespace: Namespaces.Message.Cloud,
+                                id: 1700000127
+                            )
+                            let cloudGroupMessageText = "Synthetic CloudGroup deletion must be retained"
+                            let cloudGroupStoreMessage = StoreMessage(
+                                id: cloudGroupMessageID,
+                                customStableId: nil,
+                                globallyUniqueId: nil,
+                                groupingKey: nil,
+                                threadId: nil,
+                                timestamp: now,
+                                flags: [],
+                                tags: [],
+                                globalTags: [],
+                                localTags: [],
+                                forwardInfo: nil,
+                                authorId: nil,
+                                text: cloudGroupMessageText,
+                                attributes: [],
+                                media: []
+                            )
+                            transaction.addMessages([cloudGroupStoreMessage], location: .Random)
+                            let cloudGroupLookupSucceeded = transaction.messageIdsForGlobalIds([cloudGroupMessageID.id]).first == cloudGroupMessageID
+                            let cloudGroupRetainedIDs = _internal_applyAyuGramServerDeleteMessagesWithGlobalIds(
+                                transaction: transaction,
+                                mediaBox: account.postbox.mediaBox,
+                                ids: [cloudGroupMessageID.id],
+                                accountID: accountID
+                            )
+                            let cloudGroupIDsToDelete = [cloudGroupMessageID.id].filter { !cloudGroupRetainedIDs.contains($0) }
+                            transaction.deleteMessagesWithGlobalIds(cloudGroupIDsToDelete, forEachMedia: { _ in })
+                            let cloudGroupRetainedMessage = transaction.getMessage(cloudGroupMessageID)
+                            let cloudGroupRetainedInChat = cloudGroupRetainedMessage?.text == cloudGroupMessageText
+                            let cloudGroupHasDeletedMarker = cloudGroupRetainedMessage?.attributes.contains(where: {
+                                ($0 as? EditedMessageAttribute)?.date == Int32.min
+                            }) ?? false
+                            let cloudGroupReturnedRetainedID = cloudGroupRetainedIDs.contains(cloudGroupMessageID.id)
+                            let cloudGroupDeletionFiltered = cloudGroupIDsToDelete.isEmpty && cloudGroupRetainedMessage != nil
+                            let cloudGroupHistoryCaptured = AyuGramPostboxHistoryStore.filtered(
+                                transaction: transaction,
+                                userID: accountID,
+                                dialogID: cloudGroupPeerId.toInt64(),
+                                kind: .deleted,
+                                limit: 100
+                            ).contains { $0.messageID == cloudGroupMessageID.id && $0.text == cloudGroupMessageText && $0.isDeleted }
+
+                            // Supergroups/channels use updateDeleteChannelMessages and local MessageIds.
+                            let cloudChannelPeerId = PeerId(
+                                namespace: Namespaces.Peer.CloudChannel,
+                                id: PeerId.Id._internalFromInt64Value(933000005)
+                            )
+                            let cloudChannelMessageID = MessageId(
+                                peerId: cloudChannelPeerId,
+                                namespace: Namespaces.Message.Cloud,
+                                id: 1700000128
+                            )
+                            let cloudChannelMessageText = "Synthetic CloudChannel deletion must be retained"
+                            let cloudChannelStoreMessage = StoreMessage(
+                                id: cloudChannelMessageID,
+                                customStableId: nil,
+                                globallyUniqueId: nil,
+                                groupingKey: nil,
+                                threadId: nil,
+                                timestamp: now,
+                                flags: [],
+                                tags: [],
+                                globalTags: [],
+                                localTags: [],
+                                forwardInfo: nil,
+                                authorId: nil,
+                                text: cloudChannelMessageText,
+                                attributes: [],
+                                media: []
+                            )
+                            transaction.addMessages([cloudChannelStoreMessage], location: .Random)
+                            let cloudChannelRetainedIDs = _internal_applyAyuGramServerDeleteMessages(
+                                transaction: transaction,
+                                mediaBox: account.postbox.mediaBox,
+                                ids: [cloudChannelMessageID],
+                                accountID: accountID
+                            )
+                            let cloudChannelRetainedMessage = transaction.getMessage(cloudChannelMessageID)
+                            let cloudChannelRetainedInChat = cloudChannelRetainedMessage?.text == cloudChannelMessageText
+                            let cloudChannelHasDeletedMarker = cloudChannelRetainedMessage?.attributes.contains(where: {
+                                ($0 as? EditedMessageAttribute)?.date == Int32.min
+                            }) ?? false
+                            let cloudChannelReturnedRetainedID = cloudChannelRetainedIDs.contains(cloudChannelMessageID)
+                            let cloudChannelHistoryCaptured = AyuGramPostboxHistoryStore.filtered(
+                                transaction: transaction,
+                                userID: accountID,
+                                dialogID: cloudChannelPeerId.toInt64(),
+                                kind: .deleted,
+                                limit: 100
+                            ).contains { $0.messageID == cloudChannelMessageID.id && $0.text == cloudChannelMessageText && $0.isDeleted }
+
                             let fallbackAccountID = accountID + Int64(now) + 9_000_000_000
                             let fallbackPeerId = PeerId(933000003)
                             let fallbackDialogID = fallbackPeerId.toInt64()
@@ -289,22 +392,55 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
 
                             return (
                                 captured,
-                                retainedInChat,
-                                hasDeletedMarker,
-                                retainedIDs.contains(messageID),
-                                globalLookupSucceeded,
-                                globalRetainedInChat,
-                                globalHasDeletedMarker,
-                                globalReturnedRetainedID,
-                                globalDeletionFiltered,
-                                fallbackCasePassed
+                                [
+                                    "retainedInChat": retainedInChat,
+                                    "hasDeletedMarker": hasDeletedMarker,
+                                    "returnedRetainedID": retainedIDs.contains(messageID),
+                                    "globalLookupSucceeded": globalLookupSucceeded,
+                                    "globalRetainedInChat": globalRetainedInChat,
+                                    "globalHasDeletedMarker": globalHasDeletedMarker,
+                                    "globalReturnedRetainedID": globalReturnedRetainedID,
+                                    "globalDeletionFiltered": globalDeletionFiltered,
+                                    "cloudGroupLookupSucceeded": cloudGroupLookupSucceeded,
+                                    "cloudGroupRetainedInChat": cloudGroupRetainedInChat,
+                                    "cloudGroupHasDeletedMarker": cloudGroupHasDeletedMarker,
+                                    "cloudGroupReturnedRetainedID": cloudGroupReturnedRetainedID,
+                                    "cloudGroupDeletionFiltered": cloudGroupDeletionFiltered,
+                                    "cloudGroupHistoryCaptured": cloudGroupHistoryCaptured,
+                                    "cloudChannelRetainedInChat": cloudChannelRetainedInChat,
+                                    "cloudChannelHasDeletedMarker": cloudChannelHasDeletedMarker,
+                                    "cloudChannelReturnedRetainedID": cloudChannelReturnedRetainedID,
+                                    "cloudChannelHistoryCaptured": cloudChannelHistoryCaptured,
+                                    "settingsFallbackCapture": fallbackCasePassed
+                                ]
                             )
                         }
 
                         _ = (captureSignal |> deliverOnMainQueue).start(next: { result in
                             let captureEnabled = settingsStore?.settings.saveDeletedMessages ?? false
                             let historyCaptured = result.0?.isDeleted == true && result.0?.text == messageText
-                            let passed = captureEnabledOnEntry && captureEnabled && historyCaptured && result.1 && result.2 && result.3 && result.4 && result.5 && result.6 && result.7 && result.8 && result.9
+                            let passed = captureEnabledOnEntry
+                                && captureEnabled
+                                && historyCaptured
+                                && result.1["retainedInChat"] == true
+                                && result.1["hasDeletedMarker"] == true
+                                && result.1["returnedRetainedID"] == true
+                                && result.1["globalLookupSucceeded"] == true
+                                && result.1["globalRetainedInChat"] == true
+                                && result.1["globalHasDeletedMarker"] == true
+                                && result.1["globalReturnedRetainedID"] == true
+                                && result.1["globalDeletionFiltered"] == true
+                                && result.1["cloudGroupLookupSucceeded"] == true
+                                && result.1["cloudGroupRetainedInChat"] == true
+                                && result.1["cloudGroupHasDeletedMarker"] == true
+                                && result.1["cloudGroupReturnedRetainedID"] == true
+                                && result.1["cloudGroupDeletionFiltered"] == true
+                                && result.1["cloudGroupHistoryCaptured"] == true
+                                && result.1["cloudChannelRetainedInChat"] == true
+                                && result.1["cloudChannelHasDeletedMarker"] == true
+                                && result.1["cloudChannelReturnedRetainedID"] == true
+                                && result.1["cloudChannelHistoryCaptured"] == true
+                                && result.1["settingsFallbackCapture"] == true
                             if let settingsStore, let originalSaveDeletedMessages {
                                 try? settingsStore.update { $0.saveDeletedMessages = originalSaveDeletedMessages }
                             }
@@ -313,19 +449,29 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                                 "captureEnabled": captureEnabled,
                                 "captureEnabledOnEntry": captureEnabledOnEntry,
                                 "historyCaptured": historyCaptured,
-                                "retainedInChat": result.1,
-                                "hasDeletedMarker": result.2,
-                                "returnedRetainedID": result.3,
+                                "retainedInChat": result.1["retainedInChat"] == true,
+                                "hasDeletedMarker": result.1["hasDeletedMarker"] == true,
+                                "returnedRetainedID": result.1["returnedRetainedID"] == true,
                                 "dialogID": dialogID,
                                 "messageID": Int(messageID.id),
                                 "capturedText": result.0?.text ?? "",
                                 "isDeleted": result.0?.isDeleted ?? false,
-                                "globalLookupSucceeded": result.4,
-                                "globalRetainedInChat": result.5,
-                                "globalHasDeletedMarker": result.6,
-                                "globalReturnedRetainedID": result.7,
-                                "globalDeletionFiltered": result.8,
-                                "settingsFallbackCapture": result.9
+                                "globalLookupSucceeded": result.1["globalLookupSucceeded"] == true,
+                                "globalRetainedInChat": result.1["globalRetainedInChat"] == true,
+                                "globalHasDeletedMarker": result.1["globalHasDeletedMarker"] == true,
+                                "globalReturnedRetainedID": result.1["globalReturnedRetainedID"] == true,
+                                "globalDeletionFiltered": result.1["globalDeletionFiltered"] == true,
+                                "cloudGroupLookupSucceeded": result.1["cloudGroupLookupSucceeded"] == true,
+                                "cloudGroupRetainedInChat": result.1["cloudGroupRetainedInChat"] == true,
+                                "cloudGroupHasDeletedMarker": result.1["cloudGroupHasDeletedMarker"] == true,
+                                "cloudGroupReturnedRetainedID": result.1["cloudGroupReturnedRetainedID"] == true,
+                                "cloudGroupDeletionFiltered": result.1["cloudGroupDeletionFiltered"] == true,
+                                "cloudGroupHistoryCaptured": result.1["cloudGroupHistoryCaptured"] == true,
+                                "cloudChannelRetainedInChat": result.1["cloudChannelRetainedInChat"] == true,
+                                "cloudChannelHasDeletedMarker": result.1["cloudChannelHasDeletedMarker"] == true,
+                                "cloudChannelReturnedRetainedID": result.1["cloudChannelReturnedRetainedID"] == true,
+                                "cloudChannelHistoryCaptured": result.1["cloudChannelHistoryCaptured"] == true,
+                                "settingsFallbackCapture": result.1["settingsFallbackCapture"] == true
                             ]
                             guard let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
                                 print("AyuGram deleted-retention smoke test has no Documents directory")
