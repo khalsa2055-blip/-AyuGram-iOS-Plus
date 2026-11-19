@@ -11,6 +11,7 @@ on:
       - "Scripts/harden_four_feature_storage.py"
       - "Scripts/apply_four_feature_ui.py"
       - "Scripts/restore_deleted_messages_in_chat.py"
+      - "Scripts/inject_ayugram_history_test.py"
       - "Scripts/apply_ios27_scene_lifecycle.py"
       - "Experiments/PrivateInviteLinkInspector/**"
       - ".github/workflows/four-feature-compatibility.yml"
