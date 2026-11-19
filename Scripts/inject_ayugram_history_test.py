@@ -224,7 +224,7 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                                 ($0 as? EditedMessageAttribute)?.date == Int32.min
                             }) ?? false
                             let globalReturnedRetainedID = retainedGlobalIDs.contains(globalMessageID.id)
-                            let globalDeletionFiltered = globalIDsToDelete.isEmpty && globalRetainedMessage != nil
+                            let globalDeletionFiltered = globalIDsToDelete.isEmpty && retainedGlobalMessage != nil
 
                             // Basic groups use GlobalMessageIdsTable (CloudGroup); test that namespace,
                             // not only the private-chat CloudUser namespace used above.
