@@ -1,3 +1,4 @@
+# [build-device-ipa] Build device IPA from the validated latest source; no test behavior change.
 # Device IPA opt-in marker commit; this comment does not change the simulator smoke test.
 from pathlib import Path
 
