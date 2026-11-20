@@ -9,6 +9,8 @@ DELETE = ROOT / "submodules/TelegramCore/Sources/TelegramEngine/Messages/DeleteM
 STATE = ROOT / "submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift"
 BUBBLE = ROOT / "submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift"
 TEXT_BUBBLE = ROOT / "submodules/TelegramUI/Components/Chat/ChatMessageTextBubbleContentNode/Sources/ChatMessageTextBubbleContentNode.swift"
+MEDIA_BUBBLE = ROOT / "submodules/TelegramUI/Components/Chat/ChatMessageMediaBubbleContentNode/Sources/ChatMessageMediaBubbleContentNode.swift"
+INTERACTIVE_MEDIA = ROOT / "submodules/TelegramUI/Components/Chat/ChatMessageInteractiveMediaNode/Sources/ChatMessageInteractiveMediaNode.swift"
 DATE_STATUS = ROOT / "submodules/TelegramUI/Components/Chat/ChatMessageDateAndStatusNode/Sources/ChatMessageDateAndStatusNode.swift"
 SETTINGS = ROOT / "submodules/TelegramUI/Components/AyuGramSettingsScreen/Sources/AyuGramSettingsScreen.swift"
 MESSAGE_MENU = ROOT / "submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift"
@@ -119,7 +121,7 @@ def remove_swift_function(source: str, signature: str, label: str) -> str:
     return source[:start] + source[end:]
 
 
-for path in (DELETE, STATE, BUBBLE, TEXT_BUBBLE, DATE_STATUS, SETTINGS, MESSAGE_MENU, PEER_MEDIA_MENU, PEER_HEADER_MENU, ENGINE):
+for path in (DELETE, STATE, BUBBLE, TEXT_BUBBLE, MEDIA_BUBBLE, INTERACTIVE_MEDIA, DATE_STATUS, SETTINGS, MESSAGE_MENU, PEER_MEDIA_MENU, PEER_HEADER_MENU, ENGINE):
     if not path.is_file():
         raise SystemExit(f"Required source file is missing: {path}")
 
@@ -462,6 +464,86 @@ text_bubble_text = replace_once(
 TEXT_BUBBLE.write_text(text_bubble_text, encoding="utf-8")
 
 
+# Media-only messages use ChatMessageMediaBubbleContentNode and then pass
+# ChatMessageDateAndStatus through ChatMessageInteractiveMediaNode. They do
+# not use the text-bubble date path above, so explicitly carry the tombstone
+# marker through this separate image/video status pipeline.
+media_bubble_text = MEDIA_BUBBLE.read_text(encoding="utf-8")
+media_bubble_text = replace_once(
+    media_bubble_text,
+    """            var edited = false
+            if item.attributes.updatingMedia != nil {
+                edited = true
+            }
+""",
+    """            var edited = false
+            var isAyuGramDeleted = false
+            if item.attributes.updatingMedia != nil {
+                edited = true
+            }
+""",
+    "media-only deleted-state variable"
+)
+media_bubble_text = replace_once(
+    media_bubble_text,
+    """                if let attribute = attribute as? EditedMessageAttribute {
+                    if case .mosaic = preparePosition {
+                    } else {
+                        edited = !attribute.isHidden
+                    }
+""",
+    """                if let attribute = attribute as? EditedMessageAttribute {
+                    if attribute.date == Int32.min {
+                        isAyuGramDeleted = true
+                        edited = false
+                    } else if case .mosaic = preparePosition {
+                    } else {
+                        edited = !attribute.isHidden
+                    }
+""",
+    "media-only deleted sentinel detection"
+)
+media_bubble_text = replace_once(
+    media_bubble_text,
+    """                    edited: edited,
+                    viewCount: viewCount,
+""",
+    """                    edited: edited,
+                    isAyuGramDeleted: isAyuGramDeleted,
+                    viewCount: viewCount,
+""",
+    "media-only status marker handoff"
+)
+MEDIA_BUBBLE.write_text(media_bubble_text, encoding="utf-8")
+
+interactive_media_text = INTERACTIVE_MEDIA.read_text(encoding="utf-8")
+interactive_media_text = replace_once(
+    interactive_media_text,
+    "    public var edited: Bool\n    public var viewCount: Int?\n",
+    "    public var edited: Bool\n    public var isAyuGramDeleted: Bool\n    public var viewCount: Int?\n",
+    "interactive media status marker property"
+)
+interactive_media_text = replace_once(
+    interactive_media_text,
+    "        edited: Bool,\n        viewCount: Int?,\n",
+    "        edited: Bool,\n        isAyuGramDeleted: Bool = false,\n        viewCount: Int?,\n",
+    "interactive media status marker initializer"
+)
+interactive_media_text = replace_once(
+    interactive_media_text,
+    "        self.edited = edited\n        self.viewCount = viewCount\n",
+    "        self.edited = edited\n        self.isAyuGramDeleted = isAyuGramDeleted\n        self.viewCount = viewCount\n",
+    "interactive media status marker assignment"
+)
+interactive_media_text = replace_once(
+    interactive_media_text,
+    "                    edited: dateAndStatus.edited && !presentationData.isPreview,\n                    impressionCount:",
+    "                    edited: dateAndStatus.edited && !presentationData.isPreview,\n                    isAyuGramDeleted: dateAndStatus.isAyuGramDeleted && !presentationData.isPreview,\n                    impressionCount:",
+    "interactive media status marker passed to date node"
+)
+INTERACTIVE_MEDIA.write_text(interactive_media_text, encoding="utf-8")
+
+
 # 3) Remove the user-facing History list shortcuts. The Postbox store remains
 # private and is still used for Before originals and local deleted-message state.
 settings_text = SETTINGS.read_text(encoding="utf-8")
@@ -551,6 +633,8 @@ state_check = STATE.read_text(encoding="utf-8")
 bubble_check = BUBBLE.read_text(encoding="utf-8")
 date_check = DATE_STATUS.read_text(encoding="utf-8")
 text_bubble_check = TEXT_BUBBLE.read_text(encoding="utf-8")
+media_bubble_check = MEDIA_BUBBLE.read_text(encoding="utf-8")
+interactive_media_check = INTERACTIVE_MEDIA.read_text(encoding="utf-8")
 assert "preserveDeletedMessagesInChat: Bool = false" in delete_check
 assert "?.settings.saveDeletedMessages != false" in delete_check
 assert "?.settings.saveDeletedMessages != false" in state_check
@@ -585,6 +669,11 @@ assert "EditedMessageAttribute(date: Int32.min, isHidden: true)" in delete_check
 assert "isAyuGramDeleted: Bool" in date_check
 assert 'updatedDateText = "🧹 \\(updatedDateText)"' in date_check
 assert "isAyuGramDeleted = true" in bubble_check
+assert "isAyuGramDeleted = true" in media_bubble_check
+assert "isAyuGramDeleted: isAyuGramDeleted" in media_bubble_check
+assert "public var isAyuGramDeleted: Bool" in interactive_media_check
+assert "isAyuGramDeleted: dateAndStatus.isAyuGramDeleted && !presentationData.isPreview" in interactive_media_check
+print("PASS: deleted markers are routed for text bubbles and media-only image/video status overlays.")
 print("PASS: server-deleted messages remain as local rows in their original chat.")
 print("PASS: the original text/media/timestamp stay on the Telegram message; the timestamp carries the 🧹 mark.")
 print("PASS: interactive deletion still uses Telegram's normal deletion path.")
