@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Keep server-deleted Telegram messages in their original chat, with a local deleted mark."""
 from pathlib import Path
+import re
 
 
 ROOT = Path("telegram-ios") if Path("telegram-ios").is_dir() else Path(".")
@@ -72,6 +73,18 @@ def matching_delimiter(source: str, start: int, opening: str, closing: str) -> i
         i += 1
     raise SystemExit(f"Could not find matching {closing!r} for Swift block at offset {start}")
 
+
+def find_case_block(source: str, case_label: str, required: str):
+    pattern = re.compile(r"(?m)^(?P<indent> *)" + re.escape(case_label) + r"\n")
+    for match in pattern.finditer(source):
+        indent = match.group("indent")
+        sibling_pattern = re.compile(r"(?m)^" + re.escape(indent) + r"case ")
+        sibling = sibling_pattern.search(source, match.end())
+        end = sibling.start() if sibling else len(source)
+        block = source[match.start():end]
+        if required in block:
+            return match.start(), end, block
+    return None
 
 def remove_swift_action(source: str, marker: str, append_prefix: str, label: str) -> str:
     marker_pos = source.find(marker)
@@ -284,6 +297,50 @@ state_text = replace_once(
     "deletedMessageIds.append(contentsOf: ids.filter { !ayuRetainedGlobalIds.contains($0) }.map { .global($0) })",
     "exclude retained global IDs from removed-message notifications"
 )
+
+# Channel/supergroup updates have a PTS gate. The stock code queued DeleteMessages
+# only for contiguous PTS. When the PTS had a gap or channel state was unknown,
+# it polled the channel without queuing the deletion operation, bypassing our
+# replayFinalState retention handler. Queue every non-stale channel deletion.
+channel_delete_case = find_case_block(
+    state_text,
+    "case let .updateDeleteChannelMessages(updateDeleteChannelMessagesData):",
+    "previousState.pts + ptsCount == pts"
+)
+if channel_delete_case is None:
+    raise SystemExit("Channel/supergroup updateDeleteChannelMessages PTS handler was not found")
+channel_delete_start, channel_delete_end, channel_delete_block = channel_delete_case
+channel_delete_block = replace_once(
+    channel_delete_block,
+    "let peerId = PeerId(namespace: Namespaces.Peer.CloudChannel, id: PeerId.Id._internalFromInt64Value(channelId))\n",
+    "let peerId = PeerId(namespace: Namespaces.Peer.CloudChannel, id: PeerId.Id._internalFromInt64Value(channelId))\n                let channelDeletedMessageIds = messages.map({ MessageId(peerId: peerId, namespace: Namespaces.Message.Cloud, id: $0) })\n",
+    "channel deletion message IDs"
+)
+channel_delete_block = replace_once(
+    channel_delete_block,
+    "updatedState.deleteMessages(messages.map({ MessageId(peerId: peerId, namespace: Namespaces.Message.Cloud, id: $0) }))",
+    "updatedState.deleteMessages(channelDeletedMessageIds)",
+    "contiguous channel delete operation"
+)
+channel_delete_block = replace_once(
+    channel_delete_block,
+    "} else {\n                        if !missingUpdatesFromChannels.contains(peerId) {",
+    r"""} else {
+                        updatedState.deleteMessages(channelDeletedMessageIds)
+                        print("[AyuGram] queued channel deletion before PTS repair: channel=\(channelId), count=\(messages.count), previousPts=\(previousState.pts), pts=\(pts), ptsCount=\(ptsCount)")
+                        if !missingUpdatesFromChannels.contains(peerId) {""",
+    "channel deletion when PTS has a gap"
+)
+channel_delete_block = replace_once(
+    channel_delete_block,
+    "} else {\n                    if case .none = channelsToPoll[peerId] {",
+    r"""} else {
+                    updatedState.deleteMessages(channelDeletedMessageIds)
+                    print("[AyuGram] queued channel deletion with unknown PTS state: channel=\(channelId), count=\(messages.count), pts=\(pts)")
+                    if case .none = channelsToPoll[peerId] {""",
+    "channel deletion when PTS state is unknown"
+)
+state_text = state_text[:channel_delete_start] + channel_delete_block + state_text[channel_delete_end:]
 STATE.write_text(state_text, encoding="utf-8")
 
 # The engine-facing helper is Void; its call must not return the retained-ID set.
@@ -500,6 +557,18 @@ assert "?.settings.saveDeletedMessages != false" in state_check
 assert "let idsToDelete = ids.filter { !ayuRetainedDeletedMessageIds.contains($0) }" in delete_check
 assert "preserveDeletedMessagesInChat: true" in state_check
 assert "ayuRetainedGlobalIds" in state_check
+# Basic-group deletion uses Global IDs; supergroup deletion uses channel-scoped local IDs.
+channel_delete_case = find_case_block(
+    state_check,
+    "case let .updateDeleteChannelMessages(updateDeleteChannelMessagesData):",
+    "previousState.pts + ptsCount == pts"
+)
+assert channel_delete_case is not None, "Supergroup/channel delete update handler is missing"
+_, _, channel_delete_block = channel_delete_case
+assert "let channelDeletedMessageIds = messages.map" in channel_delete_block
+assert channel_delete_block.count("updatedState.deleteMessages(channelDeletedMessageIds)") == 3, "Channel/supergroup deletes must be queued for contiguous PTS, PTS gaps and unknown channel state"
+assert "queued channel deletion before PTS repair" in channel_delete_block
+assert "queued channel deletion with unknown PTS state" in channel_delete_block
 assert "ayuGlobalIdsToDelete = ids.filter" in state_check
 assert "_internal_applyAyuGramServerDeleteMessages(transaction: transaction, mediaBox: mediaBox, ids: ids, accountID: accountPeerId.toInt64())" in state_check
 assert "_internal_applyAyuGramServerDeleteMessagesWithGlobalIds(transaction: transaction, mediaBox: mediaBox, ids: ids, accountID: accountPeerId.toInt64())" in state_check
