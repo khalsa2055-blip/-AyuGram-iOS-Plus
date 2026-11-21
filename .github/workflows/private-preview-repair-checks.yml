@@ -61,8 +61,14 @@ jobs:
           for filename, match in sources.items():
               if match is None:
                   raise SystemExit("Could not extract generated Swift source: " + filename)
+              source = match.group(1)
+              if filename == "production-private-preview.swift":
+                  # The replacement string intentionally includes the following
+                  # ayuSettingsEntries function signature; its body lives outside
+                  # the generated preview controller and is not part of this parse.
+                  source = source.split("private func ayuSettingsEntries", 1)[0]
               target = root / filename
-              target.write_text(match.group(1), encoding="utf-8")
+              target.write_text(source, encoding="utf-8")
               print("Extracted", target)
           PY
           swiftc -frontend -parse "$RUNNER_TEMP/production-private-preview.swift"
