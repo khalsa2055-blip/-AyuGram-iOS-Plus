@@ -501,6 +501,8 @@ jobs:
           date_status = Path("telegram-ios/submodules/TelegramUI/Components/Chat/ChatMessageDateAndStatusNode/Sources/ChatMessageDateAndStatusNode.swift").read_text(encoding="utf-8")
           bubble_node = Path("telegram-ios/submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift").read_text(encoding="utf-8")
           text_bubble_node = Path("telegram-ios/submodules/TelegramUI/Components/Chat/ChatMessageTextBubbleContentNode/Sources/ChatMessageTextBubbleContentNode.swift").read_text(encoding="utf-8")
+          media_bubble_node = Path("telegram-ios/submodules/TelegramUI/Components/Chat/ChatMessageMediaBubbleContentNode/Sources/ChatMessageMediaBubbleContentNode.swift").read_text(encoding="utf-8")
+          interactive_media_node = Path("telegram-ios/submodules/TelegramUI/Components/Chat/ChatMessageInteractiveMediaNode/Sources/ChatMessageInteractiveMediaNode.swift").read_text(encoding="utf-8")
           assert "preserveDeletedMessagesInChat: true" in delete_updates
           # Verify the actual Telegram update -> AccountMutableState -> replayFinalState route,
           # not only the shared retention helper called by the synthetic smoke test.
@@ -513,7 +515,10 @@ jobs:
           channel_update_route = delete_updates[channel_update_start:channel_update_end]
           assert "previousState.pts + ptsCount == pts" in channel_update_route
           assert "let channelDeletedMessageIds = messages.map" in channel_update_route
-          assert channel_update_route.count("updatedState.deleteMessages(channelDeletedMessageIds)") == 3, "Channel deletes must be queued for contiguous PTS, PTS gaps and unknown channel state"
+          stale_channel_update = channel_update_route.split("if previousState.pts >= pts", 1)[1].split("} else if previousState.pts + ptsCount == pts", 1)[0]
+          assert "updatedState.deleteMessages(channelDeletedMessageIds)" in stale_channel_update, "Stale PTS channel deletions must still reach local retention"
+          assert channel_update_route.count("updatedState.deleteMessages(channelDeletedMessageIds)") == 4, "Channel deletes must be queued for stale PTS, contiguous PTS, PTS gaps and unknown channel state"
+          assert "queued channel deletion despite stale PTS" in channel_update_route
           assert "queued channel deletion before PTS repair" in channel_update_route
           assert "queued channel deletion with unknown PTS state" in channel_update_route
           replay_start = delete_updates.index("func replayFinalState(")
@@ -527,11 +532,16 @@ jobs:
           assert "-> Set<MessageId>" in delete_core
           assert "@discardableResult" in delete_core
           assert "idsToDelete = ids.filter" in delete_core
+          assert "for id in ids where !ayuRetainedDeletedMessageIds.contains(id)" in delete_core, "Retained channel messages must not decrement thread statistics"
           assert "EditedMessageAttribute(date: Int32.min, isHidden: true)" in delete_core
           assert 'updatedDateText = "🧹 \\(updatedDateText)"' in date_status
           assert "isAyuGramDeleted = true" in bubble_node
           assert "isAyuGramDeleted = true" in text_bubble_node
           assert "isAyuGramDeleted: isAyuGramDeleted" in text_bubble_node
+          assert "isAyuGramDeleted = true" in media_bubble_node, "Media-only deleted marker detection is missing"
+          assert "isAyuGramDeleted: isAyuGramDeleted" in media_bubble_node, "Media-only deleted marker is not handed off"
+          assert "public var isAyuGramDeleted: Bool" in interactive_media_node
+          assert "isAyuGramDeleted: dateAndStatus.isAyuGramDeleted && !presentationData.isPreview" in interactive_media_node
           global_delete_start = delete_updates.index("case let .DeleteMessagesWithGlobalIds(ids):")
           global_delete_end = delete_updates.index("case let .DeleteMessages(ids):", global_delete_start)
           global_delete = delete_updates[global_delete_start:global_delete_end]
