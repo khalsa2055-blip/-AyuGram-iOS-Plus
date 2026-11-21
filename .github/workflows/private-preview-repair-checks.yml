@@ -10,6 +10,8 @@ on:
       - 'Scripts/apply_four_feature_ui.py'
       - 'Scripts/apply_private_invite_preview.py'
       - '.github/workflows/private-preview-repair-checks.yml'
+      - '.github/workflows/four-feature-simulator.yml'
+      - '.github/workflows/private-invite-preview-simulator.yml'
 
 permissions:
   contents: read
@@ -50,6 +52,8 @@ jobs:
           patch = Path("Scripts/apply_four_feature_ui.py").read_text(encoding="utf-8")
           legacy = Path("Scripts/apply_private_invite_preview.py").read_text(encoding="utf-8")
           core = Path("Experiments/PrivateInviteLinkInspector/Sources/PrivateInviteLinkInspector")
+          simulator_workflow = Path(".github/workflows/four-feature-simulator.yml").read_text(encoding="utf-8")
+          legacy_workflow = Path(".github/workflows/private-invite-preview-simulator.yml").read_text(encoding="utf-8")
           swift = "\\n".join(p.read_text(encoding="utf-8") for p in core.glob("*.swift"))
 
           required = {
@@ -105,7 +109,7 @@ jobs:
               raise SystemExit("Invite preview must never expose a join/request action")
 
           # Inspect the exact generated production UI, not just marker strings.
-          generated = re.search(r"r'''(private final class AyuGramPrivateInviteEntryView[\\s\\S]*?)'''", patch)
+          generated = re.search(r"r'''(private final class AyuGramPrivateInviteEntryView[\s\S]*?)'''", patch)
           if not generated:
               raise SystemExit("Could not isolate the generated production invite-preview controller")
           production_ui = generated.group(1)
@@ -127,7 +131,7 @@ jobs:
               raise SystemExit("Production invite parser must require HTTPS for web invite URLs")
 
           # The old experimental installer must obey the same server-authorized peek contract.
-          legacy_entry = re.search(r"ENTRY_CONTROLLER = r'''([\\s\\S]*?)'''", legacy)
+          legacy_entry = re.search(r"ENTRY_CONTROLLER = r'''([\s\S]*?)'''", legacy)
           if not legacy_entry:
               raise SystemExit("Could not isolate the legacy experimental preview controller")
           legacy_ui = legacy_entry.group(1)
@@ -140,6 +144,11 @@ jobs:
           for marker in unsafe_preview_markers:
               if marker in legacy_ui:
                   raise SystemExit("Unsafe action found in legacy preview controller: " + marker)
+
+          if "ref: eb5ae67a32c6e8b936ca0e875f19f99251112f17" not in legacy_workflow:
+              raise SystemExit("Legacy preview simulator must use the pinned Telegram-iOS baseline")
+          if "if: github.event_name == 'workflow_dispatch'" not in simulator_workflow:
+              raise SystemExit("Push events must not run simulator/IPA packaging")
           # The scoped ChatController wrapper must deny a peek but delegate to
           # Telegram's original permission functions in every ordinary chat.
           scoped_permissions = (
