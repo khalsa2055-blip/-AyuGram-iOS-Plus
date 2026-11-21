@@ -345,12 +345,12 @@ if "AyuGramPrivateInvitePreviewController" not in settings:
             details.append(about)
         }
         if invite.flags.requestNeeded {
-            details.append("This invite requires admin approval. No join request has been sent.")
+            details.append("Admin approval is required to join, but this preview has not sent a request.")
         }
         if !invite.flags.isChannel {
             details.append("Telegram does not provide invite-link message previews for basic groups. No join or request has been sent; messages remain unavailable without an authorized membership.")
         } else {
-            details.append("Telegram did not grant message-preview access for this invite link. No join or request has been sent, and this screen will not open a join flow.")
+            details.append("Telegram returned invite metadata, not chatInvitePeek. Message preview is unavailable for this link. No join or request was sent.")
         }
         infoLabel.text = details.joined(separator: "\n\n")
         infoLabel.isHidden = false
@@ -402,7 +402,7 @@ private func ayuGramPrivateInviteHash(_ raw: String) -> String? {
         }
         hash = value
     } else {
-        guard (scheme == "https" || scheme == "http"),
+        guard (scheme == "https"),
               let host = components.host?.lowercased(),
               ["t.me", "www.t.me", "telegram.me", "www.telegram.me", "t.dog", "telegram.dog"].contains(host),
               components.query == nil else {
