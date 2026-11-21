@@ -50,7 +50,7 @@ public enum InviteLinkParser {
             }
             candidate = value
         } else {
-            guard (scheme == "https" || scheme == "http"),
+            guard scheme == "https",
                   let host = components.host?.lowercased(),
                   acceptedHosts.contains(host),
                   components.query == nil else {
