@@ -209,6 +209,12 @@ delete_function = replace_once(
     retention_block + "    var resourceIds: [MediaResourceId] = []\n",
     "deleted-message local retention block"
 )
+delete_function = replace_once(
+    delete_function,
+    "    for id in ids {\n        if id.peerId.namespace == Namespaces.Peer.CloudChannel && id.namespace == Namespaces.Message.Cloud {",
+    "    for id in ids where !ayuRetainedDeletedMessageIds.contains(id) {\n        if id.peerId.namespace == Namespaces.Peer.CloudChannel && id.namespace == Namespaces.Message.Cloud {",
+    "exclude retained messages from channel thread-stat decrements"
+)
 delete_text = delete_text[:delete_function_start] + delete_function + delete_text[delete_function_end:]
 delete_text = replace_once(
     delete_text,
@@ -317,6 +323,18 @@ channel_delete_block = replace_once(
     "let peerId = PeerId(namespace: Namespaces.Peer.CloudChannel, id: PeerId.Id._internalFromInt64Value(channelId))\n",
     "let peerId = PeerId(namespace: Namespaces.Peer.CloudChannel, id: PeerId.Id._internalFromInt64Value(channelId))\n                let channelDeletedMessageIds = messages.map({ MessageId(peerId: peerId, namespace: Namespaces.Message.Cloud, id: $0) })\n",
     "channel deletion message IDs"
+)
+channel_delete_block = replace_once(
+    channel_delete_block,
+    """if previousState.pts >= pts {
+                        Logger.shared.log("State", "channel \(peerId) (\((updatedState.peers[peerId] as? TelegramChannel)?.title ?? "nil")) skip old delete update")
+                    } else if previousState.pts + ptsCount == pts {""",
+    """if previousState.pts >= pts {
+                        Logger.shared.log("State", "channel \(peerId) (\((updatedState.peers[peerId] as? TelegramChannel)?.title ?? "nil")) retain old delete update without changing PTS")
+                        updatedState.deleteMessages(channelDeletedMessageIds)
+                        print("[AyuGram] queued channel deletion despite stale PTS: channel=\(channelId), count=\(messages.count), previousPts=\(previousState.pts), pts=\(pts)")
+                    } else if previousState.pts + ptsCount == pts {""",
+    "channel deletion when PTS update is stale"
 )
 channel_delete_block = replace_once(
     channel_delete_block,
@@ -650,7 +668,9 @@ channel_delete_case = find_case_block(
 assert channel_delete_case is not None, "Supergroup/channel delete update handler is missing"
 _, _, channel_delete_block = channel_delete_case
 assert "let channelDeletedMessageIds = messages.map" in channel_delete_block
-assert channel_delete_block.count("updatedState.deleteMessages(channelDeletedMessageIds)") == 3, "Channel/supergroup deletes must be queued for contiguous PTS, PTS gaps and unknown channel state"
+assert channel_delete_block.count("updatedState.deleteMessages(channelDeletedMessageIds)") == 4, "Channel/supergroup deletes must be queued for stale PTS, contiguous PTS, PTS gaps and unknown channel state"
+assert "queued channel deletion despite stale PTS" in channel_delete_block
+assert "for id in ids where !ayuRetainedDeletedMessageIds.contains(id)" in delete_check, "Retained channel messages must not decrement thread statistics"
 assert "queued channel deletion before PTS repair" in channel_delete_block
 assert "queued channel deletion with unknown PTS state" in channel_delete_block
 assert "ayuGlobalIdsToDelete = ids.filter" in state_check
