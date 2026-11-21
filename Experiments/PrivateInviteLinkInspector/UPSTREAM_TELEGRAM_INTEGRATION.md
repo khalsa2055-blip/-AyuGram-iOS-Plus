@@ -29,8 +29,10 @@ The Preview action:
 - handles `.peek` only by calling
   `navigateToChatController(NavigateToChatControllerParams(...))` with
   `ChatPeekTimeout(deadline: deadline, linkData: hash)`;
-- rejects `.invite`, `.alreadyJoined`, and `.invalidHash` without
-  displaying the server's participant metadata or a Join action.
+- displays limited metadata for `.invite` without exposing an invitation,
+  join, or join-request action;
+- opens the existing chat for `.alreadyJoined` without creating a new join;
+- displays an error for `.invalidHash`.
 
 The resulting chat is Telegram's native ChatController, not a custom timeline.
 Telegram's own chat/history/media implementation remains responsible for
@@ -45,6 +47,8 @@ dismiss-only expiry path so the temporary preview cannot become a join flow.
 - Do not treat `.invite` metadata as read permission.
 - Do not call `messages.importChatInvite`, `joinChatInteractively`,
   `channels.joinChannel`, or message/media send APIs.
+- Do not expose any secondary invitation route when `.peek` is denied;
+  remain metadata-only and do not request approval.
 - Do not issue a standalone `messages.getHistory` request from this feature.
   Use Telegram's native `ChatPeekTimeout` navigation route.
 - Never fabricate a peek result or bypass Telegram's server authorization.
