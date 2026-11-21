@@ -65,7 +65,8 @@ jobs:
               "native read-only chat timeout": "ChatPeekTimeout(deadline: deadline, linkData: hash)",
               "native Telegram chat navigation": "navigateToChatController(",
               "metadata-only fallback branch": "case let .invite(invite):",
-              "metadata-only fallback renderer": "entryView.showInviteInfo(invite, rawLink: raw)",
+              "metadata-only renderer has no join action": "entryView.showInviteInfo(invite)",
+              "denied preview sends no join or request": "No join or request has been sent",
               "neutral status renderer": "func showStatus(_ message: String)",
               "already-member handling": "case let .alreadyJoined(peer):",
               "already-member opens the confirmed peer without joining": "Open the existing chat normally; this is not a join action.",
@@ -76,9 +77,6 @@ jobs:
               "strict local invite parser": "ayuGramPrivateInviteHash(raw)",
               "Telegram tg:// invite parser": 'scheme == "tg"',
               "Telegram invite query validation": 'items[0].name == "invite"',
-              "user-controlled fallback button": "privateInviteOpenInTelegramButton",
-              "manual native invitation handler": "openExternalUrl(",
-              "fallback does not auto-join": "it will not join automatically.",
           }
           combined = patch + "\\n" + swift
           missing = [name for name, marker in required.items() if marker not in combined]
@@ -97,10 +95,10 @@ jobs:
               if re.search(pattern, patch + "\\n" + swift):
                   raise SystemExit("Forbidden mutating Telegram call found: " + pattern)
 
-          if "applicationBindings.openUrl(raw)" in patch:
-              raise SystemExit("Invite preview must not use generic/external URL handoff")
-          if "importChatInvite" in patch or "joinChatInteractively" in patch:
-              raise SystemExit("Invite preview must never invoke a join operation")
+          if "applicationBindings.openUrl(raw)" in patch or "openExternalUrl(" in patch:
+              raise SystemExit("Invite preview must not expose an external invitation/join handoff")
+          if any(marker in patch for marker in ("privateInviteOpenInTelegramButton", "onOpenInvite", "importChatInvite", "joinChatInteractively", "channels.joinChannel")):
+              raise SystemExit("Invite preview must never expose a join/request action")
           # The scoped ChatController wrapper must deny a peek but delegate to
           # Telegram's original permission functions in every ordinary chat.
           scoped_permissions = (
@@ -116,7 +114,7 @@ jobs:
           if "ChatPresentationInterfaceState.swift" in patch or "case .member = channel.participationStatus" in patch:
               raise SystemExit("Preview must not globally change Telegram permissions for ordinary chats")
           print("PASS: settings entry, HTTPS invite parsing and official tg://join invite parsing")
-          print("PASS: denied-preview fallback opens Telegram's standard invite screen only after a user tap; no automatic join")
+          print("PASS: denied-preview state is metadata-only; no join, request, or external invitation action exists")
           print("PASS: Telegram MTProto checkChatInvite path via joinLinkInformation")
           print("PASS: only server-issued .peek opens ChatController with ChatPeekTimeout")
           print("PASS: invite metadata-only fallback is displayed without participant identities; no join/send APIs")
