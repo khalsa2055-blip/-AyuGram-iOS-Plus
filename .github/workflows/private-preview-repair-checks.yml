@@ -8,6 +8,7 @@ on:
     paths:
       - 'Experiments/PrivateInviteLinkInspector/**'
       - 'Scripts/apply_four_feature_ui.py'
+      - 'Scripts/apply_private_invite_preview.py'
       - '.github/workflows/private-preview-repair-checks.yml'
 
 permissions:
@@ -31,7 +32,9 @@ jobs:
           swift-version: '6.0'
 
       - name: Validate patch script syntax
-        run: python3 -m py_compile Scripts/apply_four_feature_ui.py
+        run: |
+          python3 -m py_compile Scripts/apply_four_feature_ui.py
+          python3 -m py_compile Scripts/apply_private_invite_preview.py
 
       - name: Run isolated invite policy tests
         run: swift test --package-path Experiments/PrivateInviteLinkInspector
@@ -45,6 +48,7 @@ jobs:
           import re
 
           patch = Path("Scripts/apply_four_feature_ui.py").read_text(encoding="utf-8")
+          legacy = Path("Scripts/apply_private_invite_preview.py").read_text(encoding="utf-8")
           core = Path("Experiments/PrivateInviteLinkInspector/Sources/PrivateInviteLinkInspector")
           swift = "\\n".join(p.read_text(encoding="utf-8") for p in core.glob("*.swift"))
 
@@ -99,6 +103,43 @@ jobs:
               raise SystemExit("Invite preview must not expose an external invitation/join handoff")
           if any(marker in patch for marker in ("privateInviteOpenInTelegramButton", "onOpenInvite", "importChatInvite", "joinChatInteractively", "channels.joinChannel")):
               raise SystemExit("Invite preview must never expose a join/request action")
+
+          # Inspect the exact generated production UI, not just marker strings.
+          generated = re.search(r"r'''(private final class AyuGramPrivateInviteEntryView[\\s\\S]*?)'''", patch)
+          if not generated:
+              raise SystemExit("Could not isolate the generated production invite-preview controller")
+          production_ui = generated.group(1)
+          peek_branch = production_ui.split("case let .peek(peer, deadline):", 1)[1].split("case let .invite(invite):", 1)[0]
+          invite_branch = production_ui.split("case let .invite(invite):", 1)[1].split("case let .alreadyJoined(peer):", 1)[0]
+          if "navigateToChatController(" not in peek_branch or "ChatPeekTimeout(deadline: deadline, linkData: hash)" not in peek_branch:
+              raise SystemExit("Server-granted peek is not routed through Telegram's native read-only ChatPeekTimeout")
+          if "entryView.showInviteInfo(invite)" not in invite_branch:
+              raise SystemExit("Denied invite result is not rendered as metadata-only")
+          unsafe_preview_markers = (
+              "openExternalUrl(", "applicationBindings.openUrl(", "fallbackButton",
+              "onOpenInvite", "privateInviteOpenInTelegramButton",
+              "joinChatInteractively(", "importChatInvite(", "channels.joinChannel("
+          )
+          for marker in unsafe_preview_markers:
+              if marker in production_ui:
+                  raise SystemExit("Unsafe action found in production preview controller: " + marker)
+          if 'scheme == "https"' not in production_ui or 'scheme == "https" || scheme == "http"' in production_ui:
+              raise SystemExit("Production invite parser must require HTTPS for web invite URLs")
+
+          # The old experimental installer must obey the same server-authorized peek contract.
+          legacy_entry = re.search(r"ENTRY_CONTROLLER = r'''([\\s\\S]*?)'''", legacy)
+          if not legacy_entry:
+              raise SystemExit("Could not isolate the legacy experimental preview controller")
+          legacy_ui = legacy_entry.group(1)
+          legacy_peek = legacy_ui.split("case let .peek(peer, deadline):", 1)[1].split("case let .invite(invite):", 1)[0]
+          legacy_invite = legacy_ui.split("case let .invite(invite):", 1)[1].split("case let .alreadyJoined(peer):", 1)[0]
+          if "joinLinkInformation(hash)" not in legacy_ui or "ChatPeekTimeout(deadline: deadline, linkData: hash)" not in legacy_peek:
+              raise SystemExit("Legacy preview installer no longer follows Telegram's authorized peek route")
+          if "entryView.showInviteInfo(invite)" not in legacy_invite:
+              raise SystemExit("Legacy denied-invite handling is not metadata-only")
+          for marker in unsafe_preview_markers:
+              if marker in legacy_ui:
+                  raise SystemExit("Unsafe action found in legacy preview controller: " + marker)
           # The scoped ChatController wrapper must deny a peek but delegate to
           # Telegram's original permission functions in every ordinary chat.
           scoped_permissions = (
