@@ -25,11 +25,64 @@ def replace_once(source: str, old: str, new: str, label: str) -> str:
     return source.replace(old, new, 1)
 
 ENTRY_CONTROLLER = r'''
+private func sgPrivateInviteHash(_ raw: String) -> String? {
+    guard let components = URLComponents(string: raw.trimmingCharacters(in: .whitespacesAndNewlines)),
+          let scheme = components.scheme?.lowercased(),
+          components.fragment == nil,
+          components.user == nil,
+          components.password == nil,
+          components.port == nil else {
+        return nil
+    }
+
+    let hash: String
+    if scheme == "tg" {
+        guard components.host?.lowercased() == "join",
+              components.path.isEmpty,
+              let items = components.queryItems,
+              items.count == 1,
+              items[0].name == "invite",
+              let value = items[0].value else {
+            return nil
+        }
+        hash = value
+    } else {
+        guard scheme == "https",
+              let host = components.host?.lowercased(),
+              ["t.me", "www.t.me", "telegram.me", "www.telegram.me", "t.dog", "telegram.dog"].contains(host),
+              components.query == nil else {
+            return nil
+        }
+        let parts = components.path.split(separator: "/", omittingEmptySubsequences: true)
+        if parts.count == 1, parts[0].hasPrefix("+") {
+            hash = String(parts[0].dropFirst())
+        } else if parts.count == 2, parts[0].lowercased() == "joinchat" {
+            hash = String(parts[1])
+        } else {
+            return nil
+        }
+    }
+
+    guard !hash.isEmpty,
+          hash.unicodeScalars.allSatisfy({
+              let value = $0.value
+              return (48...57).contains(value)
+                  || (65...90).contains(value)
+                  || (97...122).contains(value)
+                  || value == 45
+                  || value == 95
+          }) else {
+        return nil
+    }
+    return hash
+}
+
 private final class SGPrivateInviteEntryView: UIView {
     var onPreview: ((String) -> Void)?
     private let field = UITextField()
     private let button = UIButton(type: .system)
     private let errorLabel = UILabel()
+    private let infoLabel = UILabel()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -52,7 +105,12 @@ private final class SGPrivateInviteEntryView: UIView {
         errorLabel.numberOfLines = 0
         errorLabel.isHidden = true
 
-        let stack = UIStackView(arrangedSubviews: [field, button, errorLabel])
+        infoLabel.font = .preferredFont(forTextStyle: .body)
+        infoLabel.textColor = .secondaryLabel
+        infoLabel.numberOfLines = 0
+        infoLabel.isHidden = true
+
+        let stack = UIStackView(arrangedSubviews: [field, button, errorLabel, infoLabel])
         stack.axis = .vertical
         stack.spacing = 16
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -68,29 +126,66 @@ private final class SGPrivateInviteEntryView: UIView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    func setLoading(_ loading: Bool) {
+        button.isEnabled = !loading
+        field.isEnabled = !loading
+        button.setTitle(loading ? "Checking…" : "Preview", for: .normal)
+    }
+
+    func clearMessage() {
+        errorLabel.text = nil
+        errorLabel.isHidden = true
+        infoLabel.text = nil
+        infoLabel.isHidden = true
+    }
+
+    func showMessage(_ message: String) {
+        infoLabel.text = nil
+        infoLabel.isHidden = true
+        errorLabel.text = message
+        errorLabel.isHidden = false
+    }
+
+    func showStatus(_ message: String) {
+        errorLabel.text = nil
+        errorLabel.isHidden = true
+        infoLabel.text = message
+        infoLabel.isHidden = false
+    }
+
+    func showInviteInfo(_ invite: ExternalJoiningChatState.Invite) {
+        let type: String
+        if invite.flags.isChannel {
+            type = invite.flags.isMegagroup ? "Supergroup" : "Channel"
+        } else {
+            type = "Basic group"
+        }
+        var details = [invite.title, type]
+        if invite.participantsCount > 0 {
+            let count = NumberFormatter.localizedString(
+                from: NSNumber(value: invite.participantsCount),
+                number: .decimal
+            )
+            details.append("\(count) members")
+        }
+        if let about = invite.about?.trimmingCharacters(in: .whitespacesAndNewlines), !about.isEmpty {
+            details.append(about)
+        }
+        if invite.flags.requestNeeded {
+            details.append("Admin approval is required to join, but this preview has not sent a request.")
+        }
+        details.append("Telegram returned invite information instead of chatInvitePeek. Message preview is unavailable for this link. No join or request was sent.")
+        showStatus(details.joined(separator: "\n\n"))
+    }
+
     @objc private func previewPressed() {
         let raw = (field.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let components = URLComponents(string: raw),
-              let scheme = components.scheme?.lowercased(),
-              scheme == "https" || scheme == "http",
-              let host = components.host?.lowercased(),
-              host == "t.me" || host == "www.t.me",
-              components.query == nil, components.fragment == nil,
-              components.user == nil, components.password == nil
-        else {
-            errorLabel.text = "Enter a valid Telegram private invite link."
-            errorLabel.isHidden = false
+        guard sgPrivateInviteHash(raw) != nil else {
+            showMessage("Enter a valid HTTPS Telegram invite link (t.me/+… or joinchat).")
             return
         }
-        let parts = components.path.split(separator: "/", omittingEmptySubsequences: true)
-        let valid = (parts.count == 1 && parts[0].hasPrefix("+") && parts[0].count > 1)
-            || (parts.count == 2 && parts[0].lowercased() == "joinchat" && !parts[1].isEmpty)
-        guard valid else {
-            errorLabel.text = "Use a t.me/+… or t.me/joinchat/… invite link."
-            errorLabel.isHidden = false
-            return
-        }
-        errorLabel.isHidden = true
+        clearMessage()
+        setLoading(true)
         endEditing(true)
         onPreview?(raw)
     }
@@ -98,6 +193,7 @@ private final class SGPrivateInviteEntryView: UIView {
 
 private final class SGPrivateInvitePreviewController: ViewController {
     private let context: AccountContext
+    private let previewDisposable = MetaDisposable()
 
     init(context: AccountContext) {
         self.context = context
@@ -105,17 +201,81 @@ private final class SGPrivateInvitePreviewController: ViewController {
         self.title = "Private Group Preview"
     }
 
+    deinit {
+        self.previewDisposable.dispose()
+    }
+
     required init(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
+    private func showPreviewError(_ message: String, in entryView: SGPrivateInviteEntryView) {
+        entryView.setLoading(false)
+        entryView.showMessage(message)
+    }
+
     override func loadDisplayNode() {
         let entryView = SGPrivateInviteEntryView()
-        entryView.onPreview = { [weak self] raw in
-            guard let self else { return }
-            // Use Telegram's normal resolver: .peek opens a read-only ChatPeekTimeout.
-            // Invite metadata/denied states are never upgraded into message access here.
-            self.context.sharedContext.applicationBindings.openUrl(raw)
+        entryView.onPreview = { [weak self, weak entryView] raw in
+            guard let self, let entryView else { return }
+            guard let hash = sgPrivateInviteHash(raw) else {
+                self.showPreviewError("This invite link is not valid.", in: entryView)
+                return
+            }
+
+            self.previewDisposable.set((
+                self.context.engine.peers.joinLinkInformation(hash)
+                |> deliverOnMainQueue
+            ).start(next: { [weak self, weak entryView] result in
+                guard let self, let entryView else { return }
+                entryView.setLoading(false)
+
+                switch result {
+                case let .peek(peer, deadline):
+                    guard let navigationController = self.context.sharedContext.mainWindow?.viewController as? NavigationController else {
+                        entryView.showMessage("Telegram granted peek, but the chat navigation is unavailable.")
+                        return
+                    }
+                    self.context.sharedContext.navigateToChatController(
+                        NavigateToChatControllerParams(
+                            navigationController: navigationController,
+                            context: self.context,
+                            chatLocation: .peer(peer),
+                            subject: nil,
+                            peekData: ChatPeekTimeout(deadline: deadline, linkData: hash)
+                        )
+                    )
+                    self.dismiss()
+                case let .invite(invite):
+                    entryView.showInviteInfo(invite)
+                case let .alreadyJoined(peer):
+                    guard let navigationController = self.context.sharedContext.mainWindow?.viewController as? NavigationController else {
+                        entryView.showStatus("You already belong to this group. Open it from your chat list.")
+                        return
+                    }
+                    self.context.sharedContext.navigateToChatController(
+                        NavigateToChatControllerParams(
+                            navigationController: navigationController,
+                            context: self.context,
+                            chatLocation: .peer(peer),
+                            subject: nil
+                        )
+                    )
+                    self.dismiss()
+                case .invalidHash:
+                    entryView.showMessage("Telegram could not verify this invite. It may be invalid or expired.")
+                }
+            }, error: { [weak self, weak entryView] error in
+                guard let self, let entryView else { return }
+                let message: String
+                switch error {
+                case .flood:
+                    message = "Telegram is temporarily limiting invite checks. Try again later."
+                case .generic:
+                    message = "Telegram could not verify this invite link. Check the link and connection."
+                }
+                self.showPreviewError(message, in: entryView)
+            }))
         }
         self.displayNode = ASDisplayNode(viewBlock: { entryView })
         self.displayNodeDidLoad()
