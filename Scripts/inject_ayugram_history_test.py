@@ -279,6 +279,21 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                                 kind: .deleted,
                                 limit: 100
                             ).contains { $0.messageID == cloudGroupMessageID.id && $0.text == cloudGroupMessageText && $0.isDeleted }
+                            let cloudGroupDuplicateRetainedIDs = _internal_applyAyuGramServerDeleteMessagesWithGlobalIds(
+                                transaction: transaction,
+                                mediaBox: account.postbox.mediaBox,
+                                ids: [cloudGroupMessageID.id],
+                                accountID: accountID
+                            )
+                            let cloudGroupHistoryCount = AyuGramPostboxHistoryStore.filtered(
+                                transaction: transaction,
+                                userID: accountID,
+                                dialogID: cloudGroupPeerId.toInt64(),
+                                kind: .deleted,
+                                limit: 100
+                            ).filter { $0.messageID == cloudGroupMessageID.id && $0.text == cloudGroupMessageText && $0.isDeleted }.count
+                            let cloudGroupDuplicateIsIdempotent = cloudGroupDuplicateRetainedIDs.contains(cloudGroupMessageID.id)
+                                && cloudGroupHistoryCount == 1
 
                             // Supergroups/channels use updateDeleteChannelMessages and local MessageIds.
                             let cloudChannelPeerId = PeerId(
@@ -328,6 +343,21 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                                 kind: .deleted,
                                 limit: 100
                             ).contains { $0.messageID == cloudChannelMessageID.id && $0.text == cloudChannelMessageText && $0.isDeleted }
+                            let cloudChannelDuplicateRetainedIDs = _internal_applyAyuGramServerDeleteMessages(
+                                transaction: transaction,
+                                mediaBox: account.postbox.mediaBox,
+                                ids: [cloudChannelMessageID],
+                                accountID: accountID
+                            )
+                            let cloudChannelHistoryCount = AyuGramPostboxHistoryStore.filtered(
+                                transaction: transaction,
+                                userID: accountID,
+                                dialogID: cloudChannelPeerId.toInt64(),
+                                kind: .deleted,
+                                limit: 100
+                            ).filter { $0.messageID == cloudChannelMessageID.id && $0.text == cloudChannelMessageText && $0.isDeleted }.count
+                            let cloudChannelDuplicateIsIdempotent = cloudChannelDuplicateRetainedIDs.contains(cloudChannelMessageID)
+                                && cloudChannelHistoryCount == 1
 
                             let fallbackAccountID = accountID + Int64(now) + 9_000_000_000
                             let fallbackPeerId = PeerId(933000003)
@@ -407,10 +437,12 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                                     "cloudGroupReturnedRetainedID": cloudGroupReturnedRetainedID,
                                     "cloudGroupDeletionFiltered": cloudGroupDeletionFiltered,
                                     "cloudGroupHistoryCaptured": cloudGroupHistoryCaptured,
+                                    "cloudGroupDuplicateIsIdempotent": cloudGroupDuplicateIsIdempotent,
                                     "cloudChannelRetainedInChat": cloudChannelRetainedInChat,
                                     "cloudChannelHasDeletedMarker": cloudChannelHasDeletedMarker,
                                     "cloudChannelReturnedRetainedID": cloudChannelReturnedRetainedID,
                                     "cloudChannelHistoryCaptured": cloudChannelHistoryCaptured,
+                                    "cloudChannelDuplicateIsIdempotent": cloudChannelDuplicateIsIdempotent,
                                     "settingsFallbackCapture": fallbackCasePassed
                                 ]
                             )
@@ -436,10 +468,12 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                                 && result.1["cloudGroupReturnedRetainedID"] == true
                                 && result.1["cloudGroupDeletionFiltered"] == true
                                 && result.1["cloudGroupHistoryCaptured"] == true
+                                && result.1["cloudGroupDuplicateIsIdempotent"] == true
                                 && result.1["cloudChannelRetainedInChat"] == true
                                 && result.1["cloudChannelHasDeletedMarker"] == true
                                 && result.1["cloudChannelReturnedRetainedID"] == true
                                 && result.1["cloudChannelHistoryCaptured"] == true
+                                && result.1["cloudChannelDuplicateIsIdempotent"] == true
                                 && result.1["settingsFallbackCapture"] == true
                             if let settingsStore, let originalSaveDeletedMessages {
                                 try? settingsStore.update { $0.saveDeletedMessages = originalSaveDeletedMessages }
