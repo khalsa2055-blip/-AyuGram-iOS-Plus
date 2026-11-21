@@ -326,10 +326,10 @@ channel_delete_block = replace_once(
 )
 channel_delete_block = replace_once(
     channel_delete_block,
-    """if previousState.pts >= pts {
+    """                    if previousState.pts >= pts {
                         Logger.shared.log("State", "channel \(peerId) (\((updatedState.peers[peerId] as? TelegramChannel)?.title ?? "nil")) skip old delete update")
                     } else if previousState.pts + ptsCount == pts {""",
-    """if previousState.pts >= pts {
+    """                    if previousState.pts >= pts {
                         Logger.shared.log("State", "channel \(peerId) (\((updatedState.peers[peerId] as? TelegramChannel)?.title ?? "nil")) retain old delete update without changing PTS")
                         updatedState.deleteMessages(channelDeletedMessageIds)
                         print("[AyuGram] queued channel deletion despite stale PTS: channel=\(channelId), count=\(messages.count), previousPts=\(previousState.pts), pts=\(pts)")
