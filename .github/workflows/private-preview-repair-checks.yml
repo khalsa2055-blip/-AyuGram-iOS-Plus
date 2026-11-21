@@ -38,6 +38,43 @@ jobs:
           python3 -m py_compile Scripts/apply_four_feature_ui.py
           python3 -m py_compile Scripts/apply_private_invite_preview.py
 
+      - name: Parse generated production and legacy Swift preview controllers
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          import tempfile
+
+          patch = Path("Scripts/apply_four_feature_ui.py").read_text(encoding="utf-8")
+          legacy = Path("Scripts/apply_private_invite_preview.py").read_text(encoding="utf-8")
+          sources = {
+              "production-private-preview.swift": re.search(
+                  r"r'''(private final class AyuGramPrivateInviteEntryView[\\s\\S]*?)'''", patch
+              ),
+              "legacy-private-preview.swift": re.search(
+                  r"ENTRY_CONTROLLER = r'''([\\s\\S]*?)'''", legacy
+              ),
+          }
+          root = Path(tempfile.gettempdir())
+          for filename, match in sources.items():
+              if match is None:
+                  raise SystemExit("Could not extract generated Swift source: " + filename)
+              target = root / filename
+              target.write_text(match.group(1), encoding="utf-8")
+              print("Extracted", target)
+          PY
+          swiftc -frontend -parse "$RUNNER_TEMP/production-private-preview.swift" 2>/dev/null || {
+            # The Swift snippets are emitted under the system temp directory above;
+            # resolve that path without requiring UIKit modules or an iOS SDK.
+            production="$(python3 -c 'import tempfile, pathlib; print(pathlib.Path(tempfile.gettempdir()) / "production-private-preview.swift")')"
+            swiftc -frontend -parse "$production"
+          }
+          legacy="$(python3 -c 'import tempfile, pathlib; print(pathlib.Path(tempfile.gettempdir()) / "legacy-private-preview.swift")')"
+          swiftc -frontend -parse "$legacy"
+          echo "PASS: generated preview controllers parse as Swift; no app or IPA build was run."
+
       - name: Run isolated invite policy tests
         run: swift test --package-path Experiments/PrivateInviteLinkInspector
 
