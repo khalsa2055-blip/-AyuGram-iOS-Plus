@@ -40,6 +40,54 @@ rendering messages and media and enforcing the peek timeout. The AyuGram patch
 removes only the Join action from the native peek-expiry alert, leaving a
 dismiss-only expiry path so the temporary preview cannot become a join flow.
 
+## MTProto transport proxy compatibility (Flowseal TG WS Proxy)
+
+Reviewed `Flowseal/tg-ws-proxy` and its iOS-compatible connection contract.
+The desktop project runs a local MTProto proxy (default listener
+`127.0.0.1:1443`) and relays the encrypted MTProto stream to Telegram DCs
+over WebSocket/TLS, with fallback transport. It is a transport bridge, not an
+invite-access or membership bypass.
+
+The pinned Telegram-iOS source already supports this without a custom proxy
+implementation in the preview feature:
+
+- `submodules/TelegramCore/Sources/Settings/ProxySettings.swift` maps an
+  `.mtp(secret:)` proxy entry to `MTSocksProxySettings(ip:port:secret:)`.
+- `submodules/TelegramCore/Sources/Network/Network.swift` applies the
+  account's `proxySettings?.effectiveActiveServer` to the API environment
+  using `withUpdatedSocksProxySettings(...)`.
+- The preview call uses `context.engine.peers`, so it uses the signed-in
+  account's configured Telegram network/proxy path. No separate downloader,
+  second account, or custom invite RPC should be introduced.
+
+Therefore, when a reachable Flowseal MTProto proxy is enabled in the iOS
+client's native **Settings > Data and Storage > Proxy** screen, the invite
+verification request can travel through it automatically. This can help only
+when the failure is in network reachability or traffic filtering. Telegram
+still evaluates the invite and account permissions: `.invite` and
+`CHANNEL_PRIVATE` remain denied for message history when the server does not
+grant a peek or the account is not authorized.
+
+For a Windows-hosted local proxy to be reachable from an iPhone, its listener
+cannot remain on `127.0.0.1` (that address means the iPhone itself). It must
+listen on a LAN-reachable interface, and access should be restricted with the
+host firewall to the trusted local network/device. Do not expose port 1443 to
+the public Internet or configure router port forwarding. The phone and PC
+must be able to reach each other on the same trusted network.
+
+The original Flowseal desktop project is not copied into this app. The separate
+community iOS ports have their own background-execution limitations and are
+not included in this branch.
+
+References:
+- Flowseal TG WS Proxy: https://github.com/Flowseal/tg-ws-proxy
+- Flowseal architecture: https://github.com/Flowseal/tg-ws-proxy/blob/main/docs/EN/README.md
+- Telegram iOS proxy mapping:
+  https://github.com/TelegramMessenger/Telegram-iOS/blob/279f89e4d4f63f17227bf877dc3d8990f22ecd58/submodules/TelegramCore/Sources/Settings/ProxySettings.swift
+- Telegram iOS active network proxy:
+  https://github.com/TelegramMessenger/Telegram-iOS/blob/279f89e4d4f63f17227bf877dc3d8990f22ecd58/submodules/TelegramCore/Sources/Network/Network.swift
+- Telegram proxy setup: https://core.telegram.org/proxy
+
 ## Safety constraints
 
 - Do not implement a second MTProto invite checker; use
@@ -52,7 +100,7 @@ dismiss-only expiry path so the temporary preview cannot become a join flow.
 - Do not issue a standalone `messages.getHistory` request from this feature.
   Use Telegram's native `ChatPeekTimeout` navigation route.
 - Never fabricate a peek result or bypass Telegram's server authorization.
-- Never log or persist an invite hash.
+- Never log or persist invite hashes, session credentials, or private invite URLs.
 
 ## Test limitations
 
