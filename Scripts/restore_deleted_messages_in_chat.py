@@ -160,7 +160,7 @@ elif 'recordDeletedRouteDiagnostic("capture-enter"' not in capture_service_text:
     raise SystemExit("AyuGram capture guard anchor not found")
 
 old_append = "        _ = AyuGramPostboxHistoryStore.appendDeleted(transaction: transaction, messages: snapshots)\n"
-new_append = old_append + '        recordDeletedRouteDiagnostic("capture-append-called", received: messages.count, mapped: snapshots.count, retained: snapshots.count)\n'
+new_append = "        let stored = AyuGramPostboxHistoryStore.appendDeleted(transaction: transaction, messages: snapshots)\n        recordDeletedRouteDiagnostic(\"capture-append-called\", received: messages.count, mapped: snapshots.count, retained: stored.count)\n"
 if old_append in capture_service_text:
     capture_service_text = capture_service_text.replace(old_append, new_append, 1)
 elif 'recordDeletedRouteDiagnostic("capture-append-called"' not in capture_service_text:
