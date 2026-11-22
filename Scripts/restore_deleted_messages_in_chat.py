@@ -128,7 +128,7 @@ for path in (DELETE, STATE, BUBBLE, TEXT_BUBBLE, MEDIA_BUBBLE, INTERACTIVE_MEDIA
 
 
 capture_service_text = CAPTURE_SERVICE.read_text(encoding="utf-8")
-diagnostic_method = "    private static let deletionDiagnosticsLock = NSLock()\n\n    public static func recordDeletedRouteDiagnostic(\n        _ route: String,\n        received: Int,\n        mapped: Int? = nil,\n        retained: Int? = nil\n    ) {\n        deletionDiagnosticsLock.lock()\n        defer { deletionDiagnosticsLock.unlock() }\n\n        guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {\n            return\n        }\n        let fileURL = documentsURL.appendingPathComponent(\"AyuGramDeletedMessageDiagnostics.txt\")\n        let mappedValue = mapped.map { String($0) } ?? \"-\"\n        let retainedValue = retained.map { String($0) } ?? \"-\"\n        let line = \"\\(Int(Date().timeIntervalSince1970)) \\(route) received=\\(received) mapped=\\(mappedValue) retained=\\(retainedValue)\\n\"\n\n        do {\n            var data = (try? Data(contentsOf: fileURL)) ?? Data()\n            data.append(Data(line.utf8))\n            if data.count > 65536 {\n                data = Data(data.suffix(32768))\n            }\n            try data.write(to: fileURL, options: .atomic)\n        } catch {\n            // Diagnostics are best-effort and must never affect Telegram deletion.\n        }\n    }\n\n"
+diagnostic_method = "    private static let deletionDiagnosticsLock = NSLock()\n\n    public static func recordDeletedRouteDiagnostic(\n        _ route: String,\n        received: Int,\n        mapped: Int? = nil,\n        retained: Int? = nil,\n        missing: Int? = nil,\n        copyProtected: Int? = nil,\n        secretMedia: Int? = nil,\n        alreadyRetained: Int? = nil,\n        peerNamespace: Int? = nil\n    ) {\n        deletionDiagnosticsLock.lock()\n        defer { deletionDiagnosticsLock.unlock() }\n\n        guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {\n            return\n        }\n        let fileURL = documentsURL.appendingPathComponent(\"AyuGramDeletedMessageDiagnostics.txt\")\n        let fields: [(String, Int?)] = [\n            (\"mapped\", mapped),\n            (\"retained\", retained),\n            (\"missing\", missing),\n            (\"copyProtected\", copyProtected),\n            (\"secretMedia\", secretMedia),\n            (\"alreadyRetained\", alreadyRetained),\n            (\"peerNamespace\", peerNamespace)\n        ]\n        let extra = fields.compactMap { key, value in value.map { \"\\(key)=\\($0)\" } }.joined(separator: \" \")\n        let suffix = extra.isEmpty ? \"\" : \" \\(extra)\"\n        let line = \"\\(Int(Date().timeIntervalSince1970)) \\(route) received=\\(received)\\(suffix)\\n\"\n\n        do {\n            var data = (try? Data(contentsOf: fileURL)) ?? Data()\n            data.append(Data(line.utf8))\n            if data.count > 65536 {\n                data = Data(data.suffix(32768))\n            }\n            try data.write(to: fileURL, options: .atomic)\n        } catch {\n            // Diagnostics are best-effort and must never affect Telegram deletion.\n        }\n    }\n\n"
 enum_anchor = "public enum AyuGramCaptureService {\n"
 if "public static func recordDeletedRouteDiagnostic(" not in capture_service_text:
     if capture_service_text.count(enum_anchor) != 1:
@@ -185,58 +185,93 @@ new_signature = (
 delete_text = replace_once(delete_text, old_signature, new_signature, "deleted-message helper signature")
 
 retention_block = r'''    var ayuRetainedDeletedMessageIds = Set<MessageId>()
-    if preserveDeletedMessagesInChat,
-       let ayuAccountID,
-       (try? AyuGramRuntime.makeSettingsStore(accountID: ayuAccountID))?.settings.saveDeletedMessages != false {
-        for id in ids {
-            guard let message = transaction.getMessage(id),
-                  !message.isCopyProtected(),
-                  !message.containsSecretMedia else {
-                continue
-            }
-            transaction.updateMessage(id, update: { currentMessage in
-                var attributes = currentMessage.attributes
-                if attributes.contains(where: { ($0 as? EditedMessageAttribute)?.date == Int32.min }) {
-                    return .skip
-                }
-                // Hidden sentinel: it identifies a local tombstone without changing Telegram's edit date.
-                attributes.append(EditedMessageAttribute(date: Int32.min, isHidden: true))
+    if preserveDeletedMessagesInChat, let ayuAccountID {
+        let settingsAllowRetention = (try? AyuGramRuntime.makeSettingsStore(accountID: ayuAccountID))?.settings.saveDeletedMessages != false
+        if settingsAllowRetention {
+            var missing = 0
+            var copyProtected = 0
+            var secretMedia = 0
+            var alreadyRetained = 0
 
-                var storeForwardInfo: StoreMessageForwardInfo?
-                if let forwardInfo = currentMessage.forwardInfo {
-                    storeForwardInfo = StoreMessageForwardInfo(
-                        authorId: forwardInfo.author?.id,
-                        sourceId: forwardInfo.source?.id,
-                        sourceMessageId: forwardInfo.sourceMessageId,
-                        date: forwardInfo.date,
-                        authorSignature: forwardInfo.authorSignature,
-                        psaType: forwardInfo.psaType,
-                        flags: forwardInfo.flags
-                    )
+            for id in ids {
+                guard let message = transaction.getMessage(id) else {
+                    missing += 1
+                    continue
                 }
-                return .update(StoreMessage(
-                    id: currentMessage.id,
-                    customStableId: nil,
-                    globallyUniqueId: currentMessage.globallyUniqueId,
-                    groupingKey: currentMessage.groupingKey,
-                    threadId: currentMessage.threadId,
-                    timestamp: currentMessage.timestamp,
-                    flags: StoreMessageFlags(currentMessage.flags),
-                    tags: currentMessage.tags,
-                    globalTags: currentMessage.globalTags,
-                    localTags: currentMessage.localTags,
-                    forwardInfo: storeForwardInfo,
-                    authorId: currentMessage.author?.id,
-                    text: currentMessage.text,
-                    attributes: attributes,
-                    media: currentMessage.media
-                ))
-            })
-            ayuRetainedDeletedMessageIds.insert(id)
+                if message.isCopyProtected() {
+                    copyProtected += 1
+                    continue
+                }
+                if message.containsSecretMedia {
+                    secretMedia += 1
+                    continue
+                }
+
+                var wasAlreadyRetained = false
+                transaction.updateMessage(id, update: { currentMessage in
+                    var attributes = currentMessage.attributes
+                    if attributes.contains(where: { ($0 as? EditedMessageAttribute)?.date == Int32.min }) {
+                        wasAlreadyRetained = true
+                        return .skip
+                    }
+                    // Hidden sentinel: it identifies a local tombstone without changing Telegram's edit date.
+                    attributes.append(EditedMessageAttribute(date: Int32.min, isHidden: true))
+
+                    var storeForwardInfo: StoreMessageForwardInfo?
+                    if let forwardInfo = currentMessage.forwardInfo {
+                        storeForwardInfo = StoreMessageForwardInfo(
+                            authorId: forwardInfo.author?.id,
+                            sourceId: forwardInfo.source?.id,
+                            sourceMessageId: forwardInfo.sourceMessageId,
+                            date: forwardInfo.date,
+                            authorSignature: forwardInfo.authorSignature,
+                            psaType: forwardInfo.psaType,
+                            flags: forwardInfo.flags
+                        )
+                    }
+                    return .update(StoreMessage(
+                        id: currentMessage.id,
+                        customStableId: nil,
+                        globallyUniqueId: currentMessage.globallyUniqueId,
+                        groupingKey: currentMessage.groupingKey,
+                        threadId: currentMessage.threadId,
+                        timestamp: currentMessage.timestamp,
+                        flags: StoreMessageFlags(currentMessage.flags),
+                        tags: currentMessage.tags,
+                        globalTags: currentMessage.globalTags,
+                        localTags: currentMessage.localTags,
+                        forwardInfo: storeForwardInfo,
+                        authorId: currentMessage.author?.id,
+                        text: currentMessage.text,
+                        attributes: attributes,
+                        media: currentMessage.media
+                    ))
+                })
+                if wasAlreadyRetained {
+                    alreadyRetained += 1
+                }
+                ayuRetainedDeletedMessageIds.insert(id)
+            }
+
+            let peerNamespace = ids.first.map { Int($0.peerId.namespace._internalGetInt32Value()) }
+            AyuGramCaptureService.recordDeletedRouteDiagnostic(
+                "peer-retention-summary",
+                received: ids.count,
+                mapped: ids.count - missing,
+                retained: ayuRetainedDeletedMessageIds.count,
+                missing: missing,
+                copyProtected: copyProtected,
+                secretMedia: secretMedia,
+                alreadyRetained: alreadyRetained,
+                peerNamespace: peerNamespace
+            )
+        } else {
+            AyuGramCaptureService.recordDeletedRouteDiagnostic("peer-retention-disabled", received: ids.count)
         }
     }
 
 '''
+
 delete_function_start = delete_text.find("public func _internal_deleteMessages(")
 if delete_function_start < 0:
     raise SystemExit("Target _internal_deleteMessages function was not found")
@@ -281,7 +316,96 @@ if global_helper_signature not in state_text:
     state_import_anchor = "import AyuGramIOS\n"
     if state_import_anchor not in state_text:
         raise SystemExit("AccountStateManagementUtils AyuGramIOS import anchor not found")
-    state_text = state_text.replace(state_import_anchor, state_import_anchor + "\n" + "public func _internal_retainDeletedMessagesWithGlobalIds(transaction: Transaction, ids: [Int32], accountID: Int64) -> Set<Int32> {\n    var retainedGlobalIds = Set<Int32>()\n    guard (try? AyuGramRuntime.makeSettingsStore(accountID: accountID))?.settings.saveDeletedMessages != false else {\n        return retainedGlobalIds\n    }\n\n    for globalID in ids {\n        guard let messageID = transaction.messageIdsForGlobalIds([globalID]).first,\n              let message = transaction.getMessage(messageID),\n              !message.isCopyProtected(),\n              !message.containsSecretMedia else {\n            continue\n        }\n        transaction.updateMessage(messageID, update: { currentMessage in\n            var attributes = currentMessage.attributes\n            if attributes.contains(where: { ($0 as? EditedMessageAttribute)?.date == Int32.min }) {\n                return .skip\n            }\n            attributes.append(EditedMessageAttribute(date: Int32.min, isHidden: true))\n\n            var storeForwardInfo: StoreMessageForwardInfo?\n            if let forwardInfo = currentMessage.forwardInfo {\n                storeForwardInfo = StoreMessageForwardInfo(\n                    authorId: forwardInfo.author?.id,\n                    sourceId: forwardInfo.source?.id,\n                    sourceMessageId: forwardInfo.sourceMessageId,\n                    date: forwardInfo.date,\n                    authorSignature: forwardInfo.authorSignature,\n                    psaType: forwardInfo.psaType,\n                    flags: forwardInfo.flags\n                )\n            }\n            return .update(StoreMessage(\n                id: currentMessage.id,\n                customStableId: nil,\n                globallyUniqueId: currentMessage.globallyUniqueId,\n                groupingKey: currentMessage.groupingKey,\n                threadId: currentMessage.threadId,\n                timestamp: currentMessage.timestamp,\n                flags: StoreMessageFlags(currentMessage.flags),\n                tags: currentMessage.tags,\n                globalTags: currentMessage.globalTags,\n                localTags: currentMessage.localTags,\n                forwardInfo: storeForwardInfo,\n                authorId: currentMessage.author?.id,\n                text: currentMessage.text,\n                attributes: attributes,\n                media: currentMessage.media\n            ))\n        })\n        retainedGlobalIds.insert(globalID)\n    }\n    return retainedGlobalIds\n}" + "\n", 1)
+    global_retain_helper = r'''public func _internal_retainDeletedMessagesWithGlobalIds(transaction: Transaction, ids: [Int32], accountID: Int64) -> Set<Int32> {
+    var retainedGlobalIds = Set<Int32>()
+    guard (try? AyuGramRuntime.makeSettingsStore(accountID: accountID))?.settings.saveDeletedMessages != false else {
+        AyuGramCaptureService.recordDeletedRouteDiagnostic("global-retention-disabled", received: ids.count)
+        return retainedGlobalIds
+    }
+
+    var missing = 0
+    var copyProtected = 0
+    var secretMedia = 0
+    var alreadyRetained = 0
+
+    for globalID in ids {
+        guard let messageID = transaction.messageIdsForGlobalIds([globalID]).first,
+              let message = transaction.getMessage(messageID) else {
+            missing += 1
+            continue
+        }
+        if message.isCopyProtected() {
+            copyProtected += 1
+            continue
+        }
+        if message.containsSecretMedia {
+            secretMedia += 1
+            continue
+        }
+
+        var wasAlreadyRetained = false
+        transaction.updateMessage(messageID, update: { currentMessage in
+            var attributes = currentMessage.attributes
+            if attributes.contains(where: { ($0 as? EditedMessageAttribute)?.date == Int32.min }) {
+                wasAlreadyRetained = true
+                return .skip
+            }
+            attributes.append(EditedMessageAttribute(date: Int32.min, isHidden: true))
+
+            var storeForwardInfo: StoreMessageForwardInfo?
+            if let forwardInfo = currentMessage.forwardInfo {
+                storeForwardInfo = StoreMessageForwardInfo(
+                    authorId: forwardInfo.author?.id,
+                    sourceId: forwardInfo.source?.id,
+                    sourceMessageId: forwardInfo.sourceMessageId,
+                    date: forwardInfo.date,
+                    authorSignature: forwardInfo.authorSignature,
+                    psaType: forwardInfo.psaType,
+                    flags: forwardInfo.flags
+                )
+            }
+            return .update(StoreMessage(
+                id: currentMessage.id,
+                customStableId: nil,
+                globallyUniqueId: currentMessage.globallyUniqueId,
+                groupingKey: currentMessage.groupingKey,
+                threadId: currentMessage.threadId,
+                timestamp: currentMessage.timestamp,
+                flags: StoreMessageFlags(currentMessage.flags),
+                tags: currentMessage.tags,
+                globalTags: currentMessage.globalTags,
+                localTags: currentMessage.localTags,
+                forwardInfo: storeForwardInfo,
+                authorId: currentMessage.author?.id,
+                text: currentMessage.text,
+                attributes: attributes,
+                media: currentMessage.media
+            ))
+        })
+        if wasAlreadyRetained {
+            alreadyRetained += 1
+        }
+        retainedGlobalIds.insert(globalID)
+    }
+
+    AyuGramCaptureService.recordDeletedRouteDiagnostic(
+        "global-retention-summary",
+        received: ids.count,
+        mapped: ids.count - missing,
+        retained: retainedGlobalIds.count,
+        missing: missing,
+        copyProtected: copyProtected,
+        secretMedia: secretMedia,
+        alreadyRetained: alreadyRetained
+    )
+    return retainedGlobalIds
+}'''
+    if "public func _internal_retainDeletedMessagesWithGlobalIds(" not in state_text:
+        state_import_anchor = "import AyuGramIOS\n"
+        if state_import_anchor not in state_text:
+            raise SystemExit("AccountStateManagementUtils AyuGramIOS import anchor not found")
+        state_text = state_text.replace(state_import_anchor, state_import_anchor + "\n" + global_retain_helper + "\n", 1)
+
 # Share the exact server-delete operations between replayFinalState and its runtime test.
 server_handlers = r"""
 public func _internal_applyAyuGramServerDeleteMessages(transaction: Transaction, mediaBox: MediaBox, ids: [MessageId], accountID: Int64) -> Set<MessageId> {
@@ -708,6 +832,9 @@ media_bubble_check = MEDIA_BUBBLE.read_text(encoding="utf-8")
 interactive_media_check = INTERACTIVE_MEDIA.read_text(encoding="utf-8")
 assert "preserveDeletedMessagesInChat: Bool = false" in delete_check
 assert "public static func recordDeletedRouteDiagnostic(" in CAPTURE_SERVICE.read_text(encoding="utf-8")
+assert '"peer-retention-summary"' in delete_check, "Channel/group retention diagnostics must report skip reasons"
+assert '"global-retention-summary"' in state_check, "Global-ID retention diagnostics must report skip reasons"
+assert "copyProtected: copyProtected" in delete_check and "secretMedia: secretMedia" in state_check
 assert "AyuGramDeletedMessageDiagnostics.txt" in CAPTURE_SERVICE.read_text(encoding="utf-8")
 assert "?.settings.saveDeletedMessages != false" in delete_check
 assert "?.settings.saveDeletedMessages != false" in state_check
