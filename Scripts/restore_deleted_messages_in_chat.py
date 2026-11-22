@@ -17,6 +17,7 @@ MESSAGE_MENU = ROOT / "submodules/TelegramUI/Sources/ChatInterfaceStateContextMe
 PEER_MEDIA_MENU = ROOT / "submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreenDisplayMediaGalleryContextMenu.swift"
 PEER_HEADER_MENU = ROOT / "submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreenPerformButtonAction.swift"
 ENGINE = ROOT / "submodules/TelegramCore/Sources/TelegramEngine/Messages/TelegramEngineMessages.swift"
+CAPTURE_SERVICE = ROOT / "submodules/AyuGramIOS/Sources/AyuGramCaptureService.swift"
 
 
 def replace_once(source: str, old: str, new: str, label: str) -> str:
@@ -121,9 +122,50 @@ def remove_swift_function(source: str, signature: str, label: str) -> str:
     return source[:start] + source[end:]
 
 
-for path in (DELETE, STATE, BUBBLE, TEXT_BUBBLE, MEDIA_BUBBLE, INTERACTIVE_MEDIA, DATE_STATUS, SETTINGS, MESSAGE_MENU, PEER_MEDIA_MENU, PEER_HEADER_MENU, ENGINE):
+for path in (DELETE, STATE, BUBBLE, TEXT_BUBBLE, MEDIA_BUBBLE, INTERACTIVE_MEDIA, DATE_STATUS, SETTINGS, MESSAGE_MENU, PEER_MEDIA_MENU, PEER_HEADER_MENU, ENGINE, CAPTURE_SERVICE):
     if not path.is_file():
         raise SystemExit(f"Required source file is missing: {path}")
+
+
+capture_service_text = CAPTURE_SERVICE.read_text(encoding="utf-8")
+diagnostic_method = "    private static let deletionDiagnosticsLock = NSLock()\n\n    public static func recordDeletedRouteDiagnostic(\n        _ route: String,\n        received: Int,\n        mapped: Int? = nil,\n        retained: Int? = nil\n    ) {\n        deletionDiagnosticsLock.lock()\n        defer { deletionDiagnosticsLock.unlock() }\n\n        guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {\n            return\n        }\n        let fileURL = documentsURL.appendingPathComponent(\"AyuGramDeletedMessageDiagnostics.txt\")\n        let mappedValue = mapped.map { String($0) } ?? \"-\"\n        let retainedValue = retained.map { String($0) } ?? \"-\"\n        let line = \"\\(Int(Date().timeIntervalSince1970)) \\(route) received=\\(received) mapped=\\(mappedValue) retained=\\(retainedValue)\\n\"\n\n        do {\n            var data = (try? Data(contentsOf: fileURL)) ?? Data()\n            data.append(Data(line.utf8))\n            if data.count > 65536 {\n                data = Data(data.suffix(32768))\n            }\n            try data.write(to: fileURL, options: .atomic)\n        } catch {\n            // Diagnostics are best-effort and must never affect Telegram deletion.\n        }\n    }\n\n"
+enum_anchor = "public enum AyuGramCaptureService {\n"
+if "public static func recordDeletedRouteDiagnostic(" not in capture_service_text:
+    if capture_service_text.count(enum_anchor) != 1:
+        raise SystemExit("AyuGramCaptureService enum anchor is not unique")
+    capture_service_text = capture_service_text.replace(enum_anchor, enum_anchor + diagnostic_method, 1)
+
+old_capture_guard = """        guard !messages.isEmpty else {
+            return
+        }
+        let settingsStore = try? AyuGramRuntime.makeSettingsStore(accountID: accountID)
+        guard settingsStore?.settings.saveDeletedMessages != false else {
+            return
+        }
+"""
+new_capture_guard = """        guard !messages.isEmpty else {
+            recordDeletedRouteDiagnostic("capture-empty", received: 0)
+            return
+        }
+        recordDeletedRouteDiagnostic("capture-enter", received: messages.count)
+        let settingsStore = try? AyuGramRuntime.makeSettingsStore(accountID: accountID)
+        guard settingsStore?.settings.saveDeletedMessages != false else {
+            recordDeletedRouteDiagnostic("capture-disabled", received: messages.count)
+            return
+        }
+"""
+if old_capture_guard in capture_service_text:
+    capture_service_text = capture_service_text.replace(old_capture_guard, new_capture_guard, 1)
+elif 'recordDeletedRouteDiagnostic("capture-enter"' not in capture_service_text:
+    raise SystemExit("AyuGram capture guard anchor not found")
+
+old_append = "        _ = AyuGramPostboxHistoryStore.appendDeleted(transaction: transaction, messages: snapshots)\n"
+new_append = old_append + '        recordDeletedRouteDiagnostic("capture-append-called", received: messages.count, mapped: snapshots.count, retained: snapshots.count)\n'
+if old_append in capture_service_text:
+    capture_service_text = capture_service_text.replace(old_append, new_append, 1)
+elif 'recordDeletedRouteDiagnostic("capture-append-called"' not in capture_service_text:
+    raise SystemExit("AyuGram capture append anchor not found")
+CAPTURE_SERVICE.write_text(capture_service_text, encoding="utf-8")
 
 
 # 1) Preserve only server-delivered deleted messages in the local Postbox.
@@ -228,6 +270,12 @@ delete_text = replace_once(
 DELETE.write_text(delete_text, encoding="utf-8")
 
 state_text = STATE.read_text(encoding="utf-8")
+state_text = replace_once(
+    state_text,
+    "            case let .updateDeleteMessages(updateDeleteMessagesData):\n                updatedState.deleteMessagesWithGlobalIds(updateDeleteMessagesData.messages)",
+    "            case let .updateDeleteMessages(updateDeleteMessagesData):\n                AyuGramCaptureService.recordDeletedRouteDiagnostic(\"global-update-arrived\", received: updateDeleteMessagesData.messages.count)\n                updatedState.deleteMessagesWithGlobalIds(updateDeleteMessagesData.messages)",
+    "generic global delete update arrival diagnostics"
+)
 global_helper_signature = "public func _internal_retainDeletedMessagesWithGlobalIds("
 if global_helper_signature not in state_text:
     state_import_anchor = "import AyuGramIOS\n"
@@ -237,19 +285,24 @@ if global_helper_signature not in state_text:
 # Share the exact server-delete operations between replayFinalState and its runtime test.
 server_handlers = r"""
 public func _internal_applyAyuGramServerDeleteMessages(transaction: Transaction, mediaBox: MediaBox, ids: [MessageId], accountID: Int64) -> Set<MessageId> {
-    return _internal_deleteMessages(
+    let retained = _internal_deleteMessages(
         transaction: transaction,
         mediaBox: mediaBox,
         ids: ids,
         ayuAccountID: accountID,
         preserveDeletedMessagesInChat: true
     )
+    AyuGramCaptureService.recordDeletedRouteDiagnostic("peer-delete-replay", received: ids.count, mapped: ids.count, retained: retained.count)
+    return retained
 }
 
 public func _internal_applyAyuGramServerDeleteMessagesWithGlobalIds(transaction: Transaction, mediaBox: MediaBox, ids: [Int32], accountID: Int64) -> Set<Int32> {
     let messageIds = transaction.messageIdsForGlobalIds(ids)
+    AyuGramCaptureService.recordDeletedRouteDiagnostic("global-delete-replay", received: ids.count, mapped: messageIds.count)
     _internal_captureDeletedMessages(transaction: transaction, mediaBox: mediaBox, ids: messageIds, ayuAccountID: accountID)
-    return _internal_retainDeletedMessagesWithGlobalIds(transaction: transaction, ids: ids, accountID: accountID)
+    let retained = _internal_retainDeletedMessagesWithGlobalIds(transaction: transaction, ids: ids, accountID: accountID)
+    AyuGramCaptureService.recordDeletedRouteDiagnostic("global-delete-retained", received: ids.count, mapped: messageIds.count, retained: retained.count)
+    return retained
 }
 """
 if "_internal_applyAyuGramServerDeleteMessages(" not in state_text:
@@ -321,7 +374,7 @@ channel_delete_start, channel_delete_end, channel_delete_block = channel_delete_
 channel_delete_block = replace_once(
     channel_delete_block,
     "let peerId = PeerId(namespace: Namespaces.Peer.CloudChannel, id: PeerId.Id._internalFromInt64Value(channelId))\n",
-    "let peerId = PeerId(namespace: Namespaces.Peer.CloudChannel, id: PeerId.Id._internalFromInt64Value(channelId))\n                let channelDeletedMessageIds = messages.map({ MessageId(peerId: peerId, namespace: Namespaces.Message.Cloud, id: $0) })\n",
+    "let peerId = PeerId(namespace: Namespaces.Peer.CloudChannel, id: PeerId.Id._internalFromInt64Value(channelId))\n                let channelDeletedMessageIds = messages.map({ MessageId(peerId: peerId, namespace: Namespaces.Message.Cloud, id: $0) })\n                AyuGramCaptureService.recordDeletedRouteDiagnostic(\\"channel-update-arrived\\", received: messages.count, mapped: channelDeletedMessageIds.count)\n",
     "channel deletion message IDs"
 )
 channel_delete_block = replace_once(
@@ -654,6 +707,8 @@ text_bubble_check = TEXT_BUBBLE.read_text(encoding="utf-8")
 media_bubble_check = MEDIA_BUBBLE.read_text(encoding="utf-8")
 interactive_media_check = INTERACTIVE_MEDIA.read_text(encoding="utf-8")
 assert "preserveDeletedMessagesInChat: Bool = false" in delete_check
+assert "public static func recordDeletedRouteDiagnostic(" in CAPTURE_SERVICE.read_text(encoding="utf-8")
+assert "AyuGramDeletedMessageDiagnostics.txt" in CAPTURE_SERVICE.read_text(encoding="utf-8")
 assert "?.settings.saveDeletedMessages != false" in delete_check
 assert "?.settings.saveDeletedMessages != false" in state_check
 assert "let idsToDelete = ids.filter { !ayuRetainedDeletedMessageIds.contains($0) }" in delete_check
