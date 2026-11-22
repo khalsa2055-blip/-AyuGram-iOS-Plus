@@ -374,7 +374,7 @@ channel_delete_start, channel_delete_end, channel_delete_block = channel_delete_
 channel_delete_block = replace_once(
     channel_delete_block,
     "let peerId = PeerId(namespace: Namespaces.Peer.CloudChannel, id: PeerId.Id._internalFromInt64Value(channelId))\n",
-    "let peerId = PeerId(namespace: Namespaces.Peer.CloudChannel, id: PeerId.Id._internalFromInt64Value(channelId))\n                let channelDeletedMessageIds = messages.map({ MessageId(peerId: peerId, namespace: Namespaces.Message.Cloud, id: $0) })\n                AyuGramCaptureService.recordDeletedRouteDiagnostic(\\"channel-update-arrived\\", received: messages.count, mapped: channelDeletedMessageIds.count)\n",
+    "let peerId = PeerId(namespace: Namespaces.Peer.CloudChannel, id: PeerId.Id._internalFromInt64Value(channelId))\n                let channelDeletedMessageIds = messages.map({ MessageId(peerId: peerId, namespace: Namespaces.Message.Cloud, id: $0) })\n                AyuGramCaptureService.recordDeletedRouteDiagnostic(\"channel-update-arrived\", received: messages.count, mapped: channelDeletedMessageIds.count)\n",
     "channel deletion message IDs"
 )
 channel_delete_block = replace_once(
