@@ -3,6 +3,7 @@ name: AyuGram iOS Plus — Four Feature Simulator Validation
 # Explicit arm64 device IPA build requested via the commit marker.
 # Targeted device validation: include the legacy AyuGram settings migration fix from 2026-11-13.
 # [build-device-ipa] User-approved arm64 IPA packaging after simulator validation.
+# Simulator-only validation marker: [validate-simulator] runs the simulator build/smoke test but never enables device IPA steps.
 
 on:
   workflow_dispatch:
@@ -38,7 +39,7 @@ jobs:
   build-simulator:
     # Full simulator/device packaging is manual-only; source checks must never start IPA packaging on push.
     # Telegram-iOS baseline builds sim_arm64; use Apple Silicon runner so Simulator can install it directly.
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[build-device-ipa]'))
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (contains(github.event.head_commit.message, '[build-device-ipa]') || contains(github.event.head_commit.message, '[validate-simulator]')))
     runs-on: xcode-27
     timeout-minutes: 360
 
