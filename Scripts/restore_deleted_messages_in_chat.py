@@ -1263,8 +1263,6 @@ if "AyuGram history-hole receive cache" not in holes_text:
     raise SystemExit("Normal history-hole loader is missing the received-message cache")
 if "AyuGram chat-list preview receive cache" not in holes_text:
     raise SystemExit("Chat-list preview loader is missing the received-message cache")
-if "AyuGram load-by-id receive cache" not in load_messages_text:
-    raise SystemExit("Load-by-ID loader is missing the received-message cache")
 load_add_anchor = "                            _ = transaction.addMessages(storeMessages, location: .Random)\n"
 if "AyuGram load-by-id receive cache" not in load_messages_text:
     if load_messages_text.count(load_add_anchor) != 1:
@@ -1293,7 +1291,12 @@ if "AyuGram load-by-id receive cache" not in load_messages_text:
                             }
 """
     load_messages_text = load_messages_text.replace(load_add_anchor, load_cache, 1)
-    LOAD_MESSAGES.write_text(load_messages_text, encoding="utf-8")
+
+if "AyuGram load-by-id receive cache" not in load_messages_text:
+    raise SystemExit("Load-by-ID loader is missing the received-message cache")
+if r"\\nimport AyuGramIOS" in load_messages_text:
+    raise SystemExit(f"{LOAD_MESSAGES}: literal \\n leaked into Swift import section")
+LOAD_MESSAGES.write_text(load_messages_text, encoding="utf-8")
 
 
 STATE.write_text(state_text, encoding="utf-8")
