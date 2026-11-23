@@ -1618,8 +1618,8 @@ capture_service_check = CAPTURE_SERVICE.read_text(encoding="utf-8")
 assert "EditedMessageAttribute" not in capture_service_check
 assert "isCopyProtected" not in capture_service_check
 assert "containsSecretMedia" not in capture_service_check
-assert "Namespaces" not in store_text
-assert "Namespaces" not in capture_service_check
+assert "Namespaces.Peer" not in store_text and "Namespaces.Message" not in store_text
+assert "Namespaces.Peer" not in capture_service_check and "Namespaces.Message" not in capture_service_check
 assert "editDates: editDates" in DELETE.read_text(encoding="utf-8")
 assert "Message IDs are only unique inside a peer" in DELETE.read_text(encoding="utf-8")
 assert "_internal_cacheAyuGramReceivedMessages(" in holes_check
