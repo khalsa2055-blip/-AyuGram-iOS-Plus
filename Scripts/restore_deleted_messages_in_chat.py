@@ -403,9 +403,6 @@ received_capture_methods = r'''    public static func cacheReceived(
         var snapshots: [AyuMessage] = []
         snapshots.reserveCapacity(messages.count)
         for message in messages {
-            guard !message.isCopyProtected(), !message.containsSecretMedia else {
-                continue
-            }
             let editDate = editDates[message.id.id] ?? 0
             var mediaPath: String?
             var mimeType: String?
@@ -438,8 +435,6 @@ received_capture_methods = r'''    public static func cacheReceived(
             received: messages.count,
             mapped: snapshots.count,
             retained: cachedCount,
-            copyProtected: messages.filter { $0.isCopyProtected() }.count,
-            secretMedia: messages.filter { $0.containsSecretMedia }.count
         )
     }
 
@@ -1605,6 +1600,8 @@ assert "import AyuGramIOS" in load_messages_check
 assert "AyuGram load-by-id receive cache" in load_messages_check
 capture_service_check = CAPTURE_SERVICE.read_text(encoding="utf-8")
 assert "EditedMessageAttribute" not in capture_service_check
+assert "isCopyProtected" not in capture_service_check
+assert "containsSecretMedia" not in capture_service_check
 assert "editDates: editDates" in DELETE.read_text(encoding="utf-8")
 assert "_internal_cacheAyuGramReceivedMessages(" in holes_check
 print("PASS: deleted markers are routed for text bubbles and media-only image/video status overlays.")
