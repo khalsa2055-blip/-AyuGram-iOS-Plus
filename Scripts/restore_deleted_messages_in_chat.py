@@ -1295,7 +1295,7 @@ if "AyuGram load-by-id receive cache" not in load_messages_text:
 if "AyuGram load-by-id receive cache" not in load_messages_text:
     raise SystemExit("Load-by-ID loader is missing the received-message cache")
 LOAD_MESSAGES.write_text(load_messages_text, encoding="utf-8")
-
+print("Verified load-by-ID receive-cache insertion after the Postbox AddMessages write.")
 
 STATE.write_text(state_text, encoding="utf-8")
 print(
