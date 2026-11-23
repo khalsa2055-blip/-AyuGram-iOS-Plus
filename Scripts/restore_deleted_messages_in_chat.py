@@ -486,6 +486,8 @@ state_text = replace_once(
     "exclude retained global IDs from removed-message notifications"
 )
 
+# Channel/supergroup deletes are retained only after their PTS is contiguous. Stale events stay skipped;
+# gaps and unknown state must be repaired by pollChannel so the delete replays in the correct order.
 # Channel/supergroup updates have a PTS gate. The stock code queued DeleteMessages
 # only for contiguous PTS. When the PTS had a gap or channel state was unknown,
 # it polled the channel without queuing the deletion operation, bypassing our
