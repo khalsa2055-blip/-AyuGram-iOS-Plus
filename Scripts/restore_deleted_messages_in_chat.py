@@ -1099,7 +1099,23 @@ if edit_cache_signature not in edit_block:
         raise SystemExit("EditMessage Postbox update closure not found")
     update_open = edit_block.find("(", update_start)
     update_end = matching_delimiter(edit_block, update_open, "(", ")") + 1
-    cache_call = """\n                // Refresh cached copy after the current Postbox revision is installed.\n                if id.namespace == Namespaces.Message.Cloud {\n                    let peerNamespace = id.peerId.namespace\n                    if peerNamespace == Namespaces.Peer.CloudUser\n                        || peerNamespace == Namespaces.Peer.CloudGroup\n                        || peerNamespace == Namespaces.Peer.CloudChannel {\n                        _internal_cacheAyuGramReceivedMessages(\n                            transaction: transaction,\n                            mediaBox: mediaBox,\n                            ids: [id],\n                            ayuAccountID: accountPeerId.toInt64()\n                        )\n                    }\n                }\n"""
+    cache_call = "\n".join([
+        "",
+        "                // Refresh cached copy after the current Postbox revision is installed.",
+        "                if id.namespace == Namespaces.Message.Cloud {",
+        "                    let peerNamespace = id.peerId.namespace",
+        "                    if peerNamespace == Namespaces.Peer.CloudUser",
+        "                        || peerNamespace == Namespaces.Peer.CloudGroup",
+        "                        || peerNamespace == Namespaces.Peer.CloudChannel {",
+        "                        _internal_cacheAyuGramReceivedMessages(",
+        "                            transaction: transaction,",
+        "                            mediaBox: mediaBox,",
+        "                            ids: [id],",
+        "                            ayuAccountID: accountPeerId.toInt64()",
+        "                        )",
+        "                    }",
+        "                }",
+    ])
     edit_block = edit_block[:update_end] + cache_call + edit_block[update_end:]
     state_text = state_text[:edit_case_start] + edit_block + state_text[edit_case_end:]
 
