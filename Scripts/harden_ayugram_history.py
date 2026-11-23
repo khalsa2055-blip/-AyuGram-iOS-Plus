@@ -3,7 +3,6 @@ import plistlib
 import re
 
 def matching_delimiter(source: str, start: int, opening: str, closing: str) -> int:
-    """Return the matching closing delimiter while ignoring Swift strings/comments."""
     depth = 0
     in_string = escaped = line_comment = block_comment = False
     i = start
@@ -11,7 +10,7 @@ def matching_delimiter(source: str, start: int, opening: str, closing: str) -> i
         ch = source[i]
         nxt = source[i + 1] if i + 1 < len(source) else ""
         if line_comment:
-            if ch == "\\n":
+            if ch == "\n":
                 line_comment = False
             i += 1
             continue
@@ -25,7 +24,7 @@ def matching_delimiter(source: str, start: int, opening: str, closing: str) -> i
         if in_string:
             if escaped:
                 escaped = False
-            elif ch == "\\\\":
+            elif ch == "\\":
                 escaped = True
             elif ch == '"':
                 in_string = False
@@ -49,7 +48,6 @@ def matching_delimiter(source: str, start: int, opening: str, closing: str) -> i
                 return i
         i += 1
     raise SystemExit(f"Could not find matching {closing!r} for Swift block at offset {start}")
-
 
 # This runs after the main AyuGram patch has been applied to Telegram-iOS.
 # It hardens the History implementation without changing the upstream patch.
