@@ -303,6 +303,9 @@ jobs:
           assert "public func _internal_captureDeletedMessages(" in delete_source
           assert "AyuGramCaptureService.captureDeleted(" in delete_source
           assert "_internal_captureDeletedMessages(transaction: transaction, mediaBox: mediaBox, ids: ids, ayuAccountID: ayuAccountID)" in delete_source
+          capture_helper = delete_source.split("public func _internal_captureDeletedMessages(", 1)[1].split("public func _internal_deleteMessages(", 1)[0]
+          assert "let messages = resolvedMessages.filter { !$0.isCopyProtected() && !$0.containsSecretMedia }" in capture_helper, "Protected messages must be excluded from the entire History snapshot, not only media archival"
+          assert '"capture-protected-skipped"' in capture_helper, "Protected-content exclusions must be visible in diagnostics"
 
           updates = state_path.read_text(encoding="utf-8")
           remote_delete = updates.split("case let .DeleteMessages(ids):", 1)[1].split("case let .UpdateMinAvailableMessage", 1)[0]
