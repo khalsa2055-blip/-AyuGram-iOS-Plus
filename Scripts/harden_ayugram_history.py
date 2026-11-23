@@ -1701,7 +1701,7 @@ if protected_filter not in helper_text:
     original_lookup = "let messages = ids.compactMap { transaction.getMessage($0) }"
     if original_lookup not in helper_text:
         raise SystemExit("Could not safely locate the message snapshot inside the capture helper")
-    indent_match = re.search(r"(?m)^(?P<indent> *)let messages = ids\.compactMap \{ transaction\.getMessage\(\$0\\) \\}$", helper_text)
+    indent_match = re.search(r"(?m)^(?P<indent> *)let messages = ids\.compactMap \{ transaction\.getMessage\(\$0\) \}$", helper_text)
     if indent_match is None:
         raise SystemExit("Capture helper message lookup indentation could not be resolved")
     indent = indent_match.group("indent")
