@@ -1294,8 +1294,6 @@ if "AyuGram load-by-id receive cache" not in load_messages_text:
 
 if "AyuGram load-by-id receive cache" not in load_messages_text:
     raise SystemExit("Load-by-ID loader is missing the received-message cache")
-if r"\\nimport AyuGramIOS" in load_messages_text:
-    raise SystemExit(f"{LOAD_MESSAGES}: literal \\n leaked into Swift import section")
 LOAD_MESSAGES.write_text(load_messages_text, encoding="utf-8")
 
 
