@@ -1051,6 +1051,29 @@ if "AyuGram pre-delete receive cache" not in replay_body:
     )
     state_text = state_text[:replay_start] + replay_body + state_text[replay_end:]
 
+
+# Edited messages replace the Postbox row. Refresh the received-message cache
+# only after Telegram's normal edit update has been applied, so a later delete
+# archives the newest permitted revision rather than a stale pre-edit snapshot.
+edit_case_start = state_text.find("case let .EditMessage(id, message):", replay_start)
+if edit_case_start < 0:
+    raise SystemExit("replayFinalState EditMessage operation is missing")
+edit_case_end = state_text.find("case let .UpdateMessagePoll", edit_case_start)
+if edit_case_end < 0:
+    raise SystemExit("replayFinalState EditMessage operation end not found")
+edit_block = state_text[edit_case_start:edit_case_end]
+edit_cache_signature = "_internal_cacheAyuGramReceivedMessages("
+if edit_cache_signature not in edit_block:
+    update_signature = "transaction.updateMessage(id, update: { previousMessage in"
+    update_start = edit_block.find(update_signature)
+    if update_start < 0:
+        raise SystemExit("EditMessage Postbox update closure not found")
+    update_open = edit_block.find("(", update_start)
+    update_end = matching_delimiter(edit_block, update_open, "(", ")") + 1
+    cache_call = """\n                // Refresh cached copy after the current Postbox revision is installed.\n                if id.namespace == Namespaces.Message.Cloud {\n                    let peerNamespace = id.peerId.namespace\n                    if peerNamespace == Namespaces.Peer.CloudUser\n                        || peerNamespace == Namespaces.Peer.CloudGroup\n                        || peerNamespace == Namespaces.Peer.CloudChannel {\n                        _internal_cacheAyuGramReceivedMessages(\n                            transaction: transaction,\n                            mediaBox: mediaBox,\n                            ids: [id],\n                            ayuAccountID: accountPeerId.toInt64()\n                        )\n                    }\n                }\n"""
+    edit_block = edit_block[:update_end] + cache_call + edit_block[update_end:]
+    state_text = state_text[:edit_case_start] + edit_block + state_text[edit_case_end:]
+
 STATE.write_text(state_text, encoding="utf-8")
 
 # The engine-facing helper is Void; its call must not return the retained-ID set.
@@ -1399,6 +1422,7 @@ assert "isAyuGramDeleted = true" in media_bubble_check
 assert "isAyuGramDeleted: isAyuGramDeleted" in media_bubble_check
 assert "public var isAyuGramDeleted: Bool" in interactive_media_check
 assert "isAyuGramDeleted: dateAndStatus.isAyuGramDeleted && !presentationData.isPreview" in interactive_media_check
+assert "Refresh cached copy after the current Postbox revision is installed." in state_check
 print("PASS: deleted markers are routed for text bubbles and media-only image/video status overlays.")
 print("PASS: server-deleted messages remain as local rows in their original chat.")
 print("PASS: the original text/media/timestamp stay on the Telegram message; the timestamp carries the 🧹 mark.")
