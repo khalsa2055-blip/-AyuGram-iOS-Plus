@@ -385,7 +385,8 @@ received_capture_methods = r'''    public static func cacheReceived(
         messages: [Message],
         mediaCaptures: [AyuMessageMediaCapture],
         accountID: Int64,
-        senderNames: [Int32: String] = [:]
+        senderNames: [Int32: String] = [:],
+        editDates: [Int32: Int32] = [:]
     ) {
         guard !messages.isEmpty else { return }
         let settingsStore = try? AyuGramRuntime.makeSettingsStore(accountID: accountID)
@@ -405,7 +406,7 @@ received_capture_methods = r'''    public static func cacheReceived(
             guard !message.isCopyProtected(), !message.containsSecretMedia else {
                 continue
             }
-            let editDate = message.attributes.compactMap { ($0 as? EditedMessageAttribute)?.date }.max() ?? 0
+            let editDate = editDates[message.id.id] ?? 0
             var mediaPath: String?
             var mimeType: String?
             if let resources = capturesByMessageID[message.id.id], !resources.isEmpty {
@@ -664,8 +665,10 @@ CACHE_HELPER_SOURCE = r'''public func _internal_cacheAyuGramReceivedMessages(tra
     guard !messages.isEmpty else { return }
 
     var senderNames: [Int32: String] = [:]
+    var editDates: [Int32: Int32] = [:]
     var mediaCaptures: [AyuMessageMediaCapture] = []
     for message in messages {
+        editDates[message.id.id] = message.attributes.compactMap { ($0 as? EditedMessageAttribute)?.date }.max() ?? 0
         if let author = message.author {
             let name: String?
             if let user = author as? TelegramUser {
@@ -708,7 +711,8 @@ CACHE_HELPER_SOURCE = r'''public func _internal_cacheAyuGramReceivedMessages(tra
         messages: messages,
         mediaCaptures: mediaCaptures,
         accountID: ayuAccountID,
-        senderNames: senderNames
+        senderNames: senderNames,
+        editDates: editDates
     )
 }
 
@@ -1599,6 +1603,9 @@ assert "import AyuGramIOS" in thread_history_check
 assert "AyuGram reply-thread receive cache" in thread_history_check
 assert "import AyuGramIOS" in load_messages_check
 assert "AyuGram load-by-id receive cache" in load_messages_check
+capture_service_check = CAPTURE_SERVICE.read_text(encoding="utf-8")
+assert "EditedMessageAttribute" not in capture_service_check
+assert "editDates: editDates" in DELETE.read_text(encoding="utf-8")
 assert "_internal_cacheAyuGramReceivedMessages(" in holes_check
 print("PASS: deleted markers are routed for text bubbles and media-only image/video status overlays.")
 print("PASS: server-deleted messages remain as local rows in their original chat.")
