@@ -1631,7 +1631,19 @@ for delete_file in delete_paths:
         # indentation is four spaces (the pre-extraction block used eight).
         anchor = "    let messages = ids.compactMap { transaction.getMessage($0) }\n"
         if anchor in d:
-            insertion = '''    let messages = ids.compactMap { transaction.getMessage($0) }
+            insertion = '''    let resolvedMessages = ids.compactMap { transaction.getMessage($0) }
+    let protectedMessages = resolvedMessages.filter { $0.isCopyProtected() || $0.containsSecretMedia }
+    if !protectedMessages.isEmpty {
+        AyuGramCaptureService.recordDeletedRouteDiagnostic(
+            "capture-protected-skipped",
+            received: resolvedMessages.count,
+            mapped: resolvedMessages.count,
+            copyProtected: protectedMessages.filter { $0.isCopyProtected() }.count,
+            secretMedia: protectedMessages.filter { $0.containsSecretMedia }.count
+        )
+    }
+    // Do not archive protected message text or metadata, not only its media.
+    let messages = resolvedMessages.filter { !$0.isCopyProtected() && !$0.containsSecretMedia }
     var ayuSenderNames: [Int32: String] = [:]
     for message in messages {
         if let author = message.author {
