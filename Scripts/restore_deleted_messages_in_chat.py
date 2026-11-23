@@ -486,9 +486,9 @@ state_text = replace_once(
     "exclude retained global IDs from removed-message notifications"
 )
 
-# Channel/supergroup deletes are retained only after their PTS is contiguous.
-# Stale events remain skipped. PTS gaps and unknown state are repaired by pollChannel;
-# the delete is then replayed in order and reaches the same retention handler.
+# Normal channel deletes are retained when PTS is contiguous. Stale events are
+# replayed locally for retention without changing PTS; gaps and unknown state
+# remain on Telegram's pollChannel path and are handled when the difference returns.
 channel_delete_case = find_case_block(
     state_text,
     "case let .updateDeleteChannelMessages(updateDeleteChannelMessagesData):",
@@ -861,7 +861,7 @@ assert channel_delete_block.count("updatedState.deleteMessages(channelDeletedMes
 assert "channel-pts-stale-replay" in channel_delete_block, "Stale channel updates must reach local AyuGram retention"
 assert "channel-pts-gap" in channel_delete_block and "channel-pts-unknown" in channel_delete_block, "PTS gap and unknown-state paths must remain diagnosed"
 assert '"channel-difference-delete"' in state_check, "Channel difference must expose replay of delayed delete updates"
-assert "skip old delete update" in channel_delete_block, "Stale channel deletions must retain Telegram's original skip behavior"
+assert "replay stale delete locally for AyuGram retention" in channel_delete_block, "Stale channel deletion logs must describe local retention replay"
 assert "queued channel deletion despite stale PTS" not in channel_delete_block
 assert "queued channel deletion before PTS repair" not in channel_delete_block
 assert "queued channel deletion with unknown PTS state" not in channel_delete_block
