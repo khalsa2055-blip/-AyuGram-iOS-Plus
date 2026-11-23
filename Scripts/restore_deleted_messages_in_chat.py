@@ -1083,6 +1083,8 @@ if edit_cache_signature not in edit_block:
 # loaded from history could disappear before a later delete update reaches the
 # state-manager route above.
 holes_text = HOLES.read_text(encoding="utf-8")
+if "import AyuGramIOS\\n" not in holes_text:
+    holes_text = replace_once(holes_text, "import Postbox\\n", "import Postbox\\nimport AyuGramIOS\\n", "Holes AyuGramIOS import")
 history_add_anchor = """                        let _ = transaction.addMessages(storeMessages, location: .Random)
                         let _ = transaction.addMessages(additionalMessages, location: .Random)
 """
@@ -1159,6 +1161,8 @@ if "AyuGram chat-list preview receive cache" not in holes_text:
 # ordinary history-hole loader. Cache them as well so group-topic and reply
 # previews use the same pre-delete safety net.
 thread_history_text = THREAD_HISTORY.read_text(encoding="utf-8")
+if "import AyuGramIOS\\n" not in thread_history_text:
+    thread_history_text = replace_once(thread_history_text, "import Postbox\\n", "import Postbox\\nimport AyuGramIOS\\n", "ReplyThreadHistory AyuGramIOS import")
 thread_add_pattern = re.compile(
     r"(?m)^(?P<indent>[ \t]+)let _ = transaction\.addMessages\(parsedMessages, location: \.Random\)$"
 )
@@ -1203,6 +1207,8 @@ elif thread_history_text.count("AyuGram reply-thread receive cache") != 2:
     raise SystemExit("ReplyThreadHistory cache marker exists but both load paths are not covered")
 
 load_messages_text = LOAD_MESSAGES.read_text(encoding="utf-8")
+if "import AyuGramIOS\\n" not in load_messages_text:
+    load_messages_text = replace_once(load_messages_text, "import Postbox\\n", "import Postbox\\nimport AyuGramIOS\\n", "LoadMessagesIfNecessary AyuGramIOS import")
 load_add_anchor = "                            _ = transaction.addMessages(storeMessages, location: .Random)\n"
 if "AyuGram load-by-id receive cache" not in load_messages_text:
     if load_messages_text.count(load_add_anchor) != 1:
@@ -1585,10 +1591,13 @@ assert "public var isAyuGramDeleted: Bool" in interactive_media_check
 assert "isAyuGramDeleted: dateAndStatus.isAyuGramDeleted && !presentationData.isPreview" in interactive_media_check
 assert "Refresh cached copy after the current Postbox revision is installed." in state_check
 assert "AyuGram history-hole receive cache" in holes_check
+assert "import AyuGramIOS" in holes_check
 assert "AyuGram chat-list preview receive cache" in holes_check
 thread_history_check = THREAD_HISTORY.read_text(encoding="utf-8")
 load_messages_check = LOAD_MESSAGES.read_text(encoding="utf-8")
+assert "import AyuGramIOS" in thread_history_check
 assert "AyuGram reply-thread receive cache" in thread_history_check
+assert "import AyuGramIOS" in load_messages_check
 assert "AyuGram load-by-id receive cache" in load_messages_check
 assert "_internal_cacheAyuGramReceivedMessages(" in holes_check
 print("PASS: deleted markers are routed for text bubbles and media-only image/video status overlays.")
