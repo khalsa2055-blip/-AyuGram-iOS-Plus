@@ -8,6 +8,8 @@ ROOT = Path("telegram-ios") if Path("telegram-ios").is_dir() else Path(".")
 DELETE = ROOT / "submodules/TelegramCore/Sources/TelegramEngine/Messages/DeleteMessages.swift"
 STATE = ROOT / "submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift"
 HOLES = ROOT / "submodules/TelegramCore/Sources/State/Holes.swift"
+THREAD_HISTORY = ROOT / "submodules/TelegramCore/Sources/TelegramEngine/Messages/ReplyThreadHistory.swift"
+LOAD_MESSAGES = ROOT / "submodules/TelegramCore/Sources/TelegramEngine/Messages/LoadMessagesIfNecessary.swift"
 BUBBLE = ROOT / "submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift"
 TEXT_BUBBLE = ROOT / "submodules/TelegramUI/Components/Chat/ChatMessageTextBubbleContentNode/Sources/ChatMessageTextBubbleContentNode.swift"
 MEDIA_BUBBLE = ROOT / "submodules/TelegramUI/Components/Chat/ChatMessageMediaBubbleContentNode/Sources/ChatMessageMediaBubbleContentNode.swift"
@@ -124,7 +126,7 @@ def remove_swift_function(source: str, signature: str, label: str) -> str:
     return source[:start] + source[end:]
 
 
-for path in (DELETE, STATE, HOLES, BUBBLE, TEXT_BUBBLE, MEDIA_BUBBLE, INTERACTIVE_MEDIA, DATE_STATUS, SETTINGS, MESSAGE_MENU, PEER_MEDIA_MENU, PEER_HEADER_MENU, ENGINE, CAPTURE_SERVICE, STORE):
+for path in (DELETE, STATE, HOLES, THREAD_HISTORY, LOAD_MESSAGES, BUBBLE, TEXT_BUBBLE, MEDIA_BUBBLE, INTERACTIVE_MEDIA, DATE_STATUS, SETTINGS, MESSAGE_MENU, PEER_MEDIA_MENU, PEER_HEADER_MENU, ENGINE, CAPTURE_SERVICE, STORE):
     if not path.is_file():
         raise SystemExit(f"Required source file is missing: {path}")
 
@@ -1113,6 +1115,73 @@ if "AyuGram history-hole receive cache" not in holes_text:
     HOLES.write_text(holes_text, encoding="utf-8")
 
 
+
+# Explicitly fetched replies and message references are stored outside the
+# ordinary history-hole loader. Cache them as well so group-topic and reply
+# previews use the same pre-delete safety net.
+thread_history_text = THREAD_HISTORY.read_text(encoding="utf-8")
+thread_add_anchor = "                        let _ = transaction.addMessages(parsedMessages, location: .Random)\n"
+thread_add_count = thread_history_text.count(thread_add_anchor)
+if thread_add_count == 2 and "AyuGram reply-thread receive cache" not in thread_history_text:
+    thread_cache = """                        // AyuGram reply-thread receive cache
+                        let ayuReplyMessageIds = parsedMessages.compactMap { message -> MessageId? in
+                            guard case let .Id(id) = message.id, id.namespace == Namespaces.Message.Cloud else {
+                                return nil
+                            }
+                            let peerNamespace = id.peerId.namespace
+                            guard peerNamespace == Namespaces.Peer.CloudUser
+                                || peerNamespace == Namespaces.Peer.CloudGroup
+                                || peerNamespace == Namespaces.Peer.CloudChannel else {
+                                return nil
+                            }
+                            return id
+                        }
+                        if !ayuReplyMessageIds.isEmpty {
+                            _internal_cacheAyuGramReceivedMessages(
+                                transaction: transaction,
+                                mediaBox: account.postbox.mediaBox,
+                                ids: ayuReplyMessageIds,
+                                ayuAccountID: accountPeerId.toInt64()
+                            )
+                        }
+"""
+    thread_history_text = thread_history_text.replace(thread_add_anchor, thread_add_anchor + thread_cache)
+    THREAD_HISTORY.write_text(thread_history_text, encoding="utf-8")
+elif thread_add_count != 2 and "AyuGram reply-thread receive cache" not in thread_history_text:
+    raise SystemExit(f"ReplyThreadHistory addMessages anchors changed (found {thread_add_count})")
+
+load_messages_text = LOAD_MESSAGES.read_text(encoding="utf-8")
+load_add_anchor = "                            _ = transaction.addMessages(storeMessages, location: .Random)\n"
+if "AyuGram load-by-id receive cache" not in load_messages_text:
+    if load_messages_text.count(load_add_anchor) != 1:
+        raise SystemExit("LoadMessagesIfNecessary addMessages anchor is not unique")
+    load_cache = """                            _ = transaction.addMessages(storeMessages, location: .Random)
+                            // AyuGram load-by-id receive cache
+                            let ayuLoadedByIdMessageIds = storeMessages.compactMap { message -> MessageId? in
+                                guard case let .Id(id) = message.id, id.namespace == Namespaces.Message.Cloud else {
+                                    return nil
+                                }
+                                let peerNamespace = id.peerId.namespace
+                                guard peerNamespace == Namespaces.Peer.CloudUser
+                                    || peerNamespace == Namespaces.Peer.CloudGroup
+                                    || peerNamespace == Namespaces.Peer.CloudChannel else {
+                                    return nil
+                                }
+                                return id
+                            }
+                            if !ayuLoadedByIdMessageIds.isEmpty {
+                                _internal_cacheAyuGramReceivedMessages(
+                                    transaction: transaction,
+                                    mediaBox: postbox.mediaBox,
+                                    ids: ayuLoadedByIdMessageIds,
+                                    ayuAccountID: accountPeerId.toInt64()
+                                )
+                            }
+"""
+    load_messages_text = load_messages_text.replace(load_add_anchor, load_cache, 1)
+    LOAD_MESSAGES.write_text(load_messages_text, encoding="utf-8")
+
+
 STATE.write_text(state_text, encoding="utf-8")
 
 # The engine-facing helper is Void; its call must not return the retained-ID set.
@@ -1464,6 +1533,10 @@ assert "public var isAyuGramDeleted: Bool" in interactive_media_check
 assert "isAyuGramDeleted: dateAndStatus.isAyuGramDeleted && !presentationData.isPreview" in interactive_media_check
 assert "Refresh cached copy after the current Postbox revision is installed." in state_check
 assert "AyuGram history-hole receive cache" in holes_check
+thread_history_check = THREAD_HISTORY.read_text(encoding="utf-8")
+load_messages_check = LOAD_MESSAGES.read_text(encoding="utf-8")
+assert "AyuGram reply-thread receive cache" in thread_history_check
+assert "AyuGram load-by-id receive cache" in load_messages_check
 assert "_internal_cacheAyuGramReceivedMessages(" in holes_check
 print("PASS: deleted markers are routed for text bubbles and media-only image/video status overlays.")
 print("PASS: server-deleted messages remain as local rows in their original chat.")
