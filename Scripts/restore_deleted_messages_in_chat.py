@@ -486,12 +486,9 @@ state_text = replace_once(
     "exclude retained global IDs from removed-message notifications"
 )
 
-# Channel/supergroup deletes are retained only after their PTS is contiguous. Stale events stay skipped;
-# gaps and unknown state must be repaired by pollChannel so the delete replays in the correct order.
-# Channel/supergroup updates have a PTS gate. The stock code queued DeleteMessages
-# only for contiguous PTS. When the PTS had a gap or channel state was unknown,
-# it polled the channel without queuing the deletion operation, bypassing our
-# replayFinalState retention handler. Queue every non-stale channel deletion.
+# Channel/supergroup deletes are retained only after their PTS is contiguous.
+# Stale events remain skipped. PTS gaps and unknown state are repaired by pollChannel;
+# the delete is then replayed in order and reaches the same retention handler.
 channel_delete_case = find_case_block(
     state_text,
     "case let .updateDeleteChannelMessages(updateDeleteChannelMessagesData):",
@@ -516,7 +513,7 @@ channel_delete_block = replace_once(
 # Do not enqueue a deletion ahead of a PTS gap. pollChannel replays the
 # missing updates in order; the delete is captured when it returns contiguous.
 # If channel PTS is unknown, poll the channel first. The difference
-// response will replay a correctly ordered delete operation.
+# response will replay a correctly ordered delete operation.
 state_text = state_text[:channel_delete_start] + channel_delete_block + state_text[channel_delete_end:]
 STATE.write_text(state_text, encoding="utf-8")
 
