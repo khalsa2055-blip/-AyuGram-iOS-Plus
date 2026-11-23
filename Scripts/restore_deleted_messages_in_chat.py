@@ -18,6 +18,7 @@ PEER_MEDIA_MENU = ROOT / "submodules/TelegramUI/Components/PeerInfo/PeerInfoScre
 PEER_HEADER_MENU = ROOT / "submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreenPerformButtonAction.swift"
 ENGINE = ROOT / "submodules/TelegramCore/Sources/TelegramEngine/Messages/TelegramEngineMessages.swift"
 CAPTURE_SERVICE = ROOT / "submodules/AyuGramIOS/Sources/AyuGramCaptureService.swift"
+STORE = ROOT / "submodules/AyuGramIOS/Sources/AyuGramPostboxHistoryStore.swift"
 
 
 def replace_once(source: str, old: str, new: str, label: str) -> str:
@@ -122,7 +123,7 @@ def remove_swift_function(source: str, signature: str, label: str) -> str:
     return source[:start] + source[end:]
 
 
-for path in (DELETE, STATE, BUBBLE, TEXT_BUBBLE, MEDIA_BUBBLE, INTERACTIVE_MEDIA, DATE_STATUS, SETTINGS, MESSAGE_MENU, PEER_MEDIA_MENU, PEER_HEADER_MENU, ENGINE, CAPTURE_SERVICE):
+for path in (DELETE, STATE, BUBBLE, TEXT_BUBBLE, MEDIA_BUBBLE, INTERACTIVE_MEDIA, DATE_STATUS, SETTINGS, MESSAGE_MENU, PEER_MEDIA_MENU, PEER_HEADER_MENU, ENGINE, CAPTURE_SERVICE, STORE):
     if not path.is_file():
         raise SystemExit(f"Required source file is missing: {path}")
 
@@ -165,6 +166,305 @@ if old_append in capture_service_text:
     capture_service_text = capture_service_text.replace(old_append, new_append, 1)
 elif 'recordDeletedRouteDiagnostic("capture-append-called"' not in capture_service_text:
     raise SystemExit("AyuGram capture append anchor not found")
+CAPTURE_SERVICE.write_text(capture_service_text, encoding="utf-8")
+
+
+# A bounded received-message cache closes the gap where a later server delete
+# arrives after Telegram has already removed the Postbox row. This cache is
+# separate from edited/deleted History so ordinary received messages never
+# appear as revisions in the UI.
+store_text = STORE.read_text(encoding="utf-8")
+received_state = r'''public struct AyuPostboxReceivedMessageState: Codable, Equatable, Sendable {
+    public var messages: [AyuMessage]
+
+    public init(messages: [AyuMessage] = []) {
+        self.messages = messages
+    }
+}
+
+'''
+if "public struct AyuPostboxReceivedMessageState" not in store_text:
+    store_anchor = "public enum AyuGramPostboxHistoryStore {\n"
+    if store_text.count(store_anchor) != 1:
+        raise SystemExit("Received-message cache store enum anchor is not unique")
+    store_text = store_text.replace(store_anchor, received_state + store_anchor, 1)
+
+if 'private static let receivedKey = ValueBoxKey("ayugram.receivedMessageCache.v1")' not in store_text:
+    store_text = replace_once(
+        store_text,
+        "    private static let maximumEntries = 5000\n",
+        "    private static let maximumEntries = 5000\n    private static let receivedKey = ValueBoxKey(\"ayugram.receivedMessageCache.v1\")\n    private static let maximumReceivedEntries = 2500\n",
+        "received-message cache preferences key"
+    )
+
+received_methods = r'''    @discardableResult
+    public static func cacheReceived(transaction: Transaction, messages snapshots: [AyuMessage]) -> Int {
+        guard !snapshots.isEmpty else { return 0 }
+        var state = readReceived(transaction: transaction)
+        var changed = 0
+
+        for snapshot in snapshots {
+            if let index = state.messages.firstIndex(where: {
+                $0.userID == snapshot.userID
+                    && $0.dialogID == snapshot.dialogID
+                    && $0.topicID == snapshot.topicID
+                    && $0.messageID == snapshot.messageID
+            }) {
+                if state.messages[index] != snapshot {
+                    state.messages.remove(at: index)
+                    state.messages.append(snapshot)
+                    changed += 1
+                }
+            } else {
+                state.messages.append(snapshot)
+                changed += 1
+            }
+        }
+
+        if state.messages.count > maximumReceivedEntries {
+            state.messages = Array(state.messages.suffix(maximumReceivedEntries))
+        }
+        transaction.setPreferencesEntry(key: receivedKey, value: PreferencesEntry(state))
+        return changed
+    }
+
+    @discardableResult
+    public static func promoteReceivedToDeleted(
+        transaction: Transaction,
+        userID: Int64,
+        ids: [MessageId]
+    ) -> [AyuMessage] {
+        guard !ids.isEmpty else { return [] }
+        let keys = Set(ids.map { "\($0.peerId.toInt64()):\($0.id)" })
+        var state = readReceived(transaction: transaction)
+        let matches = state.messages.filter {
+            $0.userID == userID && keys.contains("\($0.dialogID):\($0.messageID)")
+        }
+        guard !matches.isEmpty else { return [] }
+
+        state.messages.removeAll {
+            $0.userID == userID && keys.contains("\($0.dialogID):\($0.messageID)")
+        }
+        transaction.setPreferencesEntry(key: receivedKey, value: PreferencesEntry(state))
+
+        let deletedAt = Int32(Date().timeIntervalSince1970)
+        let snapshots = matches.map { message in
+            AyuMessage(
+                fakeID: 0,
+                userID: message.userID,
+                dialogID: message.dialogID,
+                peerID: message.peerID,
+                fromID: message.fromID,
+                fromName: message.fromName,
+                topicID: message.topicID,
+                messageID: message.messageID,
+                date: message.date,
+                editDate: message.editDate,
+                text: message.text,
+                mediaPath: message.mediaPath,
+                mimeType: message.mimeType,
+                isDeleted: true,
+                deletedAt: deletedAt
+            )
+        }
+        return appendDeleted(transaction: transaction, messages: snapshots)
+    }
+
+    @discardableResult
+    public static func promoteReceivedGlobalIDsToDeleted(
+        transaction: Transaction,
+        userID: Int64,
+        globalIDs: [Int32],
+        excluding resolvedMessageIds: [MessageId]
+    ) -> [AyuMessage] {
+        guard !globalIDs.isEmpty else { return [] }
+        let ids = Set(globalIDs)
+        let resolved = Set(resolvedMessageIds.map { "\($0.peerId.toInt64()):\($0.id)" })
+        var state = readReceived(transaction: transaction)
+        let matches = state.messages.filter { message in
+            guard message.userID == userID, ids.contains(message.messageID) else { return false }
+            let key = "\(message.dialogID):\(message.messageID)"
+            guard !resolved.contains(key) else { return false }
+            let peer = PeerId(message.dialogID)
+            return peer.namespace == Namespaces.Peer.CloudUser || peer.namespace == Namespaces.Peer.CloudGroup
+        }
+        guard !matches.isEmpty else { return [] }
+
+        let matchKeys = Set(matches.map { "\($0.dialogID):\($0.messageID)" })
+        state.messages.removeAll {
+            $0.userID == userID && matchKeys.contains("\($0.dialogID):\($0.messageID)")
+        }
+        transaction.setPreferencesEntry(key: receivedKey, value: PreferencesEntry(state))
+
+        let deletedAt = Int32(Date().timeIntervalSince1970)
+        let snapshots = matches.map { message in
+            AyuMessage(
+                fakeID: 0,
+                userID: message.userID,
+                dialogID: message.dialogID,
+                peerID: message.peerID,
+                fromID: message.fromID,
+                fromName: message.fromName,
+                topicID: message.topicID,
+                messageID: message.messageID,
+                date: message.date,
+                editDate: message.editDate,
+                text: message.text,
+                mediaPath: message.mediaPath,
+                mimeType: message.mimeType,
+                isDeleted: true,
+                deletedAt: deletedAt
+            )
+        }
+        return appendDeleted(transaction: transaction, messages: snapshots)
+    }
+
+    public static func removeReceived(transaction: Transaction, userID: Int64, ids: [MessageId]) {
+        guard !ids.isEmpty else { return }
+        let keys = Set(ids.map { "\($0.peerId.toInt64()):\($0.id)" })
+        var state = readReceived(transaction: transaction)
+        let originalCount = state.messages.count
+        state.messages.removeAll {
+            $0.userID == userID && keys.contains("\($0.dialogID):\($0.messageID)")
+        }
+        if state.messages.count != originalCount {
+            transaction.setPreferencesEntry(key: receivedKey, value: PreferencesEntry(state))
+        }
+    }
+
+'''
+if "public static func cacheReceived(transaction:" not in store_text:
+    anchor = "    public static func clearDeleted(transaction:"
+    if store_text.count(anchor) != 1:
+        raise SystemExit("Received-message cache insertion anchor is not unique")
+    store_text = store_text.replace(anchor, received_methods + anchor, 1)
+
+if "private static func readReceived(transaction: Transaction)" not in store_text:
+    final_close = store_text.rfind("\n}")
+    if final_close < 0:
+        raise SystemExit("Received-message cache store closing brace not found")
+    read_method = r'''
+    private static func readReceived(transaction: Transaction) -> AyuPostboxReceivedMessageState {
+        return transaction.getPreferencesEntry(key: receivedKey)?.get(AyuPostboxReceivedMessageState.self)
+            ?? AyuPostboxReceivedMessageState()
+    }
+'''
+    store_text = store_text[:final_close] + "\n" + read_method + store_text[final_close:]
+STORE.write_text(store_text, encoding="utf-8")
+
+capture_service_text = CAPTURE_SERVICE.read_text(encoding="utf-8")
+received_capture_methods = r'''    public static func cacheReceived(
+        transaction: Transaction,
+        mediaBox: MediaBox,
+        messages: [Message],
+        mediaCaptures: [AyuMessageMediaCapture],
+        accountID: Int64,
+        senderNames: [Int32: String] = [:]
+    ) {
+        guard !messages.isEmpty else { return }
+        let settingsStore = try? AyuGramRuntime.makeSettingsStore(accountID: accountID)
+        guard settingsStore?.settings.saveDeletedMessages != false else {
+            recordDeletedRouteDiagnostic("receive-cache-disabled", received: messages.count)
+            return
+        }
+
+        var capturesByMessageID: [Int32: [AyuMediaResourceInfo]] = [:]
+        for capture in mediaCaptures {
+            capturesByMessageID[capture.messageID] = capture.resources
+        }
+
+        var snapshots: [AyuMessage] = []
+        snapshots.reserveCapacity(messages.count)
+        for message in messages {
+            guard !message.isCopyProtected(), !message.containsSecretMedia else {
+                continue
+            }
+            let editDate = message.attributes.compactMap { ($0 as? EditedMessageAttribute)?.date }.max() ?? 0
+            var mediaPath: String?
+            var mimeType: String?
+            if let resources = capturesByMessageID[message.id.id], !resources.isEmpty {
+                let archived = AyuGramMediaArchive.archive(
+                    mediaBox: mediaBox,
+                    accountID: accountID,
+                    dialogID: message.id.peerId.toInt64(),
+                    messageID: message.id.id,
+                    revisionKey: "received-\(editDate)",
+                    resources: resources
+                )
+                mediaPath = archived.path
+                mimeType = archived.mimeType
+            }
+            snapshots.append(AyuGramPostboxBridge.snapshot(
+                message: message,
+                accountID: accountID,
+                fromName: senderNames[message.id.id],
+                isDeleted: false,
+                editDate: editDate,
+                mediaPath: mediaPath,
+                mimeType: mimeType
+            ))
+        }
+
+        let cachedCount = AyuGramPostboxHistoryStore.cacheReceived(transaction: transaction, messages: snapshots)
+        recordDeletedRouteDiagnostic(
+            "receive-cache-stored",
+            received: messages.count,
+            mapped: snapshots.count,
+            retained: cachedCount,
+            copyProtected: messages.filter { $0.isCopyProtected() }.count,
+            secretMedia: messages.filter { $0.containsSecretMedia }.count
+        )
+    }
+
+    public static func captureMissingDeletedFromCache(
+        transaction: Transaction,
+        ids: [MessageId],
+        resolvedMessageIds: Set<MessageId>,
+        accountID: Int64
+    ) {
+        let missingIds = ids.filter { !resolvedMessageIds.contains($0) }
+        let recovered = AyuGramPostboxHistoryStore.promoteReceivedToDeleted(
+            transaction: transaction,
+            userID: accountID,
+            ids: missingIds
+        )
+        recordDeletedRouteDiagnostic(
+            "capture-cache-recovered",
+            received: missingIds.count,
+            mapped: recovered.count,
+            retained: recovered.count,
+            missing: max(0, missingIds.count - recovered.count)
+        )
+        AyuGramPostboxHistoryStore.removeReceived(transaction: transaction, userID: accountID, ids: ids)
+    }
+
+    public static func captureGlobalDeletedFromCache(
+        transaction: Transaction,
+        ids: [Int32],
+        excluding resolvedMessageIds: [MessageId],
+        accountID: Int64
+    ) {
+        let recovered = AyuGramPostboxHistoryStore.promoteReceivedGlobalIDsToDeleted(
+            transaction: transaction,
+            userID: accountID,
+            globalIDs: ids,
+            excluding: resolvedMessageIds
+        )
+        recordDeletedRouteDiagnostic(
+            "global-cache-recovered",
+            received: ids.count,
+            mapped: recovered.count,
+            retained: recovered.count,
+            missing: max(0, ids.count - recovered.count)
+        )
+    }
+
+'''
+if "public static func cacheReceived(" not in capture_service_text:
+    capture_anchor = "    public static func captureDeleted("
+    if capture_service_text.count(capture_anchor) != 1:
+        raise SystemExit("AyuGram received-capture service anchor is not unique")
+    capture_service_text = capture_service_text.replace(capture_anchor, received_capture_methods + capture_anchor, 1)
 CAPTURE_SERVICE.write_text(capture_service_text, encoding="utf-8")
 
 
