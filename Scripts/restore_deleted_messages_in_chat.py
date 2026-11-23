@@ -319,6 +319,29 @@ received_methods = r'''    @discardableResult
         return appendDeleted(transaction: transaction, messages: snapshots)
     }
 
+    public static func removeReceivedGlobalIDs(
+        transaction: Transaction,
+        userID: Int64,
+        globalIDs: [Int32],
+        excluding resolvedMessageIds: [MessageId]
+    ) {
+        guard !globalIDs.isEmpty else { return }
+        let ids = Set(globalIDs)
+        let resolved = Set(resolvedMessageIds.map { "\($0.peerId.toInt64()):\($0.id)" })
+        var state = readReceived(transaction: transaction)
+        let originalCount = state.messages.count
+        state.messages.removeAll { message in
+            guard message.userID == userID, ids.contains(message.messageID) else { return false }
+            let key = "\(message.dialogID):\(message.messageID)"
+            guard !resolved.contains(key) else { return false }
+            let peer = PeerId(message.dialogID)
+            return peer.namespace == Namespaces.Peer.CloudUser || peer.namespace == Namespaces.Peer.CloudGroup
+        }
+        if state.messages.count != originalCount {
+            transaction.setPreferencesEntry(key: receivedKey, value: PreferencesEntry(state))
+        }
+    }
+
     public static func removeReceived(transaction: Transaction, userID: Int64, ids: [MessageId]) {
         guard !ids.isEmpty else { return }
         let keys = Set(ids.map { "\($0.peerId.toInt64()):\($0.id)" })
@@ -423,6 +446,12 @@ received_capture_methods = r'''    public static func cacheReceived(
         accountID: Int64
     ) {
         let missingIds = ids.filter { !resolvedMessageIds.contains($0) }
+        let settingsStore = try? AyuGramRuntime.makeSettingsStore(accountID: accountID)
+        guard settingsStore?.settings.saveDeletedMessages != false else {
+            AyuGramPostboxHistoryStore.removeReceived(transaction: transaction, userID: accountID, ids: ids)
+            recordDeletedRouteDiagnostic("capture-cache-disabled", received: missingIds.count)
+            return
+        }
         let recovered = AyuGramPostboxHistoryStore.promoteReceivedToDeleted(
             transaction: transaction,
             userID: accountID,
@@ -444,6 +473,17 @@ received_capture_methods = r'''    public static func cacheReceived(
         excluding resolvedMessageIds: [MessageId],
         accountID: Int64
     ) {
+        let settingsStore = try? AyuGramRuntime.makeSettingsStore(accountID: accountID)
+        guard settingsStore?.settings.saveDeletedMessages != false else {
+            AyuGramPostboxHistoryStore.removeReceivedGlobalIDs(
+                transaction: transaction,
+                userID: accountID,
+                globalIDs: ids,
+                excluding: resolvedMessageIds
+            )
+            recordDeletedRouteDiagnostic("global-cache-disabled", received: ids.count)
+            return
+        }
         let recovered = AyuGramPostboxHistoryStore.promoteReceivedGlobalIDsToDeleted(
             transaction: transaction,
             userID: accountID,
@@ -1339,6 +1379,9 @@ assert "ayuGlobalIdsToDelete = ids.filter" in state_check
 assert "_internal_applyAyuGramServerDeleteMessages(transaction: transaction, mediaBox: mediaBox, ids: ids, accountID: accountPeerId.toInt64(), manualAddMessageThreadStatsDifference: { id, add, remove in" in state_check
 assert "addMessageThreadStatsDifference(threadKey: id, remove: remove, addedMessagePeer: nil, addedMessageId: nil, isOutgoing: false)" in state_check
 assert "_internal_applyAyuGramServerDeleteMessagesWithGlobalIds(transaction: transaction, mediaBox: mediaBox, ids: ids, accountID: accountPeerId.toInt64())" in state_check
+assert "public static func removeReceivedGlobalIDs(" in store_text
+assert '"capture-cache-disabled"' in capture_service_text
+assert '"global-cache-disabled"' in capture_service_text
 assert "public func _internal_applyAyuGramServerDeleteMessages(" in state_check
 assert "public func _internal_applyAyuGramServerDeleteMessagesWithGlobalIds(" in state_check
 assert "public func _internal_retainDeletedMessagesWithGlobalIds" in state_check
