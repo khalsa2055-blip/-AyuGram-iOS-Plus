@@ -604,6 +604,116 @@ delete_text = replace_once(
 )
 DELETE.write_text(delete_text, encoding="utf-8")
 
+CACHE_HELPER_SOURCE = r'''public func _internal_cacheAyuGramReceivedMessages(transaction: Transaction, mediaBox: MediaBox, ids: [MessageId], ayuAccountID: Int64) {
+    guard !ids.isEmpty else { return }
+    let resolvedMessages = ids.compactMap { transaction.getMessage($0) }
+    let protectedMessages = resolvedMessages.filter { $0.isCopyProtected() || $0.containsSecretMedia }
+    if !protectedMessages.isEmpty {
+        AyuGramCaptureService.recordDeletedRouteDiagnostic(
+            "receive-cache-protected-skipped",
+            received: resolvedMessages.count,
+            mapped: resolvedMessages.count,
+            copyProtected: protectedMessages.filter { $0.isCopyProtected() }.count,
+            secretMedia: protectedMessages.filter { $0.containsSecretMedia }.count
+        )
+    }
+    let messages = resolvedMessages.filter { !$0.isCopyProtected() && !$0.containsSecretMedia }
+    guard !messages.isEmpty else { return }
+
+    var senderNames: [Int32: String] = [:]
+    var mediaCaptures: [AyuMessageMediaCapture] = []
+    for message in messages {
+        if let author = message.author {
+            let name: String?
+            if let user = author as? TelegramUser {
+                let parts = [user.firstName, user.lastName].compactMap { $0 }.filter { !$0.isEmpty }
+                name = parts.isEmpty ? nil : parts.joined(separator: " ")
+            } else if let channel = author as? TelegramChannel {
+                name = channel.title
+            } else if let group = author as? TelegramGroup {
+                name = group.title
+            } else {
+                name = nil
+            }
+            if let name, !name.isEmpty {
+                senderNames[message.id.id] = name
+            }
+        }
+
+        var resources: [AyuMediaResourceInfo] = []
+        for media in message.effectiveMedia {
+            if let image = media as? TelegramMediaImage,
+               let representation = image.representations.max(by: {
+                   Int64($0.dimensions.width) * Int64($0.dimensions.height)
+                       < Int64($1.dimensions.width) * Int64($1.dimensions.height)
+               }) {
+                resources.append(AyuMediaResourceInfo(id: representation.resource.id.stringRepresentation, mimeType: "image/jpeg"))
+            } else if let file = media as? TelegramMediaFile {
+                resources.append(AyuMediaResourceInfo(id: file.resource.id.stringRepresentation, mimeType: file.mimeType))
+            }
+        }
+        if !resources.isEmpty {
+            var seen: Set<String> = []
+            resources = resources.filter { seen.insert($0.id).inserted }
+            mediaCaptures.append(AyuMessageMediaCapture(messageID: message.id.id, resources: resources))
+        }
+    }
+
+    AyuGramCaptureService.cacheReceived(
+        transaction: transaction,
+        mediaBox: mediaBox,
+        messages: messages,
+        mediaCaptures: mediaCaptures,
+        accountID: ayuAccountID,
+        senderNames: senderNames
+    )
+}
+
+'''
+
+
+# Cache eligible group/channel/private messages as they enter Postbox, before any
+# later server delete update can refer to an ID whose row is no longer present.
+delete_text = DELETE.read_text(encoding="utf-8")
+cache_helper_signature = "public func _internal_cacheAyuGramReceivedMessages("
+if cache_helper_signature not in delete_text:
+    capture_helper_marker = "public func _internal_captureDeletedMessages("
+    capture_helper_start = delete_text.find(capture_helper_marker)
+    if capture_helper_start < 0:
+        raise SystemExit("Deleted-message capture helper missing before receive-cache helper insertion")
+    delete_text = delete_text[:capture_helper_start] + CACHE_HELPER_SOURCE + delete_text[capture_helper_start:]
+
+capture_helper_start = delete_text.find("public func _internal_captureDeletedMessages(")
+if capture_helper_start < 0:
+    raise SystemExit("Deleted-message capture helper missing for cache fallback wiring")
+capture_helper_brace = delete_text.find("{", capture_helper_start)
+capture_helper_end = matching_delimiter(delete_text, capture_helper_brace, "{", "}") + 1
+capture_helper = delete_text[capture_helper_start:capture_helper_end]
+resolved_line = "let resolvedMessages = ids.compactMap { transaction.getMessage($0) }"
+fallback_call = """    AyuGramCaptureService.captureMissingDeletedFromCache(
+        transaction: transaction,
+        ids: ids,
+        resolvedMessageIds: Set(resolvedMessages.map { $0.id }),
+        accountID: ayuAccountID
+    )
+"""
+if "captureMissingDeletedFromCache(" not in capture_helper:
+    if resolved_line not in capture_helper:
+        raise SystemExit("Capture helper does not expose its original resolved IDs for cache fallback")
+    capture_call_marker = "AyuGramCaptureService.captureDeleted("
+    capture_call_start = capture_helper.find(capture_call_marker)
+    if capture_call_start < 0:
+        raise SystemExit("Capture service call missing from deleted-message helper")
+    capture_call_open = capture_helper.find("(", capture_call_start)
+    capture_call_end = matching_delimiter(capture_helper, capture_call_open, "(", ")") + 1
+    after_call = capture_helper.find("\n", capture_call_end)
+    if after_call < 0:
+        raise SystemExit("Capture service call line ending missing")
+    capture_helper = capture_helper[:after_call + 1] + fallback_call + capture_helper[after_call + 1:]
+delete_text = delete_text[:capture_helper_start] + capture_helper + delete_text[capture_helper_end:]
+DELETE.write_text(delete_text, encoding="utf-8")
+
+
 state_text = STATE.read_text(encoding="utf-8")
 state_text = replace_once(
     state_text,
@@ -725,6 +835,12 @@ public func _internal_applyAyuGramServerDeleteMessagesWithGlobalIds(transaction:
     let messageIds = transaction.messageIdsForGlobalIds(ids)
     AyuGramCaptureService.recordDeletedRouteDiagnostic("global-delete-replay", received: ids.count, mapped: messageIds.count)
     _internal_captureDeletedMessages(transaction: transaction, mediaBox: mediaBox, ids: messageIds, ayuAccountID: accountID)
+    AyuGramCaptureService.captureGlobalDeletedFromCache(
+        transaction: transaction,
+        ids: ids,
+        excluding: messageIds,
+        accountID: accountID
+    )
     let retained = _internal_retainDeletedMessagesWithGlobalIds(transaction: transaction, ids: ids, accountID: accountID)
     AyuGramCaptureService.recordDeletedRouteDiagnostic("global-delete-retained", received: ids.count, mapped: messageIds.count, retained: retained.count)
     return retained
@@ -853,6 +969,48 @@ state_text = replace_once(
     poll_delete_replacement,
     "channel difference delete replay diagnostics"
 )
+
+# Capture received messages after Postbox has accepted the AddMessages operation.
+# Transaction.addMessages updates the in-transaction history table synchronously,
+# so the shared helper can read the just-added rows without an asynchronous race.
+replay_start = state_text.find("func replayFinalState(")
+if replay_start < 0:
+    raise SystemExit("replayFinalState not found for received-message cache wiring")
+replay_brace = state_text.find("{", replay_start)
+replay_end = matching_delimiter(state_text, replay_brace, "{", "}") + 1
+replay_body = state_text[replay_start:replay_end]
+add_messages_anchor = "                let _ = transaction.addMessages(messages, location: location)\n"
+cache_call = """                let ayuReceivedMessageIds = messages.compactMap { message -> MessageId? in
+                    guard case let .Id(id) = message.id, id.namespace == Namespaces.Message.Cloud else {
+                        return nil
+                    }
+                    let peerNamespace = id.peerId.namespace
+                    guard peerNamespace == Namespaces.Peer.CloudUser
+                        || peerNamespace == Namespaces.Peer.CloudGroup
+                        || peerNamespace == Namespaces.Peer.CloudChannel else {
+                        return nil
+                    }
+                    return id
+                }
+                if !ayuReceivedMessageIds.isEmpty {
+                    _internal_cacheAyuGramReceivedMessages(
+                        transaction: transaction,
+                        mediaBox: mediaBox,
+                        ids: ayuReceivedMessageIds,
+                        ayuAccountID: accountPeerId.toInt64()
+                    )
+                }
+"""
+if "AyuGram pre-delete receive cache" not in replay_body:
+    if replay_body.count(add_messages_anchor) != 1:
+        raise SystemExit("replayFinalState AddMessages insertion anchor is not unique")
+    replay_body = replay_body.replace(
+        add_messages_anchor,
+        add_messages_anchor + "                // AyuGram pre-delete receive cache\n" + cache_call,
+        1
+    )
+    state_text = state_text[:replay_start] + replay_body + state_text[replay_end:]
+
 STATE.write_text(state_text, encoding="utf-8")
 
 # The engine-facing helper is Void; its call must not return the retained-ID set.
