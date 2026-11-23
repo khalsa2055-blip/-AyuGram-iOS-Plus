@@ -503,18 +503,48 @@ channel_delete_block = replace_once(
     "let peerId = PeerId(namespace: Namespaces.Peer.CloudChannel, id: PeerId.Id._internalFromInt64Value(channelId))\n                let channelDeletedMessageIds = messages.map({ MessageId(peerId: peerId, namespace: Namespaces.Message.Cloud, id: $0) })\n                AyuGramCaptureService.recordDeletedRouteDiagnostic(\"channel-update-arrived\", received: messages.count, mapped: channelDeletedMessageIds.count)\n",
     "channel deletion message IDs"
 )
-# Keep Telegram's stale-PTS behavior: an already-applied update must not be replayed.
+# A stale update is already reflected in channel PTS. Replay only the local message
+# operation: the AyuGram wrapper retains eligible rows, leaves PTS untouched, and
+# still applies ordinary Telegram deletion when retention is disabled or restricted.
 channel_delete_block = replace_once(
     channel_delete_block,
     "updatedState.deleteMessages(messages.map({ MessageId(peerId: peerId, namespace: Namespaces.Message.Cloud, id: $0) }))",
     "updatedState.deleteMessages(channelDeletedMessageIds)",
     "contiguous channel delete operation"
 )
-# Do not enqueue a deletion ahead of a PTS gap. pollChannel replays the
-# missing updates in order; the delete is captured when it returns contiguous.
-# If channel PTS is unknown, poll the channel first. The difference
-# response will replay a correctly ordered delete operation.
+channel_delete_block = replace_once(
+    channel_delete_block,
+    "if previousState.pts >= pts {\n",
+    "if previousState.pts >= pts {\n                        // Channel PTS is already beyond this deletion.\n                        // Replay only local message persistence; do not touch PTS.\n                        AyuGramCaptureService.recordDeletedRouteDiagnostic(\"channel-pts-stale-replay\", received: messages.count, mapped: channelDeletedMessageIds.count)\n                        updatedState.deleteMessages(channelDeletedMessageIds)\n",
+    "safe stale-PTS deleted-message retention"
+)
+channel_delete_block = replace_once(
+    channel_delete_block,
+    "if !missingUpdatesFromChannels.contains(peerId) {\n",
+    "AyuGramCaptureService.recordDeletedRouteDiagnostic(\"channel-pts-gap\", received: messages.count, mapped: channelDeletedMessageIds.count)\n                        if !missingUpdatesFromChannels.contains(peerId) {\n",
+    "channel PTS gap diagnostics"
+)
+channel_delete_block = replace_once(
+    channel_delete_block,
+    "if case .none = channelsToPoll[peerId] {\n",
+    "AyuGramCaptureService.recordDeletedRouteDiagnostic(\"channel-pts-unknown\", received: messages.count, mapped: channelDeletedMessageIds.count)\n                    if case .none = channelsToPoll[peerId] {\n",
+    "unknown channel PTS diagnostics"
+)
+# PTS gaps and unknown channel state remain on Telegram's normal poll path.
+# The difference response queues the deletion in order, then reaches the
+# same shared AyuGram retention handler.
 state_text = state_text[:channel_delete_start] + channel_delete_block + state_text[channel_delete_end:]
+poll_delete_anchor = """let peerId = peer.id
+                        updatedState.deleteMessages(updateDeleteChannelMessagesData.messages.map({ MessageId(peerId: peerId, namespace: Namespaces.Message.Cloud, id: $0) }))"""
+poll_delete_replacement = """let peerId = peer.id
+                        AyuGramCaptureService.recordDeletedRouteDiagnostic("channel-difference-delete", received: updateDeleteChannelMessagesData.messages.count)
+                        updatedState.deleteMessages(updateDeleteChannelMessagesData.messages.map({ MessageId(peerId: peerId, namespace: Namespaces.Message.Cloud, id: $0) }))"""
+state_text = replace_once(
+    state_text,
+    poll_delete_anchor,
+    poll_delete_replacement,
+    "channel difference delete replay diagnostics"
+)
 STATE.write_text(state_text, encoding="utf-8")
 
 # The engine-facing helper is Void; its call must not return the retained-ID set.
@@ -827,7 +857,10 @@ channel_delete_case = find_case_block(
 assert channel_delete_case is not None, "Supergroup/channel delete update handler is missing"
 _, _, channel_delete_block = channel_delete_case
 assert "let channelDeletedMessageIds = messages.map" in channel_delete_block
-assert channel_delete_block.count("updatedState.deleteMessages(channelDeletedMessageIds)") == 1, "Channel/supergroup deletion must be queued only after the PTS update is contiguous"
+assert channel_delete_block.count("updatedState.deleteMessages(channelDeletedMessageIds)") == 2, "Contiguous PTS deletes and stale local replay must both reach the shared handler"
+assert "channel-pts-stale-replay" in channel_delete_block, "Stale channel updates must reach local AyuGram retention"
+assert "channel-pts-gap" in channel_delete_block and "channel-pts-unknown" in channel_delete_block, "PTS gap and unknown-state paths must remain diagnosed"
+assert '"channel-difference-delete"' in state_check, "Channel difference must expose replay of delayed delete updates"
 assert "skip old delete update" in channel_delete_block, "Stale channel deletions must retain Telegram's original skip behavior"
 assert "queued channel deletion despite stale PTS" not in channel_delete_block
 assert "queued channel deletion before PTS repair" not in channel_delete_block
