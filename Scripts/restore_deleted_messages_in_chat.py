@@ -518,6 +518,14 @@ channel_delete_block = replace_once(
     "if previousState.pts >= pts {\n                        // Channel PTS is already beyond this deletion.\n                        // Replay only local message persistence; do not touch PTS.\n                        AyuGramCaptureService.recordDeletedRouteDiagnostic(\"channel-pts-stale-replay\", received: messages.count, mapped: channelDeletedMessageIds.count)\n                        updatedState.deleteMessages(channelDeletedMessageIds)\n",
     "safe stale-PTS deleted-message retention"
 )
+stale_delete_log_old = 'Logger.shared.log("State", "channel \\(peerId) (\\((updatedState.peers[peerId] as? TelegramChannel)?.title ?? "nil")) skip old delete update")'
+stale_delete_log_new = 'Logger.shared.log("State", "channel \\(peerId) (\\((updatedState.peers[peerId] as? TelegramChannel)?.title ?? "nil")) replay stale delete locally for AyuGram retention")'
+channel_delete_block = replace_once(
+    channel_delete_block,
+    stale_delete_log_old,
+    stale_delete_log_new,
+    "accurate stale-PTS log message"
+)
 channel_delete_block = replace_once(
     channel_delete_block,
     "if !missingUpdatesFromChannels.contains(peerId) {\n",
