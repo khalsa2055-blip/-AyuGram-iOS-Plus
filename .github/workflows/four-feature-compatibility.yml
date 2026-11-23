@@ -516,11 +516,14 @@ jobs:
           assert "previousState.pts + ptsCount == pts" in channel_update_route
           assert "let channelDeletedMessageIds = messages.map" in channel_update_route
           stale_channel_update = channel_update_route.split("if previousState.pts >= pts", 1)[1].split("} else if previousState.pts + ptsCount == pts", 1)[0]
-          assert "skip old delete update" in stale_channel_update, "Stale channel PTS updates must keep Telegram's original skip behavior"
-          assert "updatedState.deleteMessages(channelDeletedMessageIds)" not in stale_channel_update, "A stale channel delete must not be replayed"
+          assert "channel-pts-stale-replay" in stale_channel_update, "Stale channel PTS updates must enter the AyuGram local-retention replay"
+          assert "updatedState.deleteMessages(channelDeletedMessageIds)" in stale_channel_update, "A stale channel delete must reach local retention"
+          assert "replay stale delete locally for AyuGram retention" in stale_channel_update, "Stale replay logging must match the new behavior"
+          assert "skip old delete update" not in stale_channel_update, "The obsolete stale-update skip behavior must not return"
+          assert "channelsState[peerId]" not in stale_channel_update, "Stale local replay must not mutate Telegram channel PTS"
           contiguous_channel_update = channel_update_route.split("} else if previousState.pts + ptsCount == pts", 1)[1].split("} else {", 1)[0]
           assert "updatedState.deleteMessages(channelDeletedMessageIds)" in contiguous_channel_update, "Contiguous supergroup deletes must reach local retention"
-          assert channel_update_route.count("updatedState.deleteMessages(channelDeletedMessageIds)") == 1, "A channel delete must be queued exactly once, only in the contiguous PTS branch"
+          assert channel_update_route.count("updatedState.deleteMessages(channelDeletedMessageIds)") == 2, "A channel delete must be queued once in stale replay and once in contiguous PTS handling"
           assert "missingUpdatesFromChannels.insert(peerId)" in channel_update_route, "PTS gaps must request channel difference before deletion replay"
           assert "channelsToPoll[peerId] = nil" in channel_update_route, "Unknown channel PTS must be polled before deletion replay"
           assert "queued channel deletion despite stale PTS" not in channel_update_route
