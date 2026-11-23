@@ -516,11 +516,16 @@ jobs:
           assert "previousState.pts + ptsCount == pts" in channel_update_route
           assert "let channelDeletedMessageIds = messages.map" in channel_update_route
           stale_channel_update = channel_update_route.split("if previousState.pts >= pts", 1)[1].split("} else if previousState.pts + ptsCount == pts", 1)[0]
-          assert "updatedState.deleteMessages(channelDeletedMessageIds)" in stale_channel_update, "Stale PTS channel deletions must still reach local retention"
-          assert channel_update_route.count("updatedState.deleteMessages(channelDeletedMessageIds)") == 4, "Channel deletes must be queued for stale PTS, contiguous PTS, PTS gaps and unknown channel state"
-          assert "queued channel deletion despite stale PTS" in channel_update_route
-          assert "queued channel deletion before PTS repair" in channel_update_route
-          assert "queued channel deletion with unknown PTS state" in channel_update_route
+          assert "skip old delete update" in stale_channel_update, "Stale channel PTS updates must keep Telegram's original skip behavior"
+          assert "updatedState.deleteMessages(channelDeletedMessageIds)" not in stale_channel_update, "A stale channel delete must not be replayed"
+          contiguous_channel_update = channel_update_route.split("} else if previousState.pts + ptsCount == pts", 1)[1].split("} else if previousState.pts + ptsCount < pts", 1)[0]
+          assert "updatedState.deleteMessages(channelDeletedMessageIds)" in contiguous_channel_update, "Contiguous supergroup deletes must reach local retention"
+          assert channel_update_route.count("updatedState.deleteMessages(channelDeletedMessageIds)") == 1, "A channel delete must be queued exactly once, only in the contiguous PTS branch"
+          assert "missingUpdatesFromChannels.insert(peerId)" in channel_update_route, "PTS gaps must request channel difference before deletion replay"
+          assert "channelsToPoll[peerId] = nil" in channel_update_route, "Unknown channel PTS must be polled before deletion replay"
+          assert "queued channel deletion despite stale PTS" not in channel_update_route
+          assert "queued channel deletion before PTS repair" not in channel_update_route
+          assert "queued channel deletion with unknown PTS state" not in channel_update_route
           replay_start = delete_updates.index("func replayFinalState(")
           replay_global_start = delete_updates.index("case let .DeleteMessagesWithGlobalIds(ids):", replay_start)
           replay_direct_start = delete_updates.index("case let .DeleteMessages(ids):", replay_global_start)
