@@ -1701,11 +1701,11 @@ if protected_filter not in helper_text:
     original_lookup = "let messages = ids.compactMap { transaction.getMessage($0) }"
     if original_lookup not in helper_text:
         raise SystemExit("Could not safely locate the message snapshot inside the capture helper")
-    indent_match = re.search(r"(?m)^(?P<indent> *)let messages = ids\\.compactMap \\{ transaction\\.getMessage\\(\\$0\\) \\}$", helper_text)
+    indent_match = re.search(r"(?m)^(?P<indent> *)let messages = ids\.compactMap \{ transaction\.getMessage\(\$0\\) \\}$", helper_text)
     if indent_match is None:
         raise SystemExit("Capture helper message lookup indentation could not be resolved")
     indent = indent_match.group("indent")
-    replacement = "\\n".join([
+    replacement = "\n".join([
         f"{indent}let resolvedMessages = ids.compactMap {{ transaction.getMessage($0) }}",
         f"{indent}let protectedMessages = resolvedMessages.filter {{ $0.isCopyProtected() || $0.containsSecretMedia }}",
         f"{indent}if !protectedMessages.isEmpty {{",
@@ -1726,11 +1726,11 @@ else:
         resolved_line = "let resolvedMessages = ids.compactMap { transaction.getMessage($0) }"
         if resolved_line not in helper_text:
             raise SystemExit("Protected capture filter exists but its diagnostic anchor is missing")
-        indent_match = re.search(r"(?m)^(?P<indent> *)let resolvedMessages = ids\\.compactMap", helper_text)
+        indent_match = re.search(r"(?m)^(?P<indent> *)let resolvedMessages = ids\.compactMap", helper_text)
         if indent_match is None:
             raise SystemExit("Protected capture diagnostic indentation could not be resolved")
         indent = indent_match.group("indent")
-        diagnostic = "\\n".join([
+        diagnostic = "\n".join([
             f"{indent}let protectedMessages = resolvedMessages.filter {{ $0.isCopyProtected() || $0.containsSecretMedia }}",
             f"{indent}if !protectedMessages.isEmpty {{",
             f"{indent}    AyuGramCaptureService.recordDeletedRouteDiagnostic(",
@@ -1742,7 +1742,7 @@ else:
             f"{indent}    )",
             f"{indent}}}"
         ])
-        helper_text = helper_text.replace(resolved_line, resolved_line + "\\n" + diagnostic, 1)
+        helper_text = helper_text.replace(resolved_line, resolved_line + "\n" + diagnostic, 1)
 
 if protected_filter not in helper_text or '"capture-protected-skipped"' not in helper_text:
     raise SystemExit("Protected-content exclusion was not installed in the complete History snapshot path")
