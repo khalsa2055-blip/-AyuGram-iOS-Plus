@@ -828,11 +828,15 @@ channel_delete_case = find_case_block(
 assert channel_delete_case is not None, "Supergroup/channel delete update handler is missing"
 _, _, channel_delete_block = channel_delete_case
 assert "let channelDeletedMessageIds = messages.map" in channel_delete_block
-assert channel_delete_block.count("updatedState.deleteMessages(channelDeletedMessageIds)") == 4, "Channel/supergroup deletes must be queued for stale PTS, contiguous PTS, PTS gaps and unknown channel state"
-assert "queued channel deletion despite stale PTS" in channel_delete_block
+assert channel_delete_block.count("updatedState.deleteMessages(channelDeletedMessageIds)") == 1, "Channel/supergroup deletion must be queued only after the PTS update is contiguous"
+assert "skip old delete update" in channel_delete_block, "Stale channel deletions must retain Telegram's original skip behavior"
+assert "queued channel deletion despite stale PTS" not in channel_delete_block
+assert "queued channel deletion before PTS repair" not in channel_delete_block
+assert "queued channel deletion with unknown PTS state" not in channel_delete_block
+assert "missingUpdatesFromChannels.insert(peerId)" in channel_delete_block, "PTS gaps must request a channel difference before deletion replay"
+assert "channelsToPoll[peerId] = nil" in channel_delete_block, "Unknown channel PTS must request a channel poll before deletion replay"
+assert "manualAddMessageThreadStatsDifference: manualAddMessageThreadStatsDifference" in state_check, "Server deletion wrapper must preserve thread-stat accounting"
 assert "for id in ids where !ayuRetainedDeletedMessageIds.contains(id)" in delete_check, "Retained channel messages must not decrement thread statistics"
-assert "queued channel deletion before PTS repair" in channel_delete_block
-assert "queued channel deletion with unknown PTS state" in channel_delete_block
 assert "ayuGlobalIdsToDelete = ids.filter" in state_check
 assert "_internal_applyAyuGramServerDeleteMessages(transaction: transaction, mediaBox: mediaBox, ids: ids, accountID: accountPeerId.toInt64())" in state_check
 assert "_internal_applyAyuGramServerDeleteMessagesWithGlobalIds(transaction: transaction, mediaBox: mediaBox, ids: ids, accountID: accountPeerId.toInt64())" in state_check
