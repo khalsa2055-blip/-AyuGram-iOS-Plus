@@ -7,6 +7,7 @@ import re
 ROOT = Path("telegram-ios") if Path("telegram-ios").is_dir() else Path(".")
 DELETE = ROOT / "submodules/TelegramCore/Sources/TelegramEngine/Messages/DeleteMessages.swift"
 STATE = ROOT / "submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift"
+HOLES = ROOT / "submodules/TelegramCore/Sources/State/Holes.swift"
 BUBBLE = ROOT / "submodules/TelegramUI/Components/Chat/ChatMessageBubbleItemNode/Sources/ChatMessageBubbleItemNode.swift"
 TEXT_BUBBLE = ROOT / "submodules/TelegramUI/Components/Chat/ChatMessageTextBubbleContentNode/Sources/ChatMessageTextBubbleContentNode.swift"
 MEDIA_BUBBLE = ROOT / "submodules/TelegramUI/Components/Chat/ChatMessageMediaBubbleContentNode/Sources/ChatMessageMediaBubbleContentNode.swift"
@@ -123,7 +124,7 @@ def remove_swift_function(source: str, signature: str, label: str) -> str:
     return source[:start] + source[end:]
 
 
-for path in (DELETE, STATE, BUBBLE, TEXT_BUBBLE, MEDIA_BUBBLE, INTERACTIVE_MEDIA, DATE_STATUS, SETTINGS, MESSAGE_MENU, PEER_MEDIA_MENU, PEER_HEADER_MENU, ENGINE, CAPTURE_SERVICE, STORE):
+for path in (DELETE, STATE, HOLES, BUBBLE, TEXT_BUBBLE, MEDIA_BUBBLE, INTERACTIVE_MEDIA, DATE_STATUS, SETTINGS, MESSAGE_MENU, PEER_MEDIA_MENU, PEER_HEADER_MENU, ENGINE, CAPTURE_SERVICE, STORE):
     if not path.is_file():
         raise SystemExit(f"Required source file is missing: {path}")
 
@@ -1074,6 +1075,44 @@ if edit_cache_signature not in edit_block:
     edit_block = edit_block[:update_end] + cache_call + edit_block[update_end:]
     state_text = state_text[:edit_case_start] + edit_block + state_text[edit_case_end:]
 
+
+# The ordinary chat timeline is hydrated through fetchMessageHistoryHole rather
+# than replayFinalState. Cache the messages on this path too; otherwise a row
+# loaded from history could disappear before a later delete update reaches the
+# state-manager route above.
+holes_text = HOLES.read_text(encoding="utf-8")
+history_add_anchor = """                        let _ = transaction.addMessages(storeMessages, location: .Random)
+                        let _ = transaction.addMessages(additionalMessages, location: .Random)
+"""
+history_cache_call = """                        // AyuGram history-hole receive cache: this is the normal loaded chat timeline.
+                        let ayuLoadedMessageIds = (storeMessages + additionalMessages).compactMap { message -> MessageId? in
+                            guard case let .Id(id) = message.id, id.namespace == Namespaces.Message.Cloud else {
+                                return nil
+                            }
+                            let peerNamespace = id.peerId.namespace
+                            guard peerNamespace == Namespaces.Peer.CloudUser
+                                || peerNamespace == Namespaces.Peer.CloudGroup
+                                || peerNamespace == Namespaces.Peer.CloudChannel else {
+                                return nil
+                            }
+                            return id
+                        }
+                        if !ayuLoadedMessageIds.isEmpty {
+                            _internal_cacheAyuGramReceivedMessages(
+                                transaction: transaction,
+                                mediaBox: postbox.mediaBox,
+                                ids: ayuLoadedMessageIds,
+                                ayuAccountID: accountPeerId.toInt64()
+                            )
+                        }
+"""
+if "AyuGram history-hole receive cache" not in holes_text:
+    if holes_text.count(history_add_anchor) != 1:
+        raise SystemExit(f"Expected one normal history-hole addMessages anchor, found {holes_text.count(history_add_anchor)}")
+    holes_text = holes_text.replace(history_add_anchor, history_add_anchor + history_cache_call, 1)
+    HOLES.write_text(holes_text, encoding="utf-8")
+
+
 STATE.write_text(state_text, encoding="utf-8")
 
 # The engine-facing helper is Void; its call must not return the retained-ID set.
@@ -1361,6 +1400,7 @@ for path in (MESSAGE_MENU, PEER_MEDIA_MENU, PEER_HEADER_MENU):
 
 delete_check = DELETE.read_text(encoding="utf-8")
 state_check = STATE.read_text(encoding="utf-8")
+holes_check = HOLES.read_text(encoding="utf-8")
 bubble_check = BUBBLE.read_text(encoding="utf-8")
 date_check = DATE_STATUS.read_text(encoding="utf-8")
 text_bubble_check = TEXT_BUBBLE.read_text(encoding="utf-8")
@@ -1423,6 +1463,8 @@ assert "isAyuGramDeleted: isAyuGramDeleted" in media_bubble_check
 assert "public var isAyuGramDeleted: Bool" in interactive_media_check
 assert "isAyuGramDeleted: dateAndStatus.isAyuGramDeleted && !presentationData.isPreview" in interactive_media_check
 assert "Refresh cached copy after the current Postbox revision is installed." in state_check
+assert "AyuGram history-hole receive cache" in holes_check
+assert "_internal_cacheAyuGramReceivedMessages(" in holes_check
 print("PASS: deleted markers are routed for text bubbles and media-only image/video status overlays.")
 print("PASS: server-deleted messages remain as local rows in their original chat.")
 print("PASS: the original text/media/timestamp stay on the Telegram message; the timestamp carries the 🧹 mark.")
