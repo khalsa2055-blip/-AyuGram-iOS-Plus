@@ -395,6 +395,33 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                                 ids: [receiveCacheChannelID],
                                 ayuAccountID: accountID
                             )
+                            let receiveCacheChannelUpdatedText = "Synthetic receive-cache CloudChannel latest edited revision"
+                            let receiveCacheChannelUpdatedStoreMessage = StoreMessage(
+                                id: receiveCacheChannelID,
+                                customStableId: nil,
+                                globallyUniqueId: nil,
+                                groupingKey: nil,
+                                threadId: nil,
+                                timestamp: now,
+                                flags: [],
+                                tags: [],
+                                globalTags: [],
+                                localTags: [],
+                                forwardInfo: nil,
+                                authorId: nil,
+                                text: receiveCacheChannelUpdatedText,
+                                attributes: [],
+                                media: []
+                            )
+                            transaction.updateMessage(receiveCacheChannelID, update: { _ in
+                                return .update(receiveCacheChannelUpdatedStoreMessage)
+                            })
+                            _internal_cacheAyuGramReceivedMessages(
+                                transaction: transaction,
+                                mediaBox: account.postbox.mediaBox,
+                                ids: [receiveCacheChannelID],
+                                ayuAccountID: accountID
+                            )
                             transaction.deleteMessages([receiveCacheChannelID], forEachMedia: { _ in })
                             _ = _internal_applyAyuGramServerDeleteMessages(
                                 transaction: transaction,
@@ -410,7 +437,7 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                                 limit: 100
                             ).contains {
                                 $0.messageID == receiveCacheChannelID.id
-                                    && $0.text == receiveCacheChannelText
+                                    && $0.text == receiveCacheChannelUpdatedText
                                     && $0.isDeleted
                                     && $0.deletedAt != nil
                             }
