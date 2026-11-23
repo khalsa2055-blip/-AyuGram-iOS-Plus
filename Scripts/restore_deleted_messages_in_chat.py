@@ -506,16 +506,16 @@ channel_delete_block = replace_once(
     "let peerId = PeerId(namespace: Namespaces.Peer.CloudChannel, id: PeerId.Id._internalFromInt64Value(channelId))\n                let channelDeletedMessageIds = messages.map({ MessageId(peerId: peerId, namespace: Namespaces.Message.Cloud, id: $0) })\n                AyuGramCaptureService.recordDeletedRouteDiagnostic(\"channel-update-arrived\", received: messages.count, mapped: channelDeletedMessageIds.count)\n",
     "channel deletion message IDs"
 )
-// Keep Telegram's stale-PTS behavior: an already-applied update must not be replayed.
+# Keep Telegram's stale-PTS behavior: an already-applied update must not be replayed.
 channel_delete_block = replace_once(
     channel_delete_block,
     "updatedState.deleteMessages(messages.map({ MessageId(peerId: peerId, namespace: Namespaces.Message.Cloud, id: $0) }))",
     "updatedState.deleteMessages(channelDeletedMessageIds)",
     "contiguous channel delete operation"
 )
-// Do not enqueue a deletion ahead of a PTS gap. pollChannel replays the
-// missing updates in order; the delete is captured when it returns contiguous.
-// If channel PTS is unknown, poll the channel first. The difference
+# Do not enqueue a deletion ahead of a PTS gap. pollChannel replays the
+# missing updates in order; the delete is captured when it returns contiguous.
+# If channel PTS is unknown, poll the channel first. The difference
 // response will replay a correctly ordered delete operation.
 state_text = state_text[:channel_delete_start] + channel_delete_block + state_text[channel_delete_end:]
 STATE.write_text(state_text, encoding="utf-8")
