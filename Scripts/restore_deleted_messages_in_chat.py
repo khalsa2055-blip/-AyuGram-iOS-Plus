@@ -664,56 +664,63 @@ CACHE_HELPER_SOURCE = r'''public func _internal_cacheAyuGramReceivedMessages(tra
     let messages = resolvedMessages.filter { !$0.isCopyProtected() && !$0.containsSecretMedia }
     guard !messages.isEmpty else { return }
 
-    var senderNames: [Int32: String] = [:]
-    var editDates: [Int32: Int32] = [:]
-    var mediaCaptures: [AyuMessageMediaCapture] = []
-    for message in messages {
-        editDates[message.id.id] = message.attributes.compactMap { ($0 as? EditedMessageAttribute)?.date }.max() ?? 0
-        if let author = message.author {
-            let name: String?
-            if let user = author as? TelegramUser {
-                let parts = [user.firstName, user.lastName].compactMap { $0 }.filter { !$0.isEmpty }
-                name = parts.isEmpty ? nil : parts.joined(separator: " ")
-            } else if let channel = author as? TelegramChannel {
-                name = channel.title
-            } else if let group = author as? TelegramGroup {
-                name = group.title
-            } else {
-                name = nil
+    // Message IDs are only unique inside a peer. Keep sender/media maps peer-scoped
+    // because chat-list hole batches can contain the same numeric message ID from
+    // several different groups.
+    let peerMessageGroups = Dictionary(grouping: messages, by: { $0.id.peerId })
+    for peerMessages in peerMessageGroups.values {
+        var senderNames: [Int32: String] = [:]
+        var editDates: [Int32: Int32] = [:]
+        var mediaCaptures: [AyuMessageMediaCapture] = []
+
+        for message in peerMessages {
+            editDates[message.id.id] = message.attributes.compactMap { ($0 as? EditedMessageAttribute)?.date }.max() ?? 0
+            if let author = message.author {
+                let name: String?
+                if let user = author as? TelegramUser {
+                    let parts = [user.firstName, user.lastName].compactMap { $0 }.filter { !$0.isEmpty }
+                    name = parts.isEmpty ? nil : parts.joined(separator: " ")
+                } else if let channel = author as? TelegramChannel {
+                    name = channel.title
+                } else if let group = author as? TelegramGroup {
+                    name = group.title
+                } else {
+                    name = nil
+                }
+                if let name, !name.isEmpty {
+                    senderNames[message.id.id] = name
+                }
             }
-            if let name, !name.isEmpty {
-                senderNames[message.id.id] = name
+
+            var resources: [AyuMediaResourceInfo] = []
+            for media in message.effectiveMedia {
+                if let image = media as? TelegramMediaImage,
+                   let representation = image.representations.max(by: {
+                       Int64($0.dimensions.width) * Int64($0.dimensions.height)
+                           < Int64($1.dimensions.width) * Int64($1.dimensions.height)
+                   }) {
+                    resources.append(AyuMediaResourceInfo(id: representation.resource.id.stringRepresentation, mimeType: "image/jpeg"))
+                } else if let file = media as? TelegramMediaFile {
+                    resources.append(AyuMediaResourceInfo(id: file.resource.id.stringRepresentation, mimeType: file.mimeType))
+                }
+            }
+            if !resources.isEmpty {
+                var seen: Set<String> = []
+                resources = resources.filter { seen.insert($0.id).inserted }
+                mediaCaptures.append(AyuMessageMediaCapture(messageID: message.id.id, resources: resources))
             }
         }
 
-        var resources: [AyuMediaResourceInfo] = []
-        for media in message.effectiveMedia {
-            if let image = media as? TelegramMediaImage,
-               let representation = image.representations.max(by: {
-                   Int64($0.dimensions.width) * Int64($0.dimensions.height)
-                       < Int64($1.dimensions.width) * Int64($1.dimensions.height)
-               }) {
-                resources.append(AyuMediaResourceInfo(id: representation.resource.id.stringRepresentation, mimeType: "image/jpeg"))
-            } else if let file = media as? TelegramMediaFile {
-                resources.append(AyuMediaResourceInfo(id: file.resource.id.stringRepresentation, mimeType: file.mimeType))
-            }
-        }
-        if !resources.isEmpty {
-            var seen: Set<String> = []
-            resources = resources.filter { seen.insert($0.id).inserted }
-            mediaCaptures.append(AyuMessageMediaCapture(messageID: message.id.id, resources: resources))
-        }
+        AyuGramCaptureService.cacheReceived(
+            transaction: transaction,
+            mediaBox: mediaBox,
+            messages: peerMessages,
+            mediaCaptures: mediaCaptures,
+            accountID: ayuAccountID,
+            senderNames: senderNames,
+            editDates: editDates
+        )
     }
-
-    AyuGramCaptureService.cacheReceived(
-        transaction: transaction,
-        mediaBox: mediaBox,
-        messages: messages,
-        mediaCaptures: mediaCaptures,
-        accountID: ayuAccountID,
-        senderNames: senderNames,
-        editDates: editDates
-    )
 }
 
 '''
@@ -1614,6 +1621,7 @@ assert "containsSecretMedia" not in capture_service_check
 assert "Namespaces" not in store_text
 assert "Namespaces" not in capture_service_check
 assert "editDates: editDates" in DELETE.read_text(encoding="utf-8")
+assert "Message IDs are only unique inside a peer" in DELETE.read_text(encoding="utf-8")
 assert "_internal_cacheAyuGramReceivedMessages(" in holes_check
 print("PASS: deleted markers are routed for text bubbles and media-only image/video status overlays.")
 print("PASS: server-deleted messages remain as local rows in their original chat.")
