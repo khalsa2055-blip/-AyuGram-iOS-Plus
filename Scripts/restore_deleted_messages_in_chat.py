@@ -1159,35 +1159,48 @@ if "AyuGram chat-list preview receive cache" not in holes_text:
 # ordinary history-hole loader. Cache them as well so group-topic and reply
 # previews use the same pre-delete safety net.
 thread_history_text = THREAD_HISTORY.read_text(encoding="utf-8")
-thread_add_anchor = "                        let _ = transaction.addMessages(parsedMessages, location: .Random)\n"
-thread_add_count = thread_history_text.count(thread_add_anchor)
-if thread_add_count == 2 and "AyuGram reply-thread receive cache" not in thread_history_text:
-    thread_cache = """                        // AyuGram reply-thread receive cache
-                        let ayuReplyMessageIds = parsedMessages.compactMap { message -> MessageId? in
-                            guard case let .Id(id) = message.id, id.namespace == Namespaces.Message.Cloud else {
-                                return nil
-                            }
-                            let peerNamespace = id.peerId.namespace
-                            guard peerNamespace == Namespaces.Peer.CloudUser
-                                || peerNamespace == Namespaces.Peer.CloudGroup
-                                || peerNamespace == Namespaces.Peer.CloudChannel else {
-                                return nil
-                            }
-                            return id
-                        }
-                        if !ayuReplyMessageIds.isEmpty {
-                            _internal_cacheAyuGramReceivedMessages(
-                                transaction: transaction,
-                                mediaBox: account.postbox.mediaBox,
-                                ids: ayuReplyMessageIds,
-                                ayuAccountID: accountPeerId.toInt64()
-                            )
-                        }
-"""
-    thread_history_text = thread_history_text.replace(thread_add_anchor, thread_add_anchor + thread_cache)
+thread_add_pattern = re.compile(
+    r"(?m)^(?P<indent>[ \t]+)let _ = transaction\.addMessages\(parsedMessages, location: \.Random\)$"
+)
+thread_add_matches = list(thread_add_pattern.finditer(thread_history_text))
+if "AyuGram reply-thread receive cache" not in thread_history_text:
+    if len(thread_add_matches) != 2:
+        raise SystemExit(f"ReplyThreadHistory addMessages anchors changed (found {len(thread_add_matches)})")
+    thread_cache_lines = [
+        "// AyuGram reply-thread receive cache",
+        "let ayuReplyMessageIds = parsedMessages.compactMap { message -> MessageId? in",
+        "    guard case let .Id(id) = message.id, id.namespace == Namespaces.Message.Cloud else {",
+        "        return nil",
+        "    }",
+        "    let peerNamespace = id.peerId.namespace",
+        "    guard peerNamespace == Namespaces.Peer.CloudUser",
+        "        || peerNamespace == Namespaces.Peer.CloudGroup",
+        "        || peerNamespace == Namespaces.Peer.CloudChannel else {",
+        "        return nil",
+        "    }",
+        "    return id",
+        "}",
+        "if !ayuReplyMessageIds.isEmpty {",
+        "    _internal_cacheAyuGramReceivedMessages(",
+        "        transaction: transaction,",
+        "        mediaBox: account.postbox.mediaBox,",
+        "        ids: ayuReplyMessageIds,",
+        "        ayuAccountID: accountPeerId.toInt64()",
+        "    )",
+        "}"
+    ]
+
+    def insert_reply_receive_cache(match: re.Match[str]) -> str:
+        indent = match.group("indent")
+        cache = "\n".join(indent + line for line in thread_cache_lines)
+        return match.group(0) + "\n" + cache
+
+    thread_history_text = thread_add_pattern.sub(insert_reply_receive_cache, thread_history_text)
+    if thread_history_text.count("AyuGram reply-thread receive cache") != 2:
+        raise SystemExit("ReplyThreadHistory cache was not inserted at both load paths")
     THREAD_HISTORY.write_text(thread_history_text, encoding="utf-8")
-elif thread_add_count != 2 and "AyuGram reply-thread receive cache" not in thread_history_text:
-    raise SystemExit(f"ReplyThreadHistory addMessages anchors changed (found {thread_add_count})")
+elif thread_history_text.count("AyuGram reply-thread receive cache") != 2:
+    raise SystemExit("ReplyThreadHistory cache marker exists but both load paths are not covered")
 
 load_messages_text = LOAD_MESSAGES.read_text(encoding="utf-8")
 load_add_anchor = "                            _ = transaction.addMessages(storeMessages, location: .Random)\n"
