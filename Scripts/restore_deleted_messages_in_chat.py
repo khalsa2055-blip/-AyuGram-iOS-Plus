@@ -408,11 +408,12 @@ if global_helper_signature not in state_text:
 
 # Share the exact server-delete operations between replayFinalState and its runtime test.
 server_handlers = r"""
-public func _internal_applyAyuGramServerDeleteMessages(transaction: Transaction, mediaBox: MediaBox, ids: [MessageId], accountID: Int64) -> Set<MessageId> {
+public func _internal_applyAyuGramServerDeleteMessages(transaction: Transaction, mediaBox: MediaBox, ids: [MessageId], accountID: Int64, manualAddMessageThreadStatsDifference: ((MessageThreadKey, Int, Int) -> Void)? = nil) -> Set<MessageId> {
     let retained = _internal_deleteMessages(
         transaction: transaction,
         mediaBox: mediaBox,
         ids: ids,
+        manualAddMessageThreadStatsDifference: manualAddMessageThreadStatsDifference,
         ayuAccountID: accountID,
         preserveDeletedMessagesInChat: true
     )
@@ -446,7 +447,9 @@ direct_delete_block = state_text[direct_delete_start:direct_delete_end]
 old_direct_delete_call = """                _internal_deleteMessages(transaction: transaction, mediaBox: mediaBox, ids: ids, manualAddMessageThreadStatsDifference: { id, add, remove in
                     addMessageThreadStatsDifference(threadKey: id, remove: remove, addedMessagePeer: nil, addedMessageId: nil, isOutgoing: false)
                 }, ayuAccountID: accountPeerId.toInt64())"""
-new_direct_delete_call = """                let ayuRetainedDeletedMessageIds = _internal_applyAyuGramServerDeleteMessages(transaction: transaction, mediaBox: mediaBox, ids: ids, accountID: accountPeerId.toInt64())"""
+new_direct_delete_call = """                let ayuRetainedDeletedMessageIds = _internal_applyAyuGramServerDeleteMessages(transaction: transaction, mediaBox: mediaBox, ids: ids, accountID: accountPeerId.toInt64(), manualAddMessageThreadStatsDifference: { id, add, remove in
+                    addMessageThreadStatsDifference(threadKey: id, remove: remove, addedMessagePeer: nil, addedMessageId: nil, isOutgoing: false)
+                })"""
 direct_delete_block = replace_once(
     direct_delete_block,
     old_direct_delete_call,
@@ -501,42 +504,17 @@ channel_delete_block = replace_once(
     "let peerId = PeerId(namespace: Namespaces.Peer.CloudChannel, id: PeerId.Id._internalFromInt64Value(channelId))\n                let channelDeletedMessageIds = messages.map({ MessageId(peerId: peerId, namespace: Namespaces.Message.Cloud, id: $0) })\n                AyuGramCaptureService.recordDeletedRouteDiagnostic(\"channel-update-arrived\", received: messages.count, mapped: channelDeletedMessageIds.count)\n",
     "channel deletion message IDs"
 )
-channel_delete_block = replace_once(
-    channel_delete_block,
-    """                    if previousState.pts >= pts {
-                        Logger.shared.log("State", "channel \(peerId) (\((updatedState.peers[peerId] as? TelegramChannel)?.title ?? "nil")) skip old delete update")
-                    } else if previousState.pts + ptsCount == pts {""",
-    """                    if previousState.pts >= pts {
-                        Logger.shared.log("State", "channel \(peerId) (\((updatedState.peers[peerId] as? TelegramChannel)?.title ?? "nil")) retain old delete update without changing PTS")
-                        updatedState.deleteMessages(channelDeletedMessageIds)
-                        print("[AyuGram] queued channel deletion despite stale PTS: channel=\(channelId), count=\(messages.count), previousPts=\(previousState.pts), pts=\(pts)")
-                    } else if previousState.pts + ptsCount == pts {""",
-    "channel deletion when PTS update is stale"
-)
+// Keep Telegram's stale-PTS behavior: an already-applied update must not be replayed.
 channel_delete_block = replace_once(
     channel_delete_block,
     "updatedState.deleteMessages(messages.map({ MessageId(peerId: peerId, namespace: Namespaces.Message.Cloud, id: $0) }))",
     "updatedState.deleteMessages(channelDeletedMessageIds)",
     "contiguous channel delete operation"
 )
-channel_delete_block = replace_once(
-    channel_delete_block,
-    "} else {\n                        if !missingUpdatesFromChannels.contains(peerId) {",
-    r"""} else {
-                        updatedState.deleteMessages(channelDeletedMessageIds)
-                        print("[AyuGram] queued channel deletion before PTS repair: channel=\(channelId), count=\(messages.count), previousPts=\(previousState.pts), pts=\(pts), ptsCount=\(ptsCount)")
-                        if !missingUpdatesFromChannels.contains(peerId) {""",
-    "channel deletion when PTS has a gap"
-)
-channel_delete_block = replace_once(
-    channel_delete_block,
-    "} else {\n                    if case .none = channelsToPoll[peerId] {",
-    r"""} else {
-                    updatedState.deleteMessages(channelDeletedMessageIds)
-                    print("[AyuGram] queued channel deletion with unknown PTS state: channel=\(channelId), count=\(messages.count), pts=\(pts)")
-                    if case .none = channelsToPoll[peerId] {""",
-    "channel deletion when PTS state is unknown"
-)
+// Do not enqueue a deletion ahead of a PTS gap. pollChannel replays the
+// missing updates in order; the delete is captured when it returns contiguous.
+// If channel PTS is unknown, poll the channel first. The difference
+// response will replay a correctly ordered delete operation.
 state_text = state_text[:channel_delete_start] + channel_delete_block + state_text[channel_delete_end:]
 STATE.write_text(state_text, encoding="utf-8")
 
