@@ -278,7 +278,8 @@ received_methods = r'''    @discardableResult
         transaction: Transaction,
         userID: Int64,
         globalIDs: [Int32],
-        excluding resolvedMessageIds: [MessageId]
+        excluding resolvedMessageIds: [MessageId],
+        allowedPeerNamespaces: Set<Int32>
     ) -> [AyuMessage] {
         guard !globalIDs.isEmpty else { return [] }
         let ids = Set(globalIDs)
@@ -289,7 +290,7 @@ received_methods = r'''    @discardableResult
             let key = "\(message.dialogID):\(message.messageID)"
             guard !resolved.contains(key) else { return false }
             let peer = PeerId(message.dialogID)
-            return peer.namespace == Namespaces.Peer.CloudUser || peer.namespace == Namespaces.Peer.CloudGroup
+            return allowedPeerNamespaces.contains(peer.namespace._internalGetInt32Value())
         }
         guard !matches.isEmpty else { return [] }
 
@@ -326,7 +327,8 @@ received_methods = r'''    @discardableResult
         transaction: Transaction,
         userID: Int64,
         globalIDs: [Int32],
-        excluding resolvedMessageIds: [MessageId]
+        excluding resolvedMessageIds: [MessageId],
+        allowedPeerNamespaces: Set<Int32>
     ) {
         guard !globalIDs.isEmpty else { return }
         let ids = Set(globalIDs)
@@ -338,7 +340,7 @@ received_methods = r'''    @discardableResult
             let key = "\(message.dialogID):\(message.messageID)"
             guard !resolved.contains(key) else { return false }
             let peer = PeerId(message.dialogID)
-            return peer.namespace == Namespaces.Peer.CloudUser || peer.namespace == Namespaces.Peer.CloudGroup
+            return allowedPeerNamespaces.contains(peer.namespace._internalGetInt32Value())
         }
         if state.messages.count != originalCount {
             transaction.setPreferencesEntry(key: receivedKey, value: PreferencesEntry(state))
@@ -470,7 +472,8 @@ received_capture_methods = r'''    public static func cacheReceived(
         transaction: Transaction,
         ids: [Int32],
         excluding resolvedMessageIds: [MessageId],
-        accountID: Int64
+        accountID: Int64,
+        allowedPeerNamespaces: Set<Int32>
     ) {
         let settingsStore = try? AyuGramRuntime.makeSettingsStore(accountID: accountID)
         guard settingsStore?.settings.saveDeletedMessages != false else {
@@ -478,7 +481,8 @@ received_capture_methods = r'''    public static func cacheReceived(
                 transaction: transaction,
                 userID: accountID,
                 globalIDs: ids,
-                excluding: resolvedMessageIds
+                excluding: resolvedMessageIds,
+                allowedPeerNamespaces: allowedPeerNamespaces
             )
             recordDeletedRouteDiagnostic("global-cache-disabled", received: ids.count)
             return
@@ -487,7 +491,8 @@ received_capture_methods = r'''    public static func cacheReceived(
             transaction: transaction,
             userID: accountID,
             globalIDs: ids,
-            excluding: resolvedMessageIds
+            excluding: resolvedMessageIds,
+            allowedPeerNamespaces: allowedPeerNamespaces
         )
         recordDeletedRouteDiagnostic(
             "global-cache-recovered",
@@ -881,7 +886,11 @@ public func _internal_applyAyuGramServerDeleteMessagesWithGlobalIds(transaction:
         transaction: transaction,
         ids: ids,
         excluding: messageIds,
-        accountID: accountID
+        accountID: accountID,
+        allowedPeerNamespaces: Set([
+            Namespaces.Peer.CloudUser._internalGetInt32Value(),
+            Namespaces.Peer.CloudGroup._internalGetInt32Value()
+        ])
     )
     let retained = _internal_retainDeletedMessagesWithGlobalIds(transaction: transaction, ids: ids, accountID: accountID)
     AyuGramCaptureService.recordDeletedRouteDiagnostic("global-delete-retained", received: ids.count, mapped: messageIds.count, retained: retained.count)
@@ -1602,6 +1611,8 @@ capture_service_check = CAPTURE_SERVICE.read_text(encoding="utf-8")
 assert "EditedMessageAttribute" not in capture_service_check
 assert "isCopyProtected" not in capture_service_check
 assert "containsSecretMedia" not in capture_service_check
+assert "Namespaces" not in store_text
+assert "Namespaces" not in capture_service_check
 assert "editDates: editDates" in DELETE.read_text(encoding="utf-8")
 assert "_internal_cacheAyuGramReceivedMessages(" in holes_check
 print("PASS: deleted markers are routed for text bubbles and media-only image/video status overlays.")
