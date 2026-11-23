@@ -837,7 +837,8 @@ assert "channelsToPoll[peerId] = nil" in channel_delete_block, "Unknown channel 
 assert "manualAddMessageThreadStatsDifference: manualAddMessageThreadStatsDifference" in state_check, "Server deletion wrapper must preserve thread-stat accounting"
 assert "for id in ids where !ayuRetainedDeletedMessageIds.contains(id)" in delete_check, "Retained channel messages must not decrement thread statistics"
 assert "ayuGlobalIdsToDelete = ids.filter" in state_check
-assert "_internal_applyAyuGramServerDeleteMessages(transaction: transaction, mediaBox: mediaBox, ids: ids, accountID: accountPeerId.toInt64())" in state_check
+assert "_internal_applyAyuGramServerDeleteMessages(transaction: transaction, mediaBox: mediaBox, ids: ids, accountID: accountPeerId.toInt64(), manualAddMessageThreadStatsDifference: { id, add, remove in" in state_check
+assert "addMessageThreadStatsDifference(threadKey: id, remove: remove, addedMessagePeer: nil, addedMessageId: nil, isOutgoing: false)" in state_check
 assert "_internal_applyAyuGramServerDeleteMessagesWithGlobalIds(transaction: transaction, mediaBox: mediaBox, ids: ids, accountID: accountPeerId.toInt64())" in state_check
 assert "public func _internal_applyAyuGramServerDeleteMessages(" in state_check
 assert "public func _internal_applyAyuGramServerDeleteMessagesWithGlobalIds(" in state_check
