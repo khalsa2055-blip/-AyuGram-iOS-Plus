@@ -1190,7 +1190,7 @@ thread_history_text = THREAD_HISTORY.read_text(encoding="utf-8")
 if "import AyuGramIOS\n" not in thread_history_text:
     thread_history_text = ensure_swift_import(thread_history_text, "import Postbox", "import AyuGramIOS", "ReplyThreadHistory AyuGramIOS import")
 thread_add_pattern = re.compile(
-    r"(?m)^(?P<indent>[ \\t]+)let _ = transaction\\.addMessages\\(parsedMessages, location: \\.Random\\)[ \\t]*$"
+    r"(?m)^(?P<indent>[ \t]+)let _ = transaction\.addMessages\(parsedMessages, location: \.Random\)[ \t]*$"
 )
 thread_add_matches = list(thread_add_pattern.finditer(thread_history_text))
 if not thread_add_matches:
@@ -1230,8 +1230,8 @@ for match in reversed(thread_add_matches):
     region = following if next_match is None else thread_history_text[match.end():next_match.start()]
     if "AyuGram reply-thread receive cache" not in region:
         indent = match.group("indent")
-        cache = "\\n".join(indent + line for line in thread_cache_lines)
-        thread_history_text = thread_history_text[:match.end()] + "\\n" + cache + thread_history_text[match.end():]
+        cache = "\n".join(indent + line for line in thread_cache_lines)
+        thread_history_text = thread_history_text[:match.end()] + "\n" + cache + thread_history_text[match.end():]
 
 if thread_history_text.count("AyuGram reply-thread receive cache") != len(thread_add_matches):
     raise SystemExit(
@@ -1249,13 +1249,13 @@ for swift_path, swift_text in (
 ):
     if "import AyuGramIOS" not in swift_text.splitlines():
         raise SystemExit(f"{swift_path}: AyuGramIOS import was not inserted as its own Swift line")
-    if r"\\nimport AyuGramIOS" in swift_text:
+    if r"\nimport AyuGramIOS" in swift_text:
         raise SystemExit(f"{swift_path}: literal \\n leaked into Swift import section")
 
 load_messages_text = LOAD_MESSAGES.read_text(encoding="utf-8")
 if "import AyuGramIOS\n" not in load_messages_text:
     load_messages_text = ensure_swift_import(load_messages_text, "import Postbox", "import AyuGramIOS", "LoadMessagesIfNecessary AyuGramIOS import")
-if r"\\nimport AyuGramIOS" in load_messages_text:
+if r"\nimport AyuGramIOS" in load_messages_text:
     raise SystemExit(f"{LOAD_MESSAGES}: literal \\n leaked into Swift import section")
 load_add_anchor = "                            _ = transaction.addMessages(storeMessages, location: .Random)\n"
 if "AyuGram load-by-id receive cache" not in load_messages_text:
