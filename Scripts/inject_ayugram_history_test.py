@@ -359,6 +359,119 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                             let cloudChannelDuplicateIsIdempotent = cloudChannelDuplicateRetainedIDs.contains(cloudChannelMessageID)
                                 && cloudChannelHistoryCount == 1
 
+                            // A message cached on receipt must still be recoverable if its Postbox
+                            // row disappears before the later server deletion update is replayed.
+                            let receiveCacheChannelPeer = PeerId(
+                                namespace: Namespaces.Peer.CloudChannel,
+                                id: PeerId.Id._internalFromInt64Value(933000006)
+                            )
+                            let receiveCacheChannelID = MessageId(
+                                peerId: receiveCacheChannelPeer,
+                                namespace: Namespaces.Message.Cloud,
+                                id: 1700000130
+                            )
+                            let receiveCacheChannelText = "Synthetic receive-cache CloudChannel fallback"
+                            let receiveCacheChannelStoreMessage = StoreMessage(
+                                id: receiveCacheChannelID,
+                                customStableId: nil,
+                                globallyUniqueId: nil,
+                                groupingKey: nil,
+                                threadId: nil,
+                                timestamp: now,
+                                flags: [],
+                                tags: [],
+                                globalTags: [],
+                                localTags: [],
+                                forwardInfo: nil,
+                                authorId: nil,
+                                text: receiveCacheChannelText,
+                                attributes: [],
+                                media: []
+                            )
+                            transaction.addMessages([receiveCacheChannelStoreMessage], location: .Random)
+                            _internal_cacheAyuGramReceivedMessages(
+                                transaction: transaction,
+                                mediaBox: account.postbox.mediaBox,
+                                ids: [receiveCacheChannelID],
+                                ayuAccountID: accountID
+                            )
+                            transaction.deleteMessages([receiveCacheChannelID], forEachMedia: { _ in })
+                            _ = _internal_applyAyuGramServerDeleteMessages(
+                                transaction: transaction,
+                                mediaBox: account.postbox.mediaBox,
+                                ids: [receiveCacheChannelID],
+                                accountID: accountID
+                            )
+                            let receiveCacheChannelRecovered = AyuGramPostboxHistoryStore.filtered(
+                                transaction: transaction,
+                                userID: accountID,
+                                dialogID: receiveCacheChannelPeer.toInt64(),
+                                kind: .deleted,
+                                limit: 100
+                            ).contains {
+                                $0.messageID == receiveCacheChannelID.id
+                                    && $0.text == receiveCacheChannelText
+                                    && $0.isDeleted
+                                    && $0.deletedAt != nil
+                            }
+
+                            // Basic groups use Global IDs. Remove both the row and its lookup
+                            // mapping before replaying deletion to prove the cache fallback works.
+                            let receiveCacheGroupPeer = PeerId(
+                                namespace: Namespaces.Peer.CloudGroup,
+                                id: PeerId.Id._internalFromInt64Value(933000007)
+                            )
+                            let receiveCacheGroupID = MessageId(
+                                peerId: receiveCacheGroupPeer,
+                                namespace: Namespaces.Message.Cloud,
+                                id: 1700000131
+                            )
+                            let receiveCacheGroupText = "Synthetic receive-cache CloudGroup Global ID fallback"
+                            let receiveCacheGroupStoreMessage = StoreMessage(
+                                id: receiveCacheGroupID,
+                                customStableId: nil,
+                                globallyUniqueId: nil,
+                                groupingKey: nil,
+                                threadId: nil,
+                                timestamp: now,
+                                flags: [],
+                                tags: [],
+                                globalTags: [],
+                                localTags: [],
+                                forwardInfo: nil,
+                                authorId: nil,
+                                text: receiveCacheGroupText,
+                                attributes: [],
+                                media: []
+                            )
+                            transaction.addMessages([receiveCacheGroupStoreMessage], location: .Random)
+                            _internal_cacheAyuGramReceivedMessages(
+                                transaction: transaction,
+                                mediaBox: account.postbox.mediaBox,
+                                ids: [receiveCacheGroupID],
+                                ayuAccountID: accountID
+                            )
+                            transaction.deleteMessages([receiveCacheGroupID], forEachMedia: { _ in })
+                            let receiveCacheGroupLookupAfterDelete = transaction.messageIdsForGlobalIds([receiveCacheGroupID.id]).isEmpty
+                            _ = _internal_applyAyuGramServerDeleteMessagesWithGlobalIds(
+                                transaction: transaction,
+                                mediaBox: account.postbox.mediaBox,
+                                ids: [receiveCacheGroupID.id],
+                                accountID: accountID
+                            )
+                            let receiveCacheGroupRecovered = AyuGramPostboxHistoryStore.filtered(
+                                transaction: transaction,
+                                userID: accountID,
+                                dialogID: receiveCacheGroupPeer.toInt64(),
+                                kind: .deleted,
+                                limit: 100
+                            ).contains {
+                                $0.messageID == receiveCacheGroupID.id
+                                    && $0.text == receiveCacheGroupText
+                                    && $0.isDeleted
+                                    && $0.deletedAt != nil
+                            }
+
                             let fallbackAccountID = accountID + Int64(now) + 9_000_000_000
                             let fallbackPeerId = PeerId(933000003)
                             let fallbackDialogID = fallbackPeerId.toInt64()
@@ -443,6 +556,9 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                                     "cloudChannelReturnedRetainedID": cloudChannelReturnedRetainedID,
                                     "cloudChannelHistoryCaptured": cloudChannelHistoryCaptured,
                                     "cloudChannelDuplicateIsIdempotent": cloudChannelDuplicateIsIdempotent,
+                                    "receiveCacheChannelRecovered": receiveCacheChannelRecovered,
+                                    "receiveCacheGroupLookupAfterDelete": receiveCacheGroupLookupAfterDelete,
+                                    "receiveCacheGroupRecovered": receiveCacheGroupRecovered,
                                     "settingsFallbackCapture": fallbackCasePassed
                                 ]
                             )
@@ -474,6 +590,9 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                                 && result.1["cloudChannelReturnedRetainedID"] == true
                                 && result.1["cloudChannelHistoryCaptured"] == true
                                 && result.1["cloudChannelDuplicateIsIdempotent"] == true
+                                && result.1["receiveCacheChannelRecovered"] == true
+                                && result.1["receiveCacheGroupLookupAfterDelete"] == true
+                                && result.1["receiveCacheGroupRecovered"] == true
                                 && result.1["settingsFallbackCapture"] == true
                             if let settingsStore, let originalSaveDeletedMessages {
                                 try? settingsStore.update { $0.saveDeletedMessages = originalSaveDeletedMessages }
@@ -505,6 +624,9 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                                 "cloudChannelHasDeletedMarker": result.1["cloudChannelHasDeletedMarker"] == true,
                                 "cloudChannelReturnedRetainedID": result.1["cloudChannelReturnedRetainedID"] == true,
                                 "cloudChannelHistoryCaptured": result.1["cloudChannelHistoryCaptured"] == true,
+                                "receiveCacheChannelRecovered": result.1["receiveCacheChannelRecovered"] == true,
+                                "receiveCacheGroupLookupAfterDelete": result.1["receiveCacheGroupLookupAfterDelete"] == true,
+                                "receiveCacheGroupRecovered": result.1["receiveCacheGroupRecovered"] == true,
                                 "settingsFallbackCapture": result.1["settingsFallbackCapture"] == true
                             ]
                             guard let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
