@@ -1114,6 +1114,45 @@ if "AyuGram history-hole receive cache" not in holes_text:
     holes_text = holes_text.replace(history_add_anchor, history_add_anchor + history_cache_call, 1)
     HOLES.write_text(holes_text, encoding="utf-8")
 
+# Chat-list hole pages also carry the newest group/channel message previews.
+# Cache those eligible rows before a later delete update can arrive while the
+# user has not opened the chat yet.
+chat_list_add_anchor = """            let _ = transaction.addMessages(fetchedChats.storeMessages, location: .UpperHistoryBlock)
+            let _ = transaction.addMessages(additionalMessages, location: .Random)
+"""
+if "AyuGram chat-list preview receive cache" not in holes_text:
+    if holes_text.count(chat_list_add_anchor) != 1:
+        raise SystemExit(f"Expected one chat-list addMessages anchor, found {holes_text.count(chat_list_add_anchor)}")
+    chat_list_cache = """            // AyuGram chat-list preview receive cache
+            let ayuChatListMessageIds = (fetchedChats.storeMessages + additionalMessages).compactMap { message -> MessageId? in
+                guard case let .Id(id) = message.id, id.namespace == Namespaces.Message.Cloud else {
+                    return nil
+                }
+                let peerNamespace = id.peerId.namespace
+                guard peerNamespace == Namespaces.Peer.CloudUser
+                    || peerNamespace == Namespaces.Peer.CloudGroup
+                    || peerNamespace == Namespaces.Peer.CloudChannel else {
+                    return nil
+                }
+                return id
+            }
+            if !ayuChatListMessageIds.isEmpty {
+                _internal_cacheAyuGramReceivedMessages(
+                    transaction: transaction,
+                    mediaBox: postbox.mediaBox,
+                    ids: ayuChatListMessageIds,
+                    ayuAccountID: accountPeerId.toInt64()
+                )
+            }
+"""
+    holes_text = holes_text.replace(
+        chat_list_add_anchor,
+        chat_list_add_anchor + chat_list_cache,
+        1
+    )
+    HOLES.write_text(holes_text, encoding="utf-8")
+
+
 
 
 # Explicitly fetched replies and message references are stored outside the
@@ -1533,6 +1572,7 @@ assert "public var isAyuGramDeleted: Bool" in interactive_media_check
 assert "isAyuGramDeleted: dateAndStatus.isAyuGramDeleted && !presentationData.isPreview" in interactive_media_check
 assert "Refresh cached copy after the current Postbox revision is installed." in state_check
 assert "AyuGram history-hole receive cache" in holes_check
+assert "AyuGram chat-list preview receive cache" in holes_check
 thread_history_check = THREAD_HISTORY.read_text(encoding="utf-8")
 load_messages_check = LOAD_MESSAGES.read_text(encoding="utf-8")
 assert "AyuGram reply-thread receive cache" in thread_history_check
