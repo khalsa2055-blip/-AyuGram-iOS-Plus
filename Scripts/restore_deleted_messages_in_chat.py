@@ -33,6 +33,17 @@ def replace_once(source: str, old: str, new: str, label: str) -> str:
     return source.replace(old, new, 1)
 
 
+def ensure_swift_import(source: str, anchor: str, module: str, label: str) -> str:
+    lines = source.splitlines()
+    if module in lines:
+        return source
+    matches = [index for index, line in enumerate(lines) if line.strip() == anchor]
+    if len(matches) != 1:
+        raise SystemExit(f"{label}: expected one {anchor!r} import line, found {len(matches)}")
+    lines.insert(matches[0] + 1, module)
+    return "\n".join(lines) + ("\n" if source.endswith("\n") else "")
+
+
 def matching_delimiter(source: str, start: int, opening: str, closing: str) -> int:
     depth = 0
     in_string = escaped = line_comment = block_comment = False
@@ -1099,7 +1110,7 @@ if edit_cache_signature not in edit_block:
 # state-manager route above.
 holes_text = HOLES.read_text(encoding="utf-8")
 if "import AyuGramIOS\n" not in holes_text:
-    holes_text = replace_once(holes_text, "import Postbox\n", "import Postbox\\nimport AyuGramIOS\\n", "Holes AyuGramIOS import")
+    holes_text = ensure_swift_import(holes_text, "import Postbox", "import AyuGramIOS", "Holes AyuGramIOS import")
 history_add_anchor = """                        let _ = transaction.addMessages(storeMessages, location: .Random)
                         let _ = transaction.addMessages(additionalMessages, location: .Random)
 """
@@ -1177,53 +1188,75 @@ if "AyuGram chat-list preview receive cache" not in holes_text:
 # previews use the same pre-delete safety net.
 thread_history_text = THREAD_HISTORY.read_text(encoding="utf-8")
 if "import AyuGramIOS\n" not in thread_history_text:
-    thread_history_text = replace_once(thread_history_text, "import Postbox\n", "import Postbox\\nimport AyuGramIOS\\n", "ReplyThreadHistory AyuGramIOS import")
+    thread_history_text = ensure_swift_import(thread_history_text, "import Postbox", "import AyuGramIOS", "ReplyThreadHistory AyuGramIOS import")
 thread_add_pattern = re.compile(
-    r"(?m)^(?P<indent>[ \t]+)let _ = transaction\.addMessages\(parsedMessages, location: \.Random\)$"
+    r"(?m)^(?P<indent>[ \\t]+)let _ = transaction\\.addMessages\\(parsedMessages, location: \\.Random\\)[ \\t]*$"
 )
 thread_add_matches = list(thread_add_pattern.finditer(thread_history_text))
-if "AyuGram reply-thread receive cache" not in thread_history_text:
-    if len(thread_add_matches) != 2:
-        raise SystemExit(f"ReplyThreadHistory addMessages anchors changed (found {len(thread_add_matches)})")
-    thread_cache_lines = [
-        "// AyuGram reply-thread receive cache",
-        "let ayuReplyMessageIds = parsedMessages.compactMap { message -> MessageId? in",
-        "    guard case let .Id(id) = message.id, id.namespace == Namespaces.Message.Cloud else {",
-        "        return nil",
-        "    }",
-        "    let peerNamespace = id.peerId.namespace",
-        "    guard peerNamespace == Namespaces.Peer.CloudUser",
-        "        || peerNamespace == Namespaces.Peer.CloudGroup",
-        "        || peerNamespace == Namespaces.Peer.CloudChannel else {",
-        "        return nil",
-        "    }",
-        "    return id",
-        "}",
-        "if !ayuReplyMessageIds.isEmpty {",
-        "    _internal_cacheAyuGramReceivedMessages(",
-        "        transaction: transaction,",
-        "        mediaBox: account.postbox.mediaBox,",
-        "        ids: ayuReplyMessageIds,",
-        "        ayuAccountID: accountPeerId.toInt64()",
-        "    )",
-        "}"
-    ]
+if not thread_add_matches:
+    raise SystemExit("ReplyThreadHistory parsedMessages addMessages anchors not found")
 
-    def insert_reply_receive_cache(match: re.Match[str]) -> str:
+thread_cache_lines = [
+    "// AyuGram reply-thread receive cache",
+    "let ayuReplyMessageIds = parsedMessages.compactMap { message -> MessageId? in",
+    "    guard case let .Id(id) = message.id, id.namespace == Namespaces.Message.Cloud else {",
+    "        return nil",
+    "    }",
+    "    let peerNamespace = id.peerId.namespace",
+    "    guard peerNamespace == Namespaces.Peer.CloudUser",
+    "        || peerNamespace == Namespaces.Peer.CloudGroup",
+    "        || peerNamespace == Namespaces.Peer.CloudChannel else {",
+    "        return nil",
+    "    }",
+    "    return id",
+    "}",
+    "if !ayuReplyMessageIds.isEmpty {",
+    "    _internal_cacheAyuGramReceivedMessages(",
+    "        transaction: transaction,",
+    "        mediaBox: account.postbox.mediaBox,",
+    "        ids: ayuReplyMessageIds,",
+    "        ayuAccountID: accountPeerId.toInt64()",
+    "    )",
+    "}"
+]
+
+# Insert after each parsedMessages write that is actually present in this
+# Telegram baseline. Some compatible source snapshots have one loader path,
+# others have two; every present path must be cached, but do not invent a
+# missing path or fail solely because the baseline has a different count.
+for match in reversed(thread_add_matches):
+    following = thread_history_text[match.end():]
+    next_match = next((candidate for candidate in thread_add_matches if candidate.start() > match.start()), None)
+    region = following if next_match is None else thread_history_text[match.end():next_match.start()]
+    if "AyuGram reply-thread receive cache" not in region:
         indent = match.group("indent")
-        cache = "\n".join(indent + line for line in thread_cache_lines)
-        return match.group(0) + "\n" + cache
+        cache = "\\n".join(indent + line for line in thread_cache_lines)
+        thread_history_text = thread_history_text[:match.end()] + "\\n" + cache + thread_history_text[match.end():]
 
-    thread_history_text = thread_add_pattern.sub(insert_reply_receive_cache, thread_history_text)
-    if thread_history_text.count("AyuGram reply-thread receive cache") != 2:
-        raise SystemExit("ReplyThreadHistory cache was not inserted at both load paths")
-    THREAD_HISTORY.write_text(thread_history_text, encoding="utf-8")
-elif thread_history_text.count("AyuGram reply-thread receive cache") != 2:
-    raise SystemExit("ReplyThreadHistory cache marker exists but both load paths are not covered")
+if thread_history_text.count("AyuGram reply-thread receive cache") != len(thread_add_matches):
+    raise SystemExit(
+        "ReplyThreadHistory cache coverage mismatch: "
+        f"{thread_history_text.count('AyuGram reply-thread receive cache')} markers for "
+        f"{len(thread_add_matches)} parsedMessages add paths"
+    )
+THREAD_HISTORY.write_text(thread_history_text, encoding="utf-8")
+
+
+# Ensure generated Swift imports are real lines, not escaped backslash-n text.
+for swift_path, swift_text in (
+    (HOLES, holes_text),
+    (THREAD_HISTORY, thread_history_text),
+):
+    if "import AyuGramIOS" not in swift_text.splitlines():
+        raise SystemExit(f"{swift_path}: AyuGramIOS import was not inserted as its own Swift line")
+    if r"\\nimport AyuGramIOS" in swift_text:
+        raise SystemExit(f"{swift_path}: literal \\n leaked into Swift import section")
 
 load_messages_text = LOAD_MESSAGES.read_text(encoding="utf-8")
 if "import AyuGramIOS\n" not in load_messages_text:
-    load_messages_text = replace_once(load_messages_text, "import Postbox\n", "import Postbox\\nimport AyuGramIOS\\n", "LoadMessagesIfNecessary AyuGramIOS import")
+    load_messages_text = ensure_swift_import(load_messages_text, "import Postbox", "import AyuGramIOS", "LoadMessagesIfNecessary AyuGramIOS import")
+if r"\\nimport AyuGramIOS" in load_messages_text:
+    raise SystemExit(f"{LOAD_MESSAGES}: literal \\n leaked into Swift import section")
 load_add_anchor = "                            _ = transaction.addMessages(storeMessages, location: .Random)\n"
 if "AyuGram load-by-id receive cache" not in load_messages_text:
     if load_messages_text.count(load_add_anchor) != 1:
