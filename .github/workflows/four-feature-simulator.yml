@@ -3191,3 +3191,4 @@ jobs:
 # Device IPA trigger documentation: build only after the validated simulator and compatibility checks.
 # One-time device IPA build request after simulator #312 delete-capture smoke and compatibility passed.
 # Manual IPA opt-in recorded after all source, compatibility and simulator checks passed.
+# [build-device-ipa] Run after successful CloudGroup Global-ID and CloudChannel PTS-safe simulator retention checks.
