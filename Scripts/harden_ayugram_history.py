@@ -2,6 +2,55 @@ from pathlib import Path
 import plistlib
 import re
 
+def matching_delimiter(source: str, start: int, opening: str, closing: str) -> int:
+    """Return the matching closing delimiter while ignoring Swift strings/comments."""
+    depth = 0
+    in_string = escaped = line_comment = block_comment = False
+    i = start
+    while i < len(source):
+        ch = source[i]
+        nxt = source[i + 1] if i + 1 < len(source) else ""
+        if line_comment:
+            if ch == "\\n":
+                line_comment = False
+            i += 1
+            continue
+        if block_comment:
+            if ch == "*" and nxt == "/":
+                block_comment = False
+                i += 2
+            else:
+                i += 1
+            continue
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            i += 1
+            continue
+        if ch == "/" and nxt == "/":
+            line_comment = True
+            i += 2
+            continue
+        if ch == "/" and nxt == "*":
+            block_comment = True
+            i += 2
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == opening:
+            depth += 1
+        elif ch == closing:
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    raise SystemExit(f"Could not find matching {closing!r} for Swift block at offset {start}")
+
+
 # This runs after the main AyuGram patch has been applied to Telegram-iOS.
 # It hardens the History implementation without changing the upstream patch.
 root = Path("telegram-ios") if Path("telegram-ios").is_dir() else Path(".")
