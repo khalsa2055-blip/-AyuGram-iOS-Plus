@@ -1257,6 +1257,14 @@ if "import AyuGramIOS\n" not in load_messages_text:
     load_messages_text = ensure_swift_import(load_messages_text, "import Postbox", "import AyuGramIOS", "LoadMessagesIfNecessary AyuGramIOS import")
 if r"\nimport AyuGramIOS" in load_messages_text:
     raise SystemExit(f"{LOAD_MESSAGES}: literal \\n leaked into Swift import section")
+if "import AyuGramIOS" not in load_messages_text.splitlines():
+    raise SystemExit(f"{LOAD_MESSAGES}: AyuGramIOS import was not inserted as its own Swift line")
+if "AyuGram history-hole receive cache" not in holes_text:
+    raise SystemExit("Normal history-hole loader is missing the received-message cache")
+if "AyuGram chat-list preview receive cache" not in holes_text:
+    raise SystemExit("Chat-list preview loader is missing the received-message cache")
+if "AyuGram load-by-id receive cache" not in load_messages_text:
+    raise SystemExit("Load-by-ID loader is missing the received-message cache")
 load_add_anchor = "                            _ = transaction.addMessages(storeMessages, location: .Random)\n"
 if "AyuGram load-by-id receive cache" not in load_messages_text:
     if load_messages_text.count(load_add_anchor) != 1:
@@ -1289,6 +1297,10 @@ if "AyuGram load-by-id receive cache" not in load_messages_text:
 
 
 STATE.write_text(state_text, encoding="utf-8")
+print(
+    "Verified received-message cache imports and loaders: "
+    f"history-hole + chat-list + {len(thread_add_matches)} reply-thread path(s) + load-by-ID."
+)
 
 # The engine-facing helper is Void; its call must not return the retained-ID set.
 engine_text = ENGINE.read_text(encoding="utf-8")
