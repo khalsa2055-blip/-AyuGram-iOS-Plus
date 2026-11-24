@@ -587,7 +587,7 @@ public enum AyuGramPostboxHistoryStore {
         if let userID {
             return filtered(transaction: transaction, userID: userID, kind: .all, limit: limit)
         }
-        let rows = legacyAccountIDs(transaction).flatMap { accountID in
+        let rows = legacyAccountIDs(transaction: transaction).flatMap { accountID in
             filtered(transaction: transaction, userID: accountID, kind: .all, limit: limit)
         }
         return Array(rows.sorted { $0.fakeID > $1.fakeID }.prefix(max(0, limit)))
@@ -601,7 +601,7 @@ public enum AyuGramPostboxHistoryStore {
         limit: Int = 500
     ) -> [AyuMessage] {
         guard let userID else {
-            let rows = legacyAccountIDs(transaction).flatMap { accountID in
+            let rows = legacyAccountIDs(transaction: transaction).flatMap { accountID in
                 filtered(transaction: transaction, userID: accountID, dialogID: dialogID, kind: kind, limit: limit)
             }
             return Array(rows.sorted { $0.fakeID > $1.fakeID }.prefix(max(0, limit)))
@@ -738,7 +738,7 @@ public enum AyuGramPostboxHistoryStore {
     }
 
     public static func clearAll(transaction: Transaction, userID: Int64? = nil) {
-        let accounts = userID.map { [$0] } ?? legacyAccountIDs(transaction)
+        let accounts = userID.map { [$0] } ?? legacyAccountIDs(transaction: transaction)
         for accountID in accounts {
             migrateLegacyIfNeeded(transaction: transaction, accountID: accountID)
             _ = withDatabase(accountID: accountID) { database in
@@ -797,7 +797,7 @@ public enum AyuGramPostboxHistoryStore {
         guard !ids.isEmpty else { return [] }
         migrateLegacyIfNeeded(transaction: transaction, accountID: userID)
         return withDatabase(accountID: userID) { database in
-            try? withTransaction(database) {
+            (try? withTransaction(database) {
                 var matches: [AyuMessage] = []
                 var cacheIDs: [Int64] = []
                 for id in ids {
@@ -840,7 +840,7 @@ public enum AyuGramPostboxHistoryStore {
                     )
                 }
                 return try appendInDatabase(database, snapshots: snapshots, deleted: true)
-            } ?? []
+            }) ?? []
         } ?? []
     }
 
@@ -855,7 +855,7 @@ public enum AyuGramPostboxHistoryStore {
         guard !globalIDs.isEmpty else { return [] }
         migrateLegacyIfNeeded(transaction: transaction, accountID: userID)
         return withDatabase(accountID: userID) { database in
-            try? withTransaction(database) {
+            (try? withTransaction(database) {
                 let globalIDSet = Set(globalIDs)
                 let resolved = Set(resolvedMessageIds.map { "\($0.peerId.toInt64()):\($0.id)" })
                 let received = try receivedMessages(database, userID: userID)
@@ -905,7 +905,7 @@ public enum AyuGramPostboxHistoryStore {
                     )
                 }
                 return try appendInDatabase(database, snapshots: snapshots, deleted: true)
-            } ?? []
+            }) ?? []
         } ?? []
     }
 
