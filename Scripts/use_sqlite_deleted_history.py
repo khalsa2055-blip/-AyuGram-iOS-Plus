@@ -536,11 +536,6 @@ public enum AyuGramPostboxHistoryStore {
     // Old installations stored both arrays in Postbox preferences. Import them
     // once per account and leave the old keys intact as a rollback safety copy.
     private static func migrateLegacyIfNeeded(transaction: Transaction, accountID: Int64) {
-        let oldHistory = transaction.getPreferencesEntry(key: legacyHistoryKey)?.get(AyuPostboxHistoryState.self)
-            ?? AyuPostboxHistoryState()
-        let oldReceived = transaction.getPreferencesEntry(key: legacyReceivedKey)?.get(AyuPostboxReceivedMessageState.self)
-            ?? AyuPostboxReceivedMessageState()
-
         _ = withDatabase(accountID: accountID) { database in
             let check = try? prepare(database, "SELECT 1 FROM migrations WHERE account_id=? AND migration='postbox-preferences-v1' LIMIT 1")
             guard let check else { return }
@@ -550,6 +545,10 @@ public enum AyuGramPostboxHistoryStore {
                 return
             }
 
+            let oldHistory = transaction.getPreferencesEntry(key: legacyHistoryKey)?.get(AyuPostboxHistoryState.self)
+                ?? AyuPostboxHistoryState()
+            let oldReceived = transaction.getPreferencesEntry(key: legacyReceivedKey)?.get(AyuPostboxReceivedMessageState.self)
+                ?? AyuPostboxReceivedMessageState()
             do {
                 try withTransaction(database) {
                     for message in oldHistory.messages where message.userID == accountID {
