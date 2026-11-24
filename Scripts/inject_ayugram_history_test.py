@@ -441,6 +441,26 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                                     && $0.isDeleted
                                     && $0.deletedAt != nil
                             }
+                            // Replaying the same delete after the cache entry was consumed
+                            // must not create a second History row.
+                            _ = _internal_applyAyuGramServerDeleteMessages(
+                                transaction: transaction,
+                                mediaBox: account.postbox.mediaBox,
+                                ids: [receiveCacheChannelID],
+                                accountID: accountID
+                            )
+                            let receiveCacheChannelHistoryCount = AyuGramPostboxHistoryStore.filtered(
+                                transaction: transaction,
+                                userID: accountID,
+                                dialogID: receiveCacheChannelPeer.toInt64(),
+                                kind: .deleted,
+                                limit: 100
+                            ).filter {
+                                $0.messageID == receiveCacheChannelID.id
+                                    && $0.text == receiveCacheChannelUpdatedText
+                                    && $0.isDeleted
+                            }.count
+                            let receiveCacheChannelReplayIsIdempotent = receiveCacheChannelHistoryCount == 1
 
                             // Basic groups use Global IDs. Remove both the row and its lookup
                             // mapping before replaying deletion to prove the cache fallback works.
@@ -498,6 +518,25 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                                     && $0.isDeleted
                                     && $0.deletedAt != nil
                             }
+                            // A repeated Global-ID delete must remain a single row.
+                            _ = _internal_applyAyuGramServerDeleteMessagesWithGlobalIds(
+                                transaction: transaction,
+                                mediaBox: account.postbox.mediaBox,
+                                ids: [receiveCacheGroupID.id],
+                                accountID: accountID
+                            )
+                            let receiveCacheGroupHistoryCount = AyuGramPostboxHistoryStore.filtered(
+                                transaction: transaction,
+                                userID: accountID,
+                                dialogID: receiveCacheGroupPeer.toInt64(),
+                                kind: .deleted,
+                                limit: 100
+                            ).filter {
+                                $0.messageID == receiveCacheGroupID.id
+                                    && $0.text == receiveCacheGroupText
+                                    && $0.isDeleted
+                            }.count
+                            let receiveCacheGroupReplayIsIdempotent = receiveCacheGroupHistoryCount == 1
 
                             let fallbackAccountID = accountID + Int64(now) + 9_000_000_000
                             let fallbackPeerId = PeerId(933000003)
@@ -584,8 +623,10 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                                     "cloudChannelHistoryCaptured": cloudChannelHistoryCaptured,
                                     "cloudChannelDuplicateIsIdempotent": cloudChannelDuplicateIsIdempotent,
                                     "receiveCacheChannelRecovered": receiveCacheChannelRecovered,
+                                    "receiveCacheChannelReplayIsIdempotent": receiveCacheChannelReplayIsIdempotent,
                                     "receiveCacheGroupLookupAfterDelete": receiveCacheGroupLookupAfterDelete,
                                     "receiveCacheGroupRecovered": receiveCacheGroupRecovered,
+                                    "receiveCacheGroupReplayIsIdempotent": receiveCacheGroupReplayIsIdempotent,
                                     "settingsFallbackCapture": fallbackCasePassed
                                 ]
                             )
@@ -618,8 +659,10 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                                 && result.1["cloudChannelHistoryCaptured"] == true
                                 && result.1["cloudChannelDuplicateIsIdempotent"] == true
                                 && result.1["receiveCacheChannelRecovered"] == true
+                                && result.1["receiveCacheChannelReplayIsIdempotent"] == true
                                 && result.1["receiveCacheGroupLookupAfterDelete"] == true
                                 && result.1["receiveCacheGroupRecovered"] == true
+                                && result.1["receiveCacheGroupReplayIsIdempotent"] == true
                                 && result.1["settingsFallbackCapture"] == true
                             if let settingsStore, let originalSaveDeletedMessages {
                                 try? settingsStore.update { $0.saveDeletedMessages = originalSaveDeletedMessages }
@@ -652,8 +695,10 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                                 "cloudChannelReturnedRetainedID": result.1["cloudChannelReturnedRetainedID"] == true,
                                 "cloudChannelHistoryCaptured": result.1["cloudChannelHistoryCaptured"] == true,
                                 "receiveCacheChannelRecovered": result.1["receiveCacheChannelRecovered"] == true,
+                                "receiveCacheChannelReplayIsIdempotent": result.1["receiveCacheChannelReplayIsIdempotent"] == true,
                                 "receiveCacheGroupLookupAfterDelete": result.1["receiveCacheGroupLookupAfterDelete"] == true,
                                 "receiveCacheGroupRecovered": result.1["receiveCacheGroupRecovered"] == true,
+                                "receiveCacheGroupReplayIsIdempotent": result.1["receiveCacheGroupReplayIsIdempotent"] == true,
                                 "settingsFallbackCapture": result.1["settingsFallbackCapture"] == true
                             ]
                             guard let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
