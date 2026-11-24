@@ -1614,6 +1614,9 @@ cache_helper = delete_check.split("public func _internal_cacheAyuGramReceivedMes
 assert "isCopyProtected()" not in cache_helper, "Pre-delete cache must not reject messages by copyProtected"
 global_retention = state_check.split("public func _internal_retainDeletedMessagesWithGlobalIds(", 1)[1].split("\n}", 1)[0]
 assert "isCopyProtected()" not in global_retention, "Global-ID retention must not reject messages by copyProtected"
+direct_delete_capture = delete_check.split("public func _internal_deleteMessages(", 1)[1].split("var resourceIds", 1)[0]
+assert "isCopyProtected()" not in direct_delete_capture, "Deleted-message media archival must not reject messages by copyProtected"
+assert "guard !message.containsSecretMedia else {" in direct_delete_capture, "Secret media must remain excluded from deleted-message archival"
 assert "AyuGramDeletedMessageDiagnostics.txt" in CAPTURE_SERVICE.read_text(encoding="utf-8")
 assert "?.settings.saveDeletedMessages != false" in delete_check
 assert "?.settings.saveDeletedMessages != false" in state_check
@@ -1705,5 +1708,5 @@ print("PASS: server-deleted messages remain as local rows in their original chat
 print("PASS: the original text/media/timestamp stay on the Telegram message; the timestamp carries the 🧹 mark.")
 print("PASS: interactive deletion still uses Telegram's normal deletion path.")
 print("PASS: the standalone AyuGram History navigation shortcuts are removed.")
-print("PASS: media archive, Before and Manual Save/saved/king code paths were not changed.")
+print("PASS: Before and Manual Save/saved/king code paths were not changed.")
 # Device IPA candidate follows the green CloudGroup/CloudChannel receive-cache simulator smoke; iPhone live-chat verification remains pending.
