@@ -1696,12 +1696,21 @@ assert "import AyuGramIOS" in thread_history_check
 assert "AyuGram reply-thread receive cache" in thread_history_check
 assert "import AyuGramIOS" in load_messages_check
 assert "AyuGram load-by-id receive cache" in load_messages_check
+live_receive_cache = state_check.split("// AyuGram pre-delete receive cache", 1)[1].split("case let .EditMessage(id, message):", 1)[0]
+assert "id.namespace == Namespaces.Message.Cloud" in live_receive_cache
+assert "Namespaces.Peer.CloudUser" in live_receive_cache
+assert "Namespaces.Peer.CloudGroup" in live_receive_cache
+assert "Namespaces.Peer.CloudChannel" in live_receive_cache
+assert "_internal_cacheAyuGramReceivedMessages(" in live_receive_cache
 capture_service_check = CAPTURE_SERVICE.read_text(encoding="utf-8")
 assert "EditedMessageAttribute" not in capture_service_check
 assert "isCopyProtected" not in capture_service_check
 assert "containsSecretMedia" not in capture_service_check
 assert "Namespaces.Peer" not in store_text and "Namespaces.Message" not in store_text
 assert "Namespaces.Peer" not in capture_service_check and "Namespaces.Message" not in capture_service_check
+assert "public static func cacheReceived(" in capture_service_check
+assert "public static func promoteReceivedToDeleted(" in store_text
+assert "state.messages.removeAll" in store_text, "Recovered cache entries must be consumed to prevent duplicate replays"
 assert "editDates: editDates" in DELETE.read_text(encoding="utf-8")
 assert "Message IDs are only unique inside a peer" in DELETE.read_text(encoding="utf-8")
 assert "_internal_cacheAyuGramReceivedMessages(" in holes_check
