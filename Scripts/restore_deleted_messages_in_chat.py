@@ -1617,6 +1617,7 @@ assert "isCopyProtected()" not in global_retention, "Global-ID retention must no
 direct_delete_capture = delete_check.split("public func _internal_deleteMessages(", 1)[1].split("var resourceIds", 1)[0]
 assert "isCopyProtected()" not in direct_delete_capture, "Deleted-message media archival must not reject messages by copyProtected"
 assert "guard !message.containsSecretMedia else {" in direct_delete_capture, "Secret media must remain excluded from deleted-message archival"
+# [validate-simulator] Exercise this exact branch head; simulator validation only, no device IPA.
 assert "AyuGramDeletedMessageDiagnostics.txt" in CAPTURE_SERVICE.read_text(encoding="utf-8")
 assert "?.settings.saveDeletedMessages != false" in delete_check
 assert "?.settings.saveDeletedMessages != false" in state_check
