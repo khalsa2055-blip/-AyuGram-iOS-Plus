@@ -143,7 +143,7 @@ for path in (DELETE, STATE, HOLES, THREAD_HISTORY, LOAD_MESSAGES, BUBBLE, TEXT_B
 
 
 capture_service_text = CAPTURE_SERVICE.read_text(encoding="utf-8")
-diagnostic_method = "    private static let deletionDiagnosticsLock = NSLock()\n\n    public static func recordDeletedRouteDiagnostic(\n        _ route: String,\n        received: Int,\n        mapped: Int? = nil,\n        retained: Int? = nil,\n        missing: Int? = nil,\n        copyProtected: Int? = nil,\n        secretMedia: Int? = nil,\n        alreadyRetained: Int? = nil,\n        peerNamespace: Int? = nil\n    ) {\n        deletionDiagnosticsLock.lock()\n        defer { deletionDiagnosticsLock.unlock() }\n\n        guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {\n            return\n        }\n        let fileURL = documentsURL.appendingPathComponent(\"AyuGramDeletedMessageDiagnostics.txt\")\n        let fields: [(String, Int?)] = [\n            (\"mapped\", mapped),\n            (\"retained\", retained),\n            (\"missing\", missing),\n            (\"copyProtected\", copyProtected),\n            (\"secretMedia\", secretMedia),\n            (\"alreadyRetained\", alreadyRetained),\n            (\"peerNamespace\", peerNamespace)\n        ]\n        let extra = fields.compactMap { key, value in value.map { \"\\(key)=\\($0)\" } }.joined(separator: \" \")\n        let suffix = extra.isEmpty ? \"\" : \" \\(extra)\"\n        let line = \"\\(Int(Date().timeIntervalSince1970)) \\(route) received=\\(received)\\(suffix)\\n\"\n\n        do {\n            var data = (try? Data(contentsOf: fileURL)) ?? Data()\n            data.append(Data(line.utf8))\n            if data.count > 65536 {\n                data = Data(data.suffix(32768))\n            }\n            try data.write(to: fileURL, options: .atomic)\n        } catch {\n            // Diagnostics are best-effort and must never affect Telegram deletion.\n        }\n    }\n\n"
+diagnostic_method = "    private static let deletionDiagnosticsLock = NSLock()\n\n    public static func recordDeletedRouteDiagnostic(\n        _ route: String,\n        received: Int,\n        mapped: Int? = nil,\n        retained: Int? = nil,\n        missing: Int? = nil,\n        secretMedia: Int? = nil,\n        alreadyRetained: Int? = nil,\n        peerNamespace: Int? = nil\n    ) {\n        deletionDiagnosticsLock.lock()\n        defer { deletionDiagnosticsLock.unlock() }\n\n        guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {\n            return\n        }\n        let fileURL = documentsURL.appendingPathComponent(\"AyuGramDeletedMessageDiagnostics.txt\")\n        let fields: [(String, Int?)] = [\n            (\"mapped\", mapped),\n            (\"retained\", retained),\n            (\"missing\", missing),\n            (\"secretMedia\", secretMedia),\n            (\"alreadyRetained\", alreadyRetained),\n            (\"peerNamespace\", peerNamespace)\n        ]\n        let extra = fields.compactMap { key, value in value.map { \"\\(key)=\\($0)\" } }.joined(separator: \" \")\n        let suffix = extra.isEmpty ? \"\" : \" \\(extra)\"\n        let line = \"\\(Int(Date().timeIntervalSince1970)) \\(route) received=\\(received)\\(suffix)\\n\"\n\n        do {\n            var data = (try? Data(contentsOf: fileURL)) ?? Data()\n            data.append(Data(line.utf8))\n            if data.count > 65536 {\n                data = Data(data.suffix(32768))\n            }\n            try data.write(to: fileURL, options: .atomic)\n        } catch {\n            // Diagnostics are best-effort and must never affect Telegram deletion.\n        }\n    }\n\n"
 enum_anchor = "public enum AyuGramCaptureService {\n"
 if "public static func recordDeletedRouteDiagnostic(" not in capture_service_text:
     if capture_service_text.count(enum_anchor) != 1:
@@ -544,17 +544,12 @@ retention_block = r'''    var ayuRetainedDeletedMessageIds = Set<MessageId>()
         let settingsAllowRetention = (try? AyuGramRuntime.makeSettingsStore(accountID: ayuAccountID))?.settings.saveDeletedMessages != false
         if settingsAllowRetention {
             var missing = 0
-            var copyProtected = 0
             var secretMedia = 0
             var alreadyRetained = 0
 
             for id in ids {
                 guard let message = transaction.getMessage(id) else {
                     missing += 1
-                    continue
-                }
-                if message.isCopyProtected() {
-                    copyProtected += 1
                     continue
                 }
                 if message.containsSecretMedia {
@@ -615,7 +610,6 @@ retention_block = r'''    var ayuRetainedDeletedMessageIds = Set<MessageId>()
                 mapped: ids.count - missing,
                 retained: ayuRetainedDeletedMessageIds.count,
                 missing: missing,
-                copyProtected: copyProtected,
                 secretMedia: secretMedia,
                 alreadyRetained: alreadyRetained,
                 peerNamespace: peerNamespace
@@ -662,17 +656,7 @@ DELETE.write_text(delete_text, encoding="utf-8")
 CACHE_HELPER_SOURCE = r'''public func _internal_cacheAyuGramReceivedMessages(transaction: Transaction, mediaBox: MediaBox, ids: [MessageId], ayuAccountID: Int64) {
     guard !ids.isEmpty else { return }
     let resolvedMessages = ids.compactMap { transaction.getMessage($0) }
-    let protectedMessages = resolvedMessages.filter { $0.isCopyProtected() || $0.containsSecretMedia }
-    if !protectedMessages.isEmpty {
-        AyuGramCaptureService.recordDeletedRouteDiagnostic(
-            "receive-cache-protected-skipped",
-            received: resolvedMessages.count,
-            mapped: resolvedMessages.count,
-            copyProtected: protectedMessages.filter { $0.isCopyProtected() }.count,
-            secretMedia: protectedMessages.filter { $0.containsSecretMedia }.count
-        )
-    }
-    let messages = resolvedMessages.filter { !$0.isCopyProtected() && !$0.containsSecretMedia }
+    let messages = resolvedMessages.filter { !$0.containsSecretMedia }
     guard !messages.isEmpty else { return }
 
     // Message IDs are only unique inside a peer. Keep sender/media maps peer-scoped
@@ -799,7 +783,6 @@ if global_helper_signature not in state_text:
     }
 
     var missing = 0
-    var copyProtected = 0
     var secretMedia = 0
     var alreadyRetained = 0
 
@@ -807,10 +790,6 @@ if global_helper_signature not in state_text:
         guard let messageID = transaction.messageIdsForGlobalIds([globalID]).first,
               let message = transaction.getMessage(messageID) else {
             missing += 1
-            continue
-        }
-        if message.isCopyProtected() {
-            copyProtected += 1
             continue
         }
         if message.containsSecretMedia {
@@ -869,7 +848,6 @@ if global_helper_signature not in state_text:
         mapped: ids.count - missing,
         retained: retainedGlobalIds.count,
         missing: missing,
-        copyProtected: copyProtected,
         secretMedia: secretMedia,
         alreadyRetained: alreadyRetained
     )
@@ -1630,7 +1608,12 @@ assert "preserveDeletedMessagesInChat: Bool = false" in delete_check
 assert "public static func recordDeletedRouteDiagnostic(" in CAPTURE_SERVICE.read_text(encoding="utf-8")
 assert '"peer-retention-summary"' in delete_check, "Channel/group retention diagnostics must report skip reasons"
 assert '"global-retention-summary"' in state_check, "Global-ID retention diagnostics must report skip reasons"
-assert "copyProtected: copyProtected" in delete_check and "secretMedia: secretMedia" in state_check
+peer_retention = delete_check.split("var ayuRetainedDeletedMessageIds", 1)[1].split("let idsToDelete", 1)[0]
+assert "isCopyProtected()" not in peer_retention, "Peer retention must not reject messages by copyProtected"
+cache_helper = delete_check.split("public func _internal_cacheAyuGramReceivedMessages(", 1)[1].split("public func _internal_captureDeletedMessages(", 1)[0]
+assert "isCopyProtected()" not in cache_helper, "Pre-delete cache must not reject messages by copyProtected"
+global_retention = state_check.split("public func _internal_retainDeletedMessagesWithGlobalIds(", 1)[1].split("\n}", 1)[0]
+assert "isCopyProtected()" not in global_retention, "Global-ID retention must not reject messages by copyProtected"
 assert "AyuGramDeletedMessageDiagnostics.txt" in CAPTURE_SERVICE.read_text(encoding="utf-8")
 assert "?.settings.saveDeletedMessages != false" in delete_check
 assert "?.settings.saveDeletedMessages != false" in state_check
