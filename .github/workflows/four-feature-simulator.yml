@@ -272,6 +272,7 @@ jobs:
           # Comprehensive AyuGram runtime smoke-test hook (UI + feature verification).
           python3 ../Scripts/inject_ayugram_history_test.py
           python3 ../Scripts/restore_deleted_messages_in_chat.py
+          python3 ../Scripts/use_sqlite_deleted_history.py
           # The simulator is intentionally unauthenticated. Verify the production
           # deleted-message route and Postbox persistence at source level; do not
           # require an AccountContext smoke report that cannot exist before login.
@@ -294,7 +295,11 @@ jobs:
 
           store = store_path.read_text(encoding="utf-8")
           assert "public static func appendDeleted(" in store
-          assert "transaction.setPreferencesEntry(key: key, value: PreferencesEntry(state))" in store
+          assert "import sqlcipher" in store
+          assert "CREATE TABLE IF NOT EXISTS history" in store
+          assert "CREATE TABLE IF NOT EXISTS received_cache" in store
+          assert "private static func migrateLegacyIfNeeded" in store
+          assert "transaction.setPreferencesEntry(key: key, value: PreferencesEntry(state))" not in store
 
           settings = settings_path.read_text(encoding="utf-8")
           assert "public var saveDeletedMessages = true" in settings
@@ -335,7 +340,7 @@ jobs:
           assert "case let .updateDeleteChannelMessages(" in updates
           assert "updatedState.deleteMessages(" in updates
 
-          print("PASS: deleted-message capture is default-on, routed before local/server deletion, and committed through Postbox.")
+          print("PASS: deleted-message capture is default-on, routed before local/server deletion, and persisted through account-scoped SQLite.")
           PY
           python3 "$GITHUB_WORKSPACE/.github/history-menu-smoke.py"
 
@@ -376,7 +381,7 @@ jobs:
               "Edit-history capture": "AyuGramCaptureService.captureEdited",
               "Regex filter gate": "AyuGramRuntime.shouldFilterMessage",
               "Media archive": "AyuGramMediaArchive.archive",
-              "Postbox history": "AyuGramPostboxHistoryStore",
+              "SQLite history": "import sqlcipher",
               "Message Shot renderer": "AyuMessageShotRenderer.render",
               "Zalgo/bidi sanitizer": "AyuTextSanitizer.filterZalgo",
               "Translation service": "class AyuGramTranslationService",
@@ -384,7 +389,7 @@ jobs:
               "In-chat deleted-message marker": "isAyuGramDeleted",
               "In-chat deleted-text marker": "isAyuGramDeleted: isAyuGramDeleted",
               "Manual AyuGram Save": "AyuGramCaptureService.saveNow(",
-              "Automatic History Postbox persistence": "AyuGramPostboxHistoryStore.appendDeleted",
+              "Automatic History SQLite persistence": "CREATE TABLE IF NOT EXISTS history",
           }
 
           missing = [name for name, marker in required.items() if marker not in text]
