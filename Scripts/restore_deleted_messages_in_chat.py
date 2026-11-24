@@ -884,11 +884,16 @@ if global_helper_signature not in state_text:
 # Share the exact server-delete operations between replayFinalState and its runtime test.
 server_handlers = r"""
 public func _internal_applyAyuGramServerDeleteMessages(transaction: Transaction, mediaBox: MediaBox, ids: [MessageId], accountID: Int64, manualAddMessageThreadStatsDifference: ((MessageThreadKey, Int, Int) -> Void)? = nil) -> Set<MessageId> {
-    // Record which rows exist before Telegram's deletion pass. The direct peer-ID
-    // route needs the same receive-cache fallback as the Global-ID route, but only
-    // for rows that were already absent; otherwise we would duplicate snapshots
-    // that _internal_deleteMessages captures synchronously below.
+    // Snapshot every row that is still in Postbox before marking it locally.
+    // Unlike the Global-ID route, _internal_deleteMessages only retains the row;
+    // it does not append the message to AyuGram History.
     let resolvedMessageIds = Set(ids.compactMap { transaction.getMessage($0)?.id })
+    _internal_captureDeletedMessages(
+        transaction: transaction,
+        mediaBox: mediaBox,
+        ids: ids,
+        ayuAccountID: accountID
+    )
     let retained = _internal_deleteMessages(
         transaction: transaction,
         mediaBox: mediaBox,
@@ -1638,6 +1643,8 @@ assert "let idsToDelete = ids.filter { !ayuRetainedDeletedMessageIds.contains($0
 assert "preserveDeletedMessagesInChat: true" in state_check
 peer_handler = state_check.split("public func _internal_applyAyuGramServerDeleteMessages(", 1)[1].split(chr(10) + "}", 1)[0]
 assert "let resolvedMessageIds = Set(ids.compactMap { transaction.getMessage($0)?.id })" in peer_handler, "Peer deletion must snapshot rows present before Telegram deletion"
+assert "_internal_captureDeletedMessages(" in peer_handler, "Direct peer-ID deletes must append rows still present in Postbox to SQLite History"
+assert peer_handler.index("_internal_captureDeletedMessages(") < peer_handler.index("_internal_deleteMessages("), "Direct peer-ID rows must be snapshotted before local retention/deletion"
 assert "AyuGramCaptureService.captureMissingDeletedFromCache(" in peer_handler, "Channel/supergroup deletion must promote cached messages missing from Postbox"
 assert "resolvedMessageIds: resolvedMessageIds" in peer_handler, "Peer cache fallback must exclude messages captured before deletion"
 assert "ayuRetainedGlobalIds" in state_check
