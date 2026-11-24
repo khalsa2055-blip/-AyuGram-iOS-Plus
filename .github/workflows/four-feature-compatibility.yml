@@ -28,7 +28,8 @@ concurrency:
 
 jobs:
   verify:
-    runs-on: macos-26
+    # Bazel compatibility check uses x86_64 Intel to avoid arm64/Rosetta tool mismatches.
+    runs-on: macos-26-intel
     steps:
       - name: Checkout project
         uses: actions/checkout@v5
