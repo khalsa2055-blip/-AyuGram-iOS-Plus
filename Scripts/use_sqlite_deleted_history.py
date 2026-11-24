@@ -87,17 +87,9 @@ public enum AyuGramPostboxHistoryStore {
     }
 
     private static func execute(_ database: OpaquePointer, _ sql: String) throws {
-        var error: UnsafeMutablePointer<CChar>?
-        let result = sql.withCString { sqlite3_exec(database, $0, nil, nil, &error) }
+        let result = sql.withCString { sqlite3_exec(database, $0, nil, nil, nil) }
         guard result == SQLITE_OK else {
-            let message = error.map { String(cString: $0) } ?? errorMessage(database)
-            if let error {
-                sqlite3_free(error)
-            }
-            throw StoreError.sqlite(message)
-        }
-        if let error {
-            sqlite3_free(error)
+            throw StoreError.sqlite(errorMessage(database))
         }
     }
 
@@ -169,7 +161,11 @@ public enum AyuGramPostboxHistoryStore {
                 )
             }
             guard openResult == SQLITE_OK, let database = handle else {
-                throw StoreError.sqlite(errorMessage(handle))
+                let message = errorMessage(handle)
+                if let handle {
+                    sqlite3_close(handle)
+                }
+                throw StoreError.sqlite(message)
             }
             defer { sqlite3_close(database) }
 
