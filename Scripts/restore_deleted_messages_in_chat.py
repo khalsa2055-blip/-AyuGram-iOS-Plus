@@ -1720,3 +1720,4 @@ print("PASS: the original text/media/timestamp stay on the Telegram message; the
 print("PASS: interactive deletion still uses Telegram's normal deletion path.")
 print("PASS: the standalone AyuGram History navigation shortcuts are removed.")
 print("PASS: media archive, Before and Manual Save/saved/king code paths were not changed.")
+# Device IPA candidate follows the green CloudGroup/CloudChannel receive-cache simulator smoke; iPhone live-chat verification remains pending.
