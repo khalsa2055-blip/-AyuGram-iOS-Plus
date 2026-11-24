@@ -2646,6 +2646,11 @@ jobs:
               "cloudChannelHasDeletedMarker",
               "cloudChannelReturnedRetainedID",
               "cloudChannelHistoryCaptured",
+              "receiveCacheChannelRecovered",
+              "receiveCacheChannelReplayIsIdempotent",
+              "receiveCacheGroupLookupAfterDelete",
+              "receiveCacheGroupRecovered",
+              "receiveCacheGroupReplayIsIdempotent",
               "settingsFallbackCapture",
           )
           failures = [key for key in required if report.get(key) is not True]
