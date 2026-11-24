@@ -13,6 +13,7 @@ if not build_path.is_file():
 
 source = r'''import Foundation
 import Postbox
+import BuildConfig
 import sqlcipher
 
 /// Legacy state models are retained only to import existing Postbox preferences
@@ -68,15 +69,47 @@ public enum AyuGramPostboxHistoryStore {
 
     // Keep the database separate from History media archives and Manual Save's
     // Documents/saved/king directory. Each Telegram account has its own file.
-    private static func databaseURL(accountID: Int64) throws -> URL {
-        guard let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            throw StoreError.sqlite("Application Support directory is unavailable")
+    private static func appGroupLocation() throws -> (rootPath: String, baseAppBundleId: String) {
+        guard
+            let appBundleIdentifier = Bundle.main.bundleIdentifier,
+            let lastDotRange = appBundleIdentifier.range(of: ".", options: .backwards)
+        else {
+            throw StoreError.sqlite("The Telegram app bundle identifier is unavailable")
         }
-        let directory = support
+        let baseAppBundleId = String(appBundleIdentifier[..<lastDotRange.lowerBound])
+        let appGroupIdentifier = "group.\(baseAppBundleId)"
+        guard let appGroupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupIdentifier) else {
+            throw StoreError.sqlite("The Telegram app group container is unavailable")
+        }
+        let rootURL = appGroupURL.appendingPathComponent("telegram-data", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        return (rootURL.path, baseAppBundleId)
+    }
+
+    private static func databaseURL(accountID: Int64) throws -> URL {
+        let location = try appGroupLocation()
+        let directory = URL(fileURLWithPath: location.rootPath, isDirectory: true)
             .appendingPathComponent("AyuGram", isDirectory: true)
             .appendingPathComponent("HistoryDatabase", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory.appendingPathComponent("account-\(accountID).sqlite", isDirectory: false)
+    }
+
+    private static func configureEncryption(_ database: OpaquePointer) throws {
+        let location = try appGroupLocation()
+        let parameters = BuildConfig.deviceSpecificEncryptionParameters(
+            location.rootPath,
+            baseAppBundleId: location.baseAppBundleId
+        )
+        guard parameters.key.count == 32, parameters.salt.count == 16 else {
+            throw StoreError.sqlite("Telegram's SQLCipher key material has an invalid size")
+        }
+        let keyHex = (Array(parameters.key) + Array(parameters.salt))
+            .map { String(format: "%02x", Int($0)) }
+            .joined()
+        try execute(database, "PRAGMA cipher_plaintext_header_size=32")
+        try execute(database, "PRAGMA cipher_default_plaintext_header_size=32")
+        try execute(database, "PRAGMA key=\"x'\(keyHex)'\"")
     }
 
     private static func errorMessage(_ database: OpaquePointer?) -> String {
@@ -170,6 +203,7 @@ public enum AyuGramPostboxHistoryStore {
             defer { sqlite3_close(database) }
 
             sqlite3_busy_timeout(database, 5000)
+            try configureEncryption(database)
             try execute(database, "PRAGMA journal_mode=WAL")
             try execute(database, "PRAGMA synchronous=NORMAL")
             try execute(database, "PRAGMA foreign_keys=ON")
@@ -972,16 +1006,23 @@ public enum AyuGramPostboxHistoryStore {
 store_path.write_text(source, encoding="utf-8")
 
 build = build_path.read_text(encoding="utf-8")
-dependency = '"//submodules/sqlcipher:sqlcipher",'
-if dependency not in build:
-    anchor = '"//submodules/Postbox:Postbox",'
-    if build.count(anchor) != 1:
-        raise SystemExit("Could not uniquely locate the Postbox dependency in AyuGramIOS/BUILD")
-    build = build.replace(anchor, anchor + "\n        " + dependency, 1)
+dependencies = [
+    '"//submodules/BuildConfig:BuildConfig",',
+    '"//submodules/sqlcipher:sqlcipher",',
+]
+anchor = '"//submodules/Postbox:Postbox",'
+for dependency in dependencies:
+    if dependency not in build:
+        if build.count(anchor) != 1:
+            raise SystemExit("Could not uniquely locate the Postbox dependency in AyuGramIOS/BUILD")
+        build = build.replace(anchor, anchor + "\n        " + dependency, 1)
 build_path.write_text(build, encoding="utf-8")
 
 required = [
+    "import BuildConfig",
     "import sqlcipher",
+    "BuildConfig.deviceSpecificEncryptionParameters",
+    "PRAGMA key=",
     "CREATE TABLE IF NOT EXISTS history",
     "CREATE TABLE IF NOT EXISTS received_cache",
     "public static func cacheReceived(",
