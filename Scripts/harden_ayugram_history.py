@@ -1719,6 +1719,22 @@ for delete_file in delete_paths:
             raise SystemExit(f"Automatic History photo capture anchor missing in {delete_file}")
         delete_file.write_text(d)
 
+    if delete_file.name == "DeleteMessages.swift":
+        # Remove Telegram's copyProtected flag only from deleted-message media
+        # archival. The separate Before/original-edit path is in another file.
+        old_deleted_media_gate = "guard !message.isCopyProtected(), !message.containsSecretMedia else {"
+        new_deleted_media_gate = "guard !message.containsSecretMedia else {"
+        if old_deleted_media_gate in d:
+            if d.count(old_deleted_media_gate) != 1:
+                raise SystemExit("Expected one direct deleted-message media protection gate")
+            d = d.replace(old_deleted_media_gate, new_deleted_media_gate, 1)
+        elif new_deleted_media_gate not in d:
+            raise SystemExit("Direct deleted-message media capture gate was not found")
+        direct_delete_capture = d.split("if let ayuAccountID", 1)[1].split("var resourceIds", 1)[0]
+        if "isCopyProtected()" in direct_delete_capture:
+            raise SystemExit("Direct deleted-message capture still uses copyProtected")
+        delete_file.write_text(d)
+
 # Re-check the extracted production capture helper after all other source rewrites.
 # The helper is the boundary that builds the complete History snapshot, so protected
 # messages must be filtered here (not merely omitted from mediaCaptures).
