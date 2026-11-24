@@ -487,7 +487,7 @@ public enum AyuGramPostboxHistoryStore {
     ) throws -> [AyuMessage] {
         return try selectMessages(
             database,
-            sql: "SELECT \(historyColumns.replacingOccurrences(of: "fake_id", with: "cache_id", range: historyColumns.range(of: "fake_id"))) FROM received_cache WHERE user_id=? ORDER BY cache_id ASC",
+            sql: "SELECT cache_id AS fake_id, user_id, dialog_id, peer_id, from_id, from_name, topic_id, message_id, date, edit_date, text, media_path, mime_type, is_deleted, deleted_at FROM received_cache WHERE user_id=? ORDER BY cache_id ASC",
             values: [.integer(userID)],
             received: true
         )
@@ -580,9 +580,19 @@ public enum AyuGramPostboxHistoryStore {
 
     // MARK: - History reads
 
+    private static func legacyAccountIDs(transaction: Transaction) -> [Int64] {
+        let history = transaction.getPreferencesEntry(key: legacyHistoryKey)?.get(AyuPostboxHistoryState.self)
+            ?? AyuPostboxHistoryState()
+        let received = transaction.getPreferencesEntry(key: legacyReceivedKey)?.get(AyuPostboxReceivedMessageState.self)
+            ?? AyuPostboxReceivedMessageState()
+        return Array(Set(history.messages.map(\.userID) + received.messages.map(\.userID))).sorted()
+    }
+
     public static func all(transaction: Transaction, limit: Int = 500) -> [AyuMessage] {
-        _ = transaction
-        return []
+        let rows = legacyAccountIDs(transaction).flatMap { accountID in
+            filtered(transaction: transaction, userID: accountID, kind: .all, limit: limit)
+        }
+        return Array(rows.sorted { $0.fakeID > $1.fakeID }.prefix(max(0, limit)))
     }
 
     public static func filtered(
@@ -724,10 +734,17 @@ public enum AyuGramPostboxHistoryStore {
         }
     }
 
-    public static func clearAll(transaction: Transaction) {
-        _ = transaction
-        // The legacy API is not used by the production History UI. A caller must
-        // clear a specific account with clearDeletedForAccount or clearDeleted.
+    public static func clearAll(transaction: Transaction, userID: Int64? = nil) {
+        let accounts = userID.map { [$0] } ?? legacyAccountIDs(transaction)
+        for accountID in accounts {
+            migrateLegacyIfNeeded(transaction: transaction, accountID: accountID)
+            _ = withDatabase(accountID: accountID) { database in
+                try withTransaction(database) {
+                    try execute(database, "DELETE FROM history WHERE user_id=\(accountID)")
+                    try execute(database, "DELETE FROM received_cache WHERE user_id=\(accountID)")
+                }
+            }
+        }
     }
 
     // MARK: - Received-message cache
@@ -845,31 +862,24 @@ public enum AyuGramPostboxHistoryStore {
                     return allowedPeerNamespaces.contains(PeerId(message.dialogID).namespace._internalGetInt32Value())
                 }
                 guard !matches.isEmpty else { return [] }
-                let allRows = try prepare(database, """
-                    SELECT cache_id FROM received_cache WHERE user_id=? ORDER BY cache_id ASC
-                    """)
-                try bind(.integer(userID), to: allRows, at: 1)
-                var matchedIDs: [Int64] = []
                 let matchKeys = Set(matches.map { "\($0.dialogID):\($0.messageID)" })
-                while sqlite3_step(allRows) == SQLITE_ROW {
-                    // The SELECT is intentionally paired with the ordered received-cache
-                    // list; cache rows are scoped to one account and both share cache_id order.
-                    matchedIDs.append(sqlite3_column_int64(allRows, 0))
-                }
-                sqlite3_finalize(allRows)
                 let actualRows = try prepare(database, """
                     SELECT cache_id, dialog_id, message_id FROM received_cache WHERE user_id=?
                     """)
+                defer { sqlite3_finalize(actualRows) }
                 try bind(.integer(userID), to: actualRows, at: 1)
                 var deleteIDs: [Int64] = []
-                while sqlite3_step(actualRows) == SQLITE_ROW {
+                while true {
+                    let result = sqlite3_step(actualRows)
+                    if result == SQLITE_DONE { break }
+                    guard result == SQLITE_ROW else {
+                        throw StoreError.sqlite(errorMessage(database))
+                    }
                     let key = "\(sqlite3_column_int64(actualRows, 1)):\(sqlite3_column_int(actualRows, 2))"
                     if matchKeys.contains(key) {
                         deleteIDs.append(sqlite3_column_int64(actualRows, 0))
                     }
                 }
-                sqlite3_finalize(actualRows)
-                _ = matchedIDs
                 try deleteReceivedRows(database, cacheIDs: deleteIDs)
                 let now = Int32(Date().timeIntervalSince1970)
                 let snapshots = matches.map { message in
