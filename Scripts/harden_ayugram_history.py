@@ -1679,18 +1679,7 @@ for delete_file in delete_paths:
         anchor = "    let messages = ids.compactMap { transaction.getMessage($0) }\n"
         if anchor in d:
             insertion = '''    let resolvedMessages = ids.compactMap { transaction.getMessage($0) }
-    let protectedMessages = resolvedMessages.filter { $0.isCopyProtected() || $0.containsSecretMedia }
-    if !protectedMessages.isEmpty {
-        AyuGramCaptureService.recordDeletedRouteDiagnostic(
-            "capture-protected-skipped",
-            received: resolvedMessages.count,
-            mapped: resolvedMessages.count,
-            copyProtected: protectedMessages.filter { $0.isCopyProtected() }.count,
-            secretMedia: protectedMessages.filter { $0.containsSecretMedia }.count
-        )
-    }
-    // Do not archive protected message text or metadata, not only its media.
-    let messages = resolvedMessages.filter { !$0.isCopyProtected() && !$0.containsSecretMedia }
+    let messages = resolvedMessages.filter { !$0.containsSecretMedia }
     var ayuSenderNames: [Int32: String] = [:]
     for message in messages {
         if let author = message.author {
@@ -1743,59 +1732,54 @@ if helper_brace < 0:
     raise SystemExit("Deleted-message capture helper opening brace missing")
 helper_end = matching_delimiter(delete_source_text, helper_brace, "{", "}") + 1
 helper_text = delete_source_text[helper_start:helper_end]
-protected_filter = "let messages = resolvedMessages.filter { !$0.isCopyProtected() && !$0.containsSecretMedia }"
-if protected_filter not in helper_text:
-    original_lookup = "let messages = ids.compactMap { transaction.getMessage($0) }"
-    if original_lookup not in helper_text:
-        raise SystemExit("Could not safely locate the message snapshot inside the capture helper")
-    indent_match = re.search(r"(?m)^(?P<indent> *)let messages = ids\.compactMap \{ transaction\.getMessage\(\$0\) \}$", helper_text)
-    if indent_match is None:
-        raise SystemExit("Capture helper message lookup indentation could not be resolved")
-    indent = indent_match.group("indent")
-    replacement = "\n".join([
-        f"{indent}let resolvedMessages = ids.compactMap {{ transaction.getMessage($0) }}",
-        f"{indent}let protectedMessages = resolvedMessages.filter {{ $0.isCopyProtected() || $0.containsSecretMedia }}",
-        f"{indent}if !protectedMessages.isEmpty {{",
-        f"{indent}    AyuGramCaptureService.recordDeletedRouteDiagnostic(",
-        f'{indent}        "capture-protected-skipped",',
-        f"{indent}        received: resolvedMessages.count,",
-        f"{indent}        mapped: resolvedMessages.count,",
-        f"{indent}        copyProtected: protectedMessages.filter {{ $0.isCopyProtected() }}.count,",
-        f"{indent}        secretMedia: protectedMessages.filter {{ $0.containsSecretMedia }}.count",
-        f"{indent}    )",
-        f"{indent}}}",
-        f"{indent}// Never add protected message text or metadata to the History snapshot.",
-        f"{indent}{protected_filter}"
-    ])
-    helper_text = helper_text.replace(original_lookup, replacement, 1)
-else:
-    if '"capture-protected-skipped"' not in helper_text:
-        resolved_line = "let resolvedMessages = ids.compactMap { transaction.getMessage($0) }"
-        if resolved_line not in helper_text:
-            raise SystemExit("Protected capture filter exists but its diagnostic anchor is missing")
-        indent_match = re.search(r"(?m)^(?P<indent> *)let resolvedMessages = ids\.compactMap", helper_text)
-        if indent_match is None:
-            raise SystemExit("Protected capture diagnostic indentation could not be resolved")
-        indent = indent_match.group("indent")
-        diagnostic = "\n".join([
-            f"{indent}let protectedMessages = resolvedMessages.filter {{ $0.isCopyProtected() || $0.containsSecretMedia }}",
-            f"{indent}if !protectedMessages.isEmpty {{",
-            f"{indent}    AyuGramCaptureService.recordDeletedRouteDiagnostic(",
-            f'{indent}        "capture-protected-skipped",',
-            f"{indent}        received: resolvedMessages.count,",
-            f"{indent}        mapped: resolvedMessages.count,",
-            f"{indent}        copyProtected: protectedMessages.filter {{ $0.isCopyProtected() }}.count,",
-            f"{indent}        secretMedia: protectedMessages.filter {{ $0.containsSecretMedia }}.count",
-            f"{indent}    )",
-            f"{indent}}}"
-        ])
-        helper_text = helper_text.replace(resolved_line, resolved_line + "\n" + diagnostic, 1)
+history_filter = "let messages = resolvedMessages.filter { !$0.containsSecretMedia }"
+old_protected_filter = "let messages = resolvedMessages.filter { !$0.isCopyProtected() && !$0.containsSecretMedia }"
+resolved_lookup = "let resolvedMessages = ids.compactMap { transaction.getMessage($0) }"
+old_lookup = "let messages = ids.compactMap { transaction.getMessage($0) }"
+protected_declaration = "let protectedMessages = resolvedMessages.filter { $0.isCopyProtected() || $0.containsSecretMedia }"
 
-if protected_filter not in helper_text or '"capture-protected-skipped"' not in helper_text:
-    raise SystemExit("Protected-content exclusion was not installed in the complete History snapshot path")
+if protected_declaration in helper_text:
+    protected_start = helper_text.index(protected_declaration)
+    filter_start = helper_text.find(old_protected_filter, protected_start)
+    if filter_start < 0:
+        raise SystemExit("Old protected capture block is incomplete")
+    line_start = helper_text.rfind("\n", 0, protected_start) + 1
+    filter_line_end = helper_text.find("\n", filter_start)
+    if filter_line_end < 0:
+        filter_line_end = len(helper_text)
+    else:
+        filter_line_end += 1
+    indent = helper_text[line_start:protected_start]
+    helper_text = helper_text[:line_start] + indent + history_filter + "\n" + helper_text[filter_line_end:]
+elif old_protected_filter in helper_text:
+    helper_text = helper_text.replace(old_protected_filter, history_filter, 1)
+elif history_filter not in helper_text:
+    if old_lookup in helper_text:
+        lookup_start = helper_text.index(old_lookup)
+        line_start = helper_text.rfind("\n", 0, lookup_start) + 1
+        indent = helper_text[line_start:lookup_start]
+        helper_text = helper_text.replace(
+            old_lookup,
+            indent + resolved_lookup + "\n" + indent + history_filter,
+            1
+        )
+    elif resolved_lookup in helper_text:
+        lookup_start = helper_text.index(resolved_lookup)
+        line_start = helper_text.rfind("\n", 0, lookup_start) + 1
+        indent = helper_text[line_start:lookup_start]
+        helper_text = helper_text.replace(
+            resolved_lookup,
+            resolved_lookup + "\n" + indent + history_filter,
+            1
+        )
+    else:
+        raise SystemExit("Capture helper has no safe message lookup anchor")
+
+if "isCopyProtected()" in helper_text or history_filter not in helper_text:
+    raise SystemExit("Deleted-message History helper still filters through copyProtected")
 delete_source_text = delete_source_text[:helper_start] + helper_text + delete_source_text[helper_end:]
 delete_source.write_text(delete_source_text, encoding="utf-8")
-print("Verified protected text and media are excluded before creating deleted-message History snapshots.")
+print("Verified deleted-message History capture includes group/channel/private messages except secret media.")
 
 # Preserve the sender of the pre-edit snapshot as well as deleted-message snapshots.
 capture_text = capture.read_text(encoding="utf-8")
