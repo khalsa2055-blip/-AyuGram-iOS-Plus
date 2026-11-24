@@ -70,13 +70,12 @@ public enum AyuGramPostboxHistoryStore {
     // Keep the database separate from History media archives and Manual Save's
     // Documents/saved/king directory. Each Telegram account has its own file.
     private static func appGroupLocation() throws -> (rootPath: String, baseAppBundleId: String) {
-        guard
-            let appBundleIdentifier = Bundle.main.bundleIdentifier,
-            let lastDotRange = appBundleIdentifier.range(of: ".", options: .backwards)
-        else {
+        // AyuGramIOS is linked into the main Telegram app. Telegram's AppDelegate
+        // uses the complete main-app bundle identifier here; only app extensions
+        // strip their final extension suffix before resolving the shared group.
+        guard let baseAppBundleId = Bundle.main.bundleIdentifier else {
             throw StoreError.sqlite("The Telegram app bundle identifier is unavailable")
         }
-        let baseAppBundleId = String(appBundleIdentifier[..<lastDotRange.lowerBound])
         let appGroupIdentifier = "group.\(baseAppBundleId)"
         guard let appGroupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupIdentifier) else {
             throw StoreError.sqlite("The Telegram app group container is unavailable")
