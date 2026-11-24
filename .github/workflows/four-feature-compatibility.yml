@@ -491,7 +491,7 @@ jobs:
           media_archive = Path("telegram-ios/submodules/AyuGramIOS/Sources/AyuGramMediaArchive.swift").read_text(encoding="utf-8")
           capture_service = Path("telegram-ios/submodules/AyuGramIOS/Sources/AyuGramCaptureService.swift").read_text(encoding="utf-8")
           assert "fromName: snapshot.fromName" in history_store
-          assert "deletedAt: snapshot.deletedAt" in history_store
+          assert "deletedAt: deleted ? (snapshot.deletedAt ?? deletedAtNow) : nil" in history_store
           assert "revisionKey: String? = nil" in media_archive
           assert "revisionKey.map" in media_archive
           for revision in ('revisionKey: "deleted"', 'revisionKey: "manual-\\(UUID().uuidString)"', 'revisionKey: "edit-\\(editDate)-\\(UUID().uuidString)"'):
