@@ -884,6 +884,11 @@ if global_helper_signature not in state_text:
 # Share the exact server-delete operations between replayFinalState and its runtime test.
 server_handlers = r"""
 public func _internal_applyAyuGramServerDeleteMessages(transaction: Transaction, mediaBox: MediaBox, ids: [MessageId], accountID: Int64, manualAddMessageThreadStatsDifference: ((MessageThreadKey, Int, Int) -> Void)? = nil) -> Set<MessageId> {
+    // Record which rows exist before Telegram's deletion pass. The direct peer-ID
+    // route needs the same receive-cache fallback as the Global-ID route, but only
+    // for rows that were already absent; otherwise we would duplicate snapshots
+    // that _internal_deleteMessages captures synchronously below.
+    let resolvedMessageIds = Set(ids.compactMap { transaction.getMessage($0)?.id })
     let retained = _internal_deleteMessages(
         transaction: transaction,
         mediaBox: mediaBox,
@@ -892,7 +897,18 @@ public func _internal_applyAyuGramServerDeleteMessages(transaction: Transaction,
         ayuAccountID: accountID,
         preserveDeletedMessagesInChat: true
     )
-    AyuGramCaptureService.recordDeletedRouteDiagnostic("peer-delete-replay", received: ids.count, mapped: ids.count, retained: retained.count)
+    AyuGramCaptureService.captureMissingDeletedFromCache(
+        transaction: transaction,
+        ids: ids,
+        resolvedMessageIds: resolvedMessageIds,
+        accountID: accountID
+    )
+    AyuGramCaptureService.recordDeletedRouteDiagnostic(
+        "peer-delete-replay",
+        received: ids.count,
+        mapped: resolvedMessageIds.count,
+        retained: retained.count
+    )
     return retained
 }
 
@@ -1620,6 +1636,10 @@ assert "?.settings.saveDeletedMessages != false" in delete_check
 assert "?.settings.saveDeletedMessages != false" in state_check
 assert "let idsToDelete = ids.filter { !ayuRetainedDeletedMessageIds.contains($0) }" in delete_check
 assert "preserveDeletedMessagesInChat: true" in state_check
+peer_handler = state_check.split("public func _internal_applyAyuGramServerDeleteMessages(", 1)[1].split(chr(10) + "}", 1)[0]
+assert "let resolvedMessageIds = Set(ids.compactMap { transaction.getMessage($0)?.id })" in peer_handler, "Peer deletion must snapshot rows present before Telegram deletion"
+assert "AyuGramCaptureService.captureMissingDeletedFromCache(" in peer_handler, "Channel/supergroup deletion must promote cached messages missing from Postbox"
+assert "resolvedMessageIds: resolvedMessageIds" in peer_handler, "Peer cache fallback must exclude messages captured before deletion"
 assert "ayuRetainedGlobalIds" in state_check
 # Basic-group deletion uses Global IDs; supergroup deletion uses channel-scoped local IDs.
 channel_delete_case = find_case_block(
