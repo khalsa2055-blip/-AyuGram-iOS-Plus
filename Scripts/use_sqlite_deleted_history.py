@@ -588,7 +588,10 @@ public enum AyuGramPostboxHistoryStore {
         return Array(Set(history.messages.map(\.userID) + received.messages.map(\.userID))).sorted()
     }
 
-    public static func all(transaction: Transaction, limit: Int = 500) -> [AyuMessage] {
+    public static func all(transaction: Transaction, userID: Int64? = nil, limit: Int = 500) -> [AyuMessage] {
+        if let userID {
+            return filtered(transaction: transaction, userID: userID, kind: .all, limit: limit)
+        }
         let rows = legacyAccountIDs(transaction).flatMap { accountID in
             filtered(transaction: transaction, userID: accountID, kind: .all, limit: limit)
         }
@@ -602,7 +605,12 @@ public enum AyuGramPostboxHistoryStore {
         kind: AyuHistoryKind = .all,
         limit: Int = 500
     ) -> [AyuMessage] {
-        guard let userID else { return [] }
+        guard let userID else {
+            let rows = legacyAccountIDs(transaction).flatMap { accountID in
+                filtered(transaction: transaction, userID: accountID, dialogID: dialogID, kind: kind, limit: limit)
+            }
+            return Array(rows.sorted { $0.fakeID > $1.fakeID }.prefix(max(0, limit)))
+        }
         migrateLegacyIfNeeded(transaction: transaction, accountID: userID)
         return withDatabase(accountID: userID) { database in
             var clauses = ["user_id=?"]
