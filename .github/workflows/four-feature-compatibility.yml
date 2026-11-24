@@ -483,11 +483,15 @@ jobs:
           history_store = Path("telegram-ios/submodules/AyuGramIOS/Sources/AyuGramPostboxHistoryStore.swift").read_text(encoding="utf-8")
           history_build = Path("telegram-ios/submodules/AyuGramIOS/BUILD").read_text(encoding="utf-8")
           assert "import sqlcipher" in history_store, "History must use Telegram's existing SQLCipher SQLite module"
+          assert "import BuildConfig" in history_store
+          assert "BuildConfig.deviceSpecificEncryptionParameters" in history_store, "History must reuse Telegram device-specific encryption material"
+          assert "PRAGMA key=" in history_store, "History database must be encrypted before use"
           assert "CREATE TABLE IF NOT EXISTS history" in history_store
           assert "CREATE TABLE IF NOT EXISTS received_cache" in history_store
           assert "private static func migrateLegacyIfNeeded" in history_store
           assert "transaction.setPreferencesEntry(key: key, value: PreferencesEntry(state))" not in history_store
           assert '"//submodules/sqlcipher:sqlcipher"' in history_build
+          assert '"//submodules/BuildConfig:BuildConfig"' in history_build
           media_archive = Path("telegram-ios/submodules/AyuGramIOS/Sources/AyuGramMediaArchive.swift").read_text(encoding="utf-8")
           capture_service = Path("telegram-ios/submodules/AyuGramIOS/Sources/AyuGramCaptureService.swift").read_text(encoding="utf-8")
           assert "fromName: snapshot.fromName" in history_store
