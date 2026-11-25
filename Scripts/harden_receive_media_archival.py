@@ -680,6 +680,28 @@ if store.count("AyuGramMediaArchive.archiveReceivedIfNeeded(") != 2:
     raise SystemExit("Both receive-cache fallback routes must archive the cached media resources")
 store_path.write_text(store, encoding="utf-8")
 
+# Protect the whole revision directory, not only the first file path. Multi-file
+# albums and MIME/source-extension differences can give sibling files different names.
+orphan_reference_old = """            SELECT 1 FROM history WHERE media_path=?
+            UNION ALL
+            SELECT 1 FROM received_cache WHERE media_path=?
+            LIMIT 1
+            """
+orphan_reference_new = """            SELECT 1 FROM history WHERE media_path=? OR media_path LIKE ?
+            UNION ALL
+            SELECT 1 FROM received_cache WHERE media_path=? OR media_path LIKE ?
+            LIMIT 1
+            """
+if "media_path LIKE ?" not in store:
+    store = replace_once(store, orphan_reference_old, orphan_reference_new, "revision-directory reference query")
+store = replace_once(
+    store,
+    "            try bind([.text(mediaPath), .text(mediaPath)], to: reference)",
+    """            let directoryPrefix = directory.path + "/%"
+            try bind([.text(mediaPath), .text(directoryPrefix), .text(mediaPath), .text(directoryPrefix)], to: reference)""",
+    "revision-directory reference binding",
+)
+
 # 5. Pass MediaBox from TelegramCore's existing delete handlers to the on-demand fallback.
 delete_source = delete_path.read_text(encoding="utf-8")
 # Both the pre-delete capture helper and the server replay wrapper need the same MediaBox.
@@ -848,6 +870,8 @@ assert "includeReceivedResources: received" in store
 assert "mediaResources: keepExistingResources ? existing?.mediaResources : snapshot.mediaResources" in store
 assert "let sameResourceSet = snapshot.mediaResources == nil" in store
 assert store.count("AyuGramMediaArchive.archiveReceivedIfNeeded(") == 2
+assert "media_path LIKE ?" in store
+assert "let directoryPrefix = directory.path + \"/%\"" in store
 delete_capture_helper = delete_source.split("public func _internal_captureDeletedMessages(", 1)[1].split("public func _internal_deleteMessages(", 1)[0]
 assert "mediaBox: mediaBox" in delete_capture_helper
 assert "mediaBox: mediaBox" in capture.split("public static func captureMissingDeletedFromCache(", 1)[1].split("public static func captureGlobalDeletedFromCache(", 1)[0]
