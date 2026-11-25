@@ -270,25 +270,32 @@ old_copy = """                if !FileManager.default.fileExists(atPath: destina
                     try FileManager.default.copyItem(atPath: sourcePath, toPath: destinationURL.path)
                 }
                 copiedResourceCount += 1"""
-new_copy = """                let sourceAttributes = try? FileManager.default.attributesOfItem(atPath: sourcePath)
-                let destinationAttributes = try? FileManager.default.attributesOfItem(atPath: destinationURL.path)
-                let sourceSize = (sourceAttributes?[.size] as? NSNumber)?.int64Value
-                let destinationSize = (destinationAttributes?[.size] as? NSNumber)?.int64Value
-                let destinationIsComplete = FileManager.default.fileExists(atPath: destinationURL.path)
-                    && sourceSize != nil
-                    && sourceSize == destinationSize
-                    && (sourceSize ?? 0) > 0
-                if !destinationIsComplete {
-                    if FileManager.default.fileExists(atPath: destinationURL.path) {
-                        try FileManager.default.removeItem(at: destinationURL)
+new_copy = """                if revisionKey?.hasPrefix("manual-") == true {
+                    // Preserve the pre-existing Manual Save archive behavior.
+                    if !FileManager.default.fileExists(atPath: destinationURL.path) {
+                        try FileManager.default.copyItem(atPath: sourcePath, toPath: destinationURL.path)
                     }
-                    let temporaryURL = supportURL.appendingPathComponent(".\(index)-\(UUID().uuidString).tmp")
-                    do {
-                        try FileManager.default.copyItem(atPath: sourcePath, toPath: temporaryURL.path)
-                        try FileManager.default.moveItem(at: temporaryURL, to: destinationURL)
-                    } catch {
-                        try? FileManager.default.removeItem(at: temporaryURL)
-                        throw error
+                } else {
+                    let sourceAttributes = try? FileManager.default.attributesOfItem(atPath: sourcePath)
+                    let destinationAttributes = try? FileManager.default.attributesOfItem(atPath: destinationURL.path)
+                    let sourceSize = (sourceAttributes?[.size] as? NSNumber)?.int64Value
+                    let destinationSize = (destinationAttributes?[.size] as? NSNumber)?.int64Value
+                    let destinationIsComplete = FileManager.default.fileExists(atPath: destinationURL.path)
+                        && sourceSize != nil
+                        && sourceSize == destinationSize
+                        && (sourceSize ?? 0) > 0
+                    if !destinationIsComplete {
+                        if FileManager.default.fileExists(atPath: destinationURL.path) {
+                            try FileManager.default.removeItem(at: destinationURL)
+                        }
+                        let temporaryURL = supportURL.appendingPathComponent(".\(index)-\(UUID().uuidString).tmp")
+                        do {
+                            try FileManager.default.copyItem(atPath: sourcePath, toPath: temporaryURL.path)
+                            try FileManager.default.moveItem(at: temporaryURL, to: destinationURL)
+                        } catch {
+                            try? FileManager.default.removeItem(at: temporaryURL)
+                            throw error
+                        }
                     }
                 }
                 copiedResourceCount += 1"""
@@ -296,6 +303,8 @@ if old_copy in archive:
     archive = replace_once(archive, old_copy, new_copy, "atomic media-archive copy")
 elif "temporaryURL = supportURL.appendingPathComponent" not in archive:
     raise SystemExit("Atomic media archive copy anchor not found")
+if 'revisionKey?.hasPrefix("manual-") == true' not in archive:
+    raise SystemExit("Manual Save archive copy behavior was not preserved")
 archive_path.write_text(archive, encoding="utf-8")
 
 # Direct deletion reuses a completed receive archive. If that copy is still pending,
@@ -864,6 +873,7 @@ assert "AyuGramMediaArchive.archiveReceivedIfNeeded(" in deleted_body
 assert 'revisionKey: "deleted"' not in deleted_body
 assert "maximumPendingReceiveArchives = 2500" in archive
 assert "maxConcurrentOperationCount = 2" in archive
+assert 'revisionKey?.hasPrefix("manual-") == true' in archive
 assert "archiveReceivedIfNeeded(" in archive
 assert "media_resources TEXT" in store
 assert 'ensureColumn(database, table: "received_cache", column: "media_resources")' in store
