@@ -766,9 +766,8 @@ state_path.write_text(state_source, encoding="utf-8")
 #    MediaBox resource IDs until the message is promoted through the missing-row fallback.
 app = app_delegate_path.read_text(encoding="utf-8")
 if "receiveCacheResourceIDsRecovered" not in app:
-    smoke_anchor = """                            return (
-                                captured,
-                                ["""
+    smoke_anchor = """                            let fallbackAccountID = accountID + Int64(now) + 9_000_000_000
+"""
     smoke_test = """                            let mediaResourceSmokeID = MessageId(
                                 peerId: receiveCacheChannelPeer,
                                 namespace: Namespaces.Message.Cloud,
@@ -808,6 +807,22 @@ if "receiveCacheResourceIDsRecovered" not in app:
                                 transaction: transaction,
                                 messages: [mediaResourceSnapshot]
                             ) == 1
+                            let partialMediaResourceSnapshot = AyuMessage(
+                                fakeID: 0,
+                                userID: accountID,
+                                dialogID: receiveCacheChannelPeer.toInt64(),
+                                peerID: receiveCacheChannelPeer.toInt64(),
+                                fromID: accountID,
+                                messageID: mediaResourceSmokeID.id,
+                                date: now,
+                                editDate: now,
+                                text: "Synthetic receive-cache media-resource fallback",
+                                isDeleted: false
+                            )
+                            let partialPageUpdates = AyuGramPostboxHistoryStore.cacheReceived(
+                                transaction: transaction,
+                                messages: [partialMediaResourceSnapshot]
+                            )
                             let mediaResourceRecovered = AyuGramPostboxHistoryStore.promoteReceivedToDeleted(
                                 transaction: transaction,
                                 mediaBox: account.postbox.mediaBox,
@@ -815,17 +830,14 @@ if "receiveCacheResourceIDsRecovered" not in app:
                                 ids: [mediaResourceSmokeID]
                             )
                             let receiveCacheResourceIDsRecovered = mediaResourceCacheStored
+                                && partialPageUpdates == 0
                                 && mediaResourceRecovered.contains {
                                     $0.messageID == mediaResourceSmokeID.id
                                         && $0.text == mediaResourceSnapshot.text
                                         && $0.mediaResources == mediaResourceList
                                         && $0.isDeleted
                                 }
-
-                            return (
-                                captured,
-                                ["""
-    app = replace_once(app, smoke_anchor, smoke_test, "receive-cache resource smoke scenario")
+    app = replace_once(app, smoke_anchor, smoke_test + smoke_anchor, "receive-cache resource smoke scenario")
     app = replace_once(
         app,
         """                                    "receiveCacheGroupReplayIsIdempotent": receiveCacheGroupReplayIsIdempotent,
