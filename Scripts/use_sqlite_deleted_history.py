@@ -267,7 +267,7 @@ public enum AyuGramPostboxHistoryStore {
                     PRIMARY KEY(account_id, migration)
                 )
                 """)
-            databaseHandles[accountID] = database
+            databaseHandles.values[accountID] = database
             return database
         } catch {
             sqlite3_close_v2(database)
@@ -1018,16 +1018,28 @@ public enum AyuGramPostboxHistoryStore {
                             received: true
                         ).first
 
-                        var value = snapshot
                         // A partially loaded page must not erase a completed media
                         // archive already saved for the same Telegram revision.
-                        if let existing,
-                           existing.editDate == snapshot.editDate,
-                           snapshot.mediaPath == nil,
-                           existing.mediaPath != nil {
-                            value.mediaPath = existing.mediaPath
-                            value.mimeType = existing.mimeType
-                        }
+                        let keepExistingMedia = existing?.editDate == snapshot.editDate
+                            && snapshot.mediaPath == nil
+                            && existing?.mediaPath != nil
+                        let value = AyuMessage(
+                            fakeID: snapshot.fakeID,
+                            userID: snapshot.userID,
+                            dialogID: snapshot.dialogID,
+                            peerID: snapshot.peerID,
+                            fromID: snapshot.fromID,
+                            fromName: snapshot.fromName,
+                            topicID: snapshot.topicID,
+                            messageID: snapshot.messageID,
+                            date: snapshot.date,
+                            editDate: snapshot.editDate,
+                            text: snapshot.text,
+                            mediaPath: keepExistingMedia ? existing?.mediaPath : snapshot.mediaPath,
+                            mimeType: keepExistingMedia ? existing?.mimeType : snapshot.mimeType,
+                            isDeleted: snapshot.isDeleted,
+                            deletedAt: snapshot.deletedAt
+                        )
                         if let previousPath = existing?.mediaPath,
                            previousPath != value.mediaPath {
                             obsoleteMediaPaths.append(previousPath)
@@ -1310,8 +1322,12 @@ required = [
     "CREATE TABLE IF NOT EXISTS history",
     "CREATE TABLE IF NOT EXISTS received_cache",
     "public static func cacheReceived(",
+    "let keepExistingMedia = existing?.editDate == snapshot.editDate",
+    "mediaPath: keepExistingMedia ? existing?.mediaPath : snapshot.mediaPath",
     "private final class DatabaseHandleStore: @unchecked Sendable",
     "private static let databaseHandles = DatabaseHandleStore()",
+    "databaseHandles.values[accountID] = database",
+    "databaseHandles.values[accountID]",
     "private static func removeOrphanReceivedArchives(",
     "private static func historyRevisionDirectory(",
     "Documents/saved/king",
