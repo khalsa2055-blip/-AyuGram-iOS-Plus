@@ -432,11 +432,11 @@ if "private static func ensureColumn(" not in store:
 if 'ensureColumn(database, table: "received_cache", column: "media_resources")' not in store:
     store = replace_once(
         store,
-        """            try execute(database, """
-                CREATE TABLE IF NOT EXISTS migrations (""",
-        """            try ensureColumn(database, table: "received_cache", column: "media_resources")
+        '''            try execute(database, """
+                CREATE TABLE IF NOT EXISTS migrations (''',
+        '''            try ensureColumn(database, table: "received_cache", column: "media_resources")
             try execute(database, """
-                CREATE TABLE IF NOT EXISTS migrations (""",
+                CREATE TABLE IF NOT EXISTS migrations (''',
         "upgrade existing received-cache database",
     )
 
@@ -505,15 +505,15 @@ if "media_resources=excluded.media_resources" not in store:
     store = replace_once(store, insert_old, insert_new, "receive-cache insert columns")
     store = replace_once(
         store,
-        """                deleted_at=excluded.deleted_at
+        '''                deleted_at=excluded.deleted_at
             """)
         defer { sqlite3_finalize(statement) }
-        try bind(historyValues(message), to: statement)""",
-        """                deleted_at=excluded.deleted_at,
+        try bind(historyValues(message), to: statement)''',
+        '''                deleted_at=excluded.deleted_at,
                 media_resources=excluded.media_resources
             """)
         defer { sqlite3_finalize(statement) }
-        try bind(historyValues(message) + [.optionalText(encodeMediaResources(message.mediaResources))], to: statement)""",
+        try bind(historyValues(message) + [.optionalText(encodeMediaResources(message.mediaResources))], to: statement)''',
         "receive-cache resource upsert value",
     )
 
@@ -684,7 +684,7 @@ if "receiveCacheResourceIDsRecovered" not in app:
                                 id: 1700000132
                             )
                             let mediaResourceSmoke = AyuMediaResourceInfo(
-                                id: "ayu-smoke-resource-\\\\(accountID)-\\\\(now)",
+                                id: "ayu-smoke-resource-\\(accountID)-\\(now)",
                                 mimeType: "video/mp4"
                             )
                             let mediaResourceList = [mediaResourceSmoke]
