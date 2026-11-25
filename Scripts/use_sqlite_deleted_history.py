@@ -1058,8 +1058,8 @@ public enum AyuGramPostboxHistoryStore {
     ) -> [AyuMessage] {
         guard !ids.isEmpty else { return [] }
         migrateLegacyIfNeeded(transaction: transaction, accountID: userID)
-        return withDatabase(accountID: userID) { database in
-            (try? withTransaction(database) {
+        let promoted = withDatabase(accountID: userID) { database in
+            try withTransaction(database) {
                 var matches: [AyuMessage] = []
                 var cacheIDs: [Int64] = []
                 for id in ids {
@@ -1086,7 +1086,7 @@ public enum AyuGramPostboxHistoryStore {
                         }
                     }
                 }
-                guard !matches.isEmpty else { return [] }
+                guard !matches.isEmpty else { return (messages: [AyuMessage](), removedMediaPaths: [String]()) }
                 try deleteReceivedRows(database, cacheIDs: cacheIDs)
                 let now = Int32(Date().timeIntervalSince1970)
                 let snapshots = matches.map { message in
@@ -1108,10 +1108,20 @@ public enum AyuGramPostboxHistoryStore {
                         deletedAt: now
                     )
                 }
-                return try appendInDatabase(database, snapshots: snapshots, deleted: true)
-            }) ?? []
-        } ?? []
+                let stored = try appendInDatabase(database, snapshots: snapshots, deleted: true)
+                return (
+                    messages: stored.messages,
+                    removedMediaPaths: matches.compactMap(\.mediaPath) + stored.removedMediaPaths
+                )
+            }
+        }
+        guard let promoted else { return [] }
+        _ = withDatabase(accountID: userID) { database in
+            try removeOrphanReceivedArchives(database, mediaPaths: promoted.removedMediaPaths)
+        }
+        return promoted.messages
     }
+
 
     @discardableResult
     public static func promoteReceivedGlobalIDsToDeleted(
@@ -1123,8 +1133,8 @@ public enum AyuGramPostboxHistoryStore {
     ) -> [AyuMessage] {
         guard !globalIDs.isEmpty else { return [] }
         migrateLegacyIfNeeded(transaction: transaction, accountID: userID)
-        return withDatabase(accountID: userID) { database in
-            (try? withTransaction(database) {
+        let promoted = withDatabase(accountID: userID) { database in
+            try withTransaction(database) {
                 let globalIDSet = Set(globalIDs)
                 let resolved = Set(resolvedMessageIds.map { "\($0.peerId.toInt64()):\($0.id)" })
                 let received = try receivedMessages(database, userID: userID)
@@ -1133,7 +1143,7 @@ public enum AyuGramPostboxHistoryStore {
                     guard !resolved.contains("\(message.dialogID):\(message.messageID)") else { return false }
                     return allowedPeerNamespaces.contains(PeerId(message.dialogID).namespace._internalGetInt32Value())
                 }
-                guard !matches.isEmpty else { return [] }
+                guard !matches.isEmpty else { return (messages: [AyuMessage](), removedMediaPaths: [String]()) }
                 let matchKeys = Set(matches.map { "\($0.dialogID):\($0.messageID)" })
                 let actualRows = try prepare(database, """
                     SELECT cache_id, dialog_id, message_id FROM received_cache WHERE user_id=?
@@ -1173,10 +1183,20 @@ public enum AyuGramPostboxHistoryStore {
                         deletedAt: now
                     )
                 }
-                return try appendInDatabase(database, snapshots: snapshots, deleted: true)
-            }) ?? []
-        } ?? []
+                let stored = try appendInDatabase(database, snapshots: snapshots, deleted: true)
+                return (
+                    messages: stored.messages,
+                    removedMediaPaths: matches.compactMap(\.mediaPath) + stored.removedMediaPaths
+                )
+            }
+        }
+        guard let promoted else { return [] }
+        _ = withDatabase(accountID: userID) { database in
+            try removeOrphanReceivedArchives(database, mediaPaths: promoted.removedMediaPaths)
+        }
+        return promoted.messages
     }
+
 
     public static func removeReceivedGlobalIDs(
         transaction: Transaction,
