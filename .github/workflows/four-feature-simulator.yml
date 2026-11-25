@@ -274,6 +274,7 @@ jobs:
           python3 ../Scripts/inject_ayugram_history_test.py
           python3 ../Scripts/restore_deleted_messages_in_chat.py
           python3 ../Scripts/use_sqlite_deleted_history.py
+          python3 ../Scripts/harden_receive_media_archival.py
           # The simulator is intentionally unauthenticated. Verify the production
           # deleted-message route and Postbox persistence at source level; do not
           # require an AccountContext smoke report that cannot exist before login.
@@ -299,8 +300,17 @@ jobs:
           assert "import sqlcipher" in store
           assert "CREATE TABLE IF NOT EXISTS history" in store
           assert "CREATE TABLE IF NOT EXISTS received_cache" in store
+          assert "media_resources TEXT" in store
+          assert 'ensureColumn(database, table: "received_cache", column: "media_resources")' in store
+          assert "archiveReceivedIfNeeded(" in store
           assert "private static func migrateLegacyIfNeeded" in store
           assert "transaction.setPreferencesEntry(key: key, value: PreferencesEntry(state))" not in store
+          cache_receive = capture.split("public static func cacheReceived(", 1)[1].split("public static func captureMissingDeletedFromCache(", 1)[0]
+          assert "scheduleReceived(" in cache_receive
+          assert "AyuGramMediaArchive.archive(" not in cache_receive
+          assert "mediaResources: resources" in cache_receive
+          assert "maximumPendingReceiveArchives = 128" in (Path("submodules/AyuGramIOS/Sources/AyuGramMediaArchive.swift").read_text(encoding="utf-8"))
+          assert "receiveCacheResourceIDsRecovered" in Path("submodules/TelegramUI/Sources/AppDelegate.swift").read_text(encoding="utf-8")
 
           settings = settings_path.read_text(encoding="utf-8")
           assert "public var saveDeletedMessages = true" in settings
