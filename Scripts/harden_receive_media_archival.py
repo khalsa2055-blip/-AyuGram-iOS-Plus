@@ -91,7 +91,7 @@ QUEUE_METHODS = r"""    private final class MediaBoxReference: @unchecked Sendab
         return queue
     }()
     private static let receiveArchiveLock = NSLock()
-    private static let maximumPendingReceiveArchives = 128
+    private static let maximumPendingReceiveArchives = 2500
     private static var pendingReceiveArchives: [String: DispatchGroup] = [:]
 
     private static func receiveRevisionDirectory(
