@@ -144,6 +144,10 @@ QUEUE_METHODS = r"""    private final class MediaBoxReference: @unchecked Sendab
             guard let file = files.first(where: { $0.lastPathComponent.hasPrefix("\(index).") }) else {
                 return nil
             }
+            let fileValues = try? file.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+            guard fileValues?.isRegularFile == true, (fileValues?.fileSize ?? 0) > 0 else {
+                return nil
+            }
             if index == 0 {
                 firstPath = file.path
             }
@@ -268,7 +272,7 @@ old_copy = """                if !FileManager.default.fileExists(atPath: destina
                     try FileManager.default.copyItem(atPath: sourcePath, toPath: destinationURL.path)
                 }
                 copiedResourceCount += 1"""
-new_copy = """                if revisionKey?.hasPrefix("manual-") == true {
+new_copy = r"""                if revisionKey?.hasPrefix("manual-") == true {
                     // Preserve the pre-existing Manual Save archive behavior.
                     if !FileManager.default.fileExists(atPath: destinationURL.path) {
                         try FileManager.default.copyItem(atPath: sourcePath, toPath: destinationURL.path)
@@ -341,7 +345,7 @@ new_deleted_archive = """            if let resources = capturesByMessageID[mess
 
 # 3. Schedule receive-cache copies instead of doing FileManager.copyItem in message-history loading.
 capture = capture_path.read_text(encoding="utf-8")
-old_receive_archive = """            var mediaPath: String?
+old_receive_archive = r"""            var mediaPath: String?
             var mimeType: String?
             if let resources = capturesByMessageID[message.id.id], !resources.isEmpty {
                 let archived = AyuGramMediaArchive.archive(
@@ -476,7 +480,7 @@ received_table_new = """                    is_deleted INTEGER NOT NULL DEFAULT 
 if "media_resources TEXT" not in store:
     store = replace_once(store, received_table_old, received_table_new, "received-cache table schema")
 
-ensure_column = """    private static func ensureColumn(_ database: OpaquePointer, table: String, column: String) throws {
+ensure_column = r"""    private static func ensureColumn(_ database: OpaquePointer, table: String, column: String) throws {
         let statement = try prepare(database, "PRAGMA table_info(\(table))")
         defer { sqlite3_finalize(statement) }
         var found = false
@@ -901,8 +905,12 @@ cache_body = capture.split("public static func cacheReceived(", 1)[1].split("pub
 assert "AyuGramMediaArchive.scheduleReceived(" in cache_body
 assert "AyuGramMediaArchive.archive(" not in cache_body
 schedule_body = archive.split("public static func scheduleReceived(", 1)[1].split("public static func archiveReceivedIfNeeded(", 1)[0]
-assert "completeArchivePath(" not in schedule_body
-assert "completeArchivePath(directory: directory, resourceCount: resources.count) == nil" in archive.split("receiveArchiveQueue.addOperation {", 1)[1]
+schedule_caller_body = schedule_body.split("receiveArchiveQueue.addOperation {", 1)[0]
+schedule_queued_body = schedule_body.split("receiveArchiveQueue.addOperation {", 1)[1]
+assert "completeArchivePath(" not in schedule_caller_body, "History-load caller must not inspect archive directories"
+assert "completeArchivePath(directory: directory, resourceCount: resources.count) == nil" in schedule_queued_body
+assert "fileValues?.isRegularFile == true" in archive
+assert "(fileValues?.fileSize ?? 0) > 0" in archive
 assert "mediaResources: resources" in cache_body
 assert "DispatchQueue.global(qos: .utility).async" in cache_body
 assert "diagnosticRetainedCount" in cache_body
