@@ -309,7 +309,7 @@ jobs:
           assert "scheduleReceived(" in cache_receive
           assert "AyuGramMediaArchive.archive(" not in cache_receive
           assert "mediaResources: resources" in cache_receive
-          assert "maximumPendingReceiveArchives = 2500" in (Path("submodules/AyuGramIOS/Sources/AyuGramMediaArchive.swift").read_text(encoding="utf-8"))
+          assert "maximumPendingReceiveArchives = 128" in (Path("submodules/AyuGramIOS/Sources/AyuGramMediaArchive.swift").read_text(encoding="utf-8"))
           assert "receiveCacheResourceIDsRecovered" in Path("submodules/TelegramUI/Sources/AppDelegate.swift").read_text(encoding="utf-8")
 
           settings = settings_path.read_text(encoding="utf-8")

@@ -91,7 +91,7 @@ QUEUE_METHODS = r"""    private final class MediaBoxReference: @unchecked Sendab
         return queue
     }()
     private static let receiveArchiveLock = NSLock()
-    private static let maximumPendingReceiveArchives = 2500
+    private static let maximumPendingReceiveArchives = 128
     private static var pendingReceiveArchives: [String: DispatchGroup] = [:]
 
     private static func receiveRevisionDirectory(
@@ -113,7 +113,7 @@ QUEUE_METHODS = r"""    private final class MediaBoxReference: @unchecked Sendab
     }
 
     /// Stable across launches and independent of Swift's randomized Hasher seed.
-    public static func receivedRevisionKey(editDate: Int32, resources: [AyuMediaResourceInfo]) -> String {
+    public static func receivedRevisionKey(resources: [AyuMediaResourceInfo]) -> String {
         var hash: UInt64 = 14695981039346656037
         for resource in resources {
             for byte in resource.id.utf8 {
@@ -121,7 +121,7 @@ QUEUE_METHODS = r"""    private final class MediaBoxReference: @unchecked Sendab
             }
             hash = (hash ^ 255) &* 1099511628211
         }
-        return "received-\(editDate)-\(String(hash, radix: 16))"
+        return "received-\(String(hash, radix: 16))"
     }
 
     private static func expectedFirstArchivePath(directory: URL, resources: [AyuMediaResourceInfo]) -> String? {
@@ -324,11 +324,7 @@ old_deleted_archive = """            if let resources = capturesByMessageID[mess
                 mimeType = archived.mimeType
             }"""
 new_deleted_archive = """            if let resources = capturesByMessageID[message.id.id], !resources.isEmpty {
-                let editDate = message.attributes.compactMap { ($0 as? EditedMessageAttribute)?.date }
-                    .filter { $0 != Int32.min }
-                    .max() ?? 0
                 let revisionKey = AyuGramMediaArchive.receivedRevisionKey(
-                    editDate: editDate,
                     resources: resources
                 )
                 let archived = AyuGramMediaArchive.archiveReceivedIfNeeded(
@@ -370,7 +366,6 @@ old_receive_archive = r"""            var mediaPath: String?
             ))"""
 new_receive_archive = """            let resources = capturesByMessageID[message.id.id]
             let revisionKey = AyuGramMediaArchive.receivedRevisionKey(
-                editDate: editDate,
                 resources: resources ?? []
             )
             let archived = resources.map { resources in
@@ -675,7 +670,6 @@ promotion_replacement = """                let snapshots = matches.map { message
                     let archived: (path: String?, mimeType: String?)?
                     if let resources = message.mediaResources, !resources.isEmpty {
                         let revisionKey = AyuGramMediaArchive.receivedRevisionKey(
-                            editDate: message.editDate,
                             resources: resources
                         )
                         archived = AyuGramMediaArchive.archiveReceivedIfNeeded(
@@ -803,7 +797,6 @@ if "receiveCacheResourceIDsRecovered" not in app:
                             )
                             let mediaResourceList = [mediaResourceSmoke]
                             let mediaRevisionKey = AyuGramMediaArchive.receivedRevisionKey(
-                                editDate: now,
                                 resources: mediaResourceList
                             )
                             _ = AyuGramMediaArchive.scheduleReceived(
@@ -917,7 +910,10 @@ assert "diagnosticRetainedCount" in cache_body
 deleted_body = capture.split("public static func captureDeleted(", 1)[1].split("public static func saveNow(", 1)[0]
 assert "AyuGramMediaArchive.archiveReceivedIfNeeded(" in deleted_body
 assert 'revisionKey: "deleted"' not in deleted_body
-assert "maximumPendingReceiveArchives = 2500" in archive
+assert "maximumPendingReceiveArchives = 128" in archive
+assert "public static func receivedRevisionKey(resources:" in archive
+assert "receivedRevisionKey(editDate:" not in capture + store + app
+assert "EditedMessageAttribute" not in capture
 assert "maxConcurrentOperationCount = 2" in archive
 assert 'revisionKey?.hasPrefix("manual-") == true' in archive
 assert "archiveReceivedIfNeeded(" in archive

@@ -211,6 +211,10 @@ jobs:
       - name: Apply private preview and Before UI
         run: python3 Scripts/apply_four_feature_ui.py
 
+      - name: Inject AyuGram History smoke hooks
+        working-directory: telegram-ios
+        run: python3 "$GITHUB_WORKSPACE/Scripts/inject_ayugram_history_test.py"
+
       - name: Restore deleted messages inside the original chat
         run: python3 Scripts/restore_deleted_messages_in_chat.py
 
