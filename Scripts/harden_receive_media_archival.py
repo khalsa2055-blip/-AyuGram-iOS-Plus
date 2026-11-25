@@ -663,9 +663,9 @@ promotion_replacement = """                let snapshots = matches.map { message
                     } else {
                         archived = nil
                     }
-                    let existingPath = message.mediaPath.flatMap {
-                        FileManager.default.fileExists(atPath: $0) ? $0 : nil
-                    }
+                    let existingPath = message.mediaResources?.isEmpty != false
+                        ? message.mediaPath.flatMap { FileManager.default.fileExists(atPath: $0) ? $0 : nil }
+                        : nil
                     return AyuMessage(
                         fakeID: 0,
                         userID: message.userID,"""
@@ -677,7 +677,7 @@ store = store.replace(
                         mimeType: message.mimeType,
                         isDeleted: true,
                         deletedAt: now""",
-    """                        mediaPath: existingPath ?? archived?.path,
+    """                        mediaPath: archived?.path ?? existingPath,
                         mimeType: archived?.mimeType ?? message.mimeType,
                         mediaResources: message.mediaResources,
                         isDeleted: true,
@@ -894,6 +894,8 @@ assert "includeReceivedResources: received" in store
 assert "mediaResources: keepExistingResources ? existing?.mediaResources : snapshot.mediaResources" in store
 assert "let sameResourceSet = snapshot.mediaResources == nil" in store
 assert store.count("AyuGramMediaArchive.archiveReceivedIfNeeded(") == 2
+assert "message.mediaResources?.isEmpty != false" in store
+assert "mediaPath: archived?.path ?? existingPath" in store
 assert "media_path LIKE ?" in store
 assert "let directoryPrefix = directory.path + \"/%\"" in store
 delete_capture_helper = delete_source.split("public func _internal_captureDeletedMessages(", 1)[1].split("public func _internal_deleteMessages(", 1)[0]
