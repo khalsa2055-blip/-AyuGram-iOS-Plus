@@ -12,6 +12,7 @@ on:
       - "Scripts/apply_four_feature_ui.py"
       - "Scripts/restore_deleted_messages_in_chat.py"
       - "Scripts/use_sqlite_deleted_history.py"
+      - "Scripts/harden_receive_media_archival.py"
       - "Scripts/inject_ayugram_history_test.py"
       - "Scripts/apply_ios27_scene_lifecycle.py"
       - "Experiments/PrivateInviteLinkInspector/**"
@@ -200,6 +201,10 @@ jobs:
       - name: Use SQLCipher SQLite for deleted-message history
         working-directory: telegram-ios
         run: python3 "$GITHUB_WORKSPACE/Scripts/use_sqlite_deleted_history.py"
+
+      - name: Defer received-media archiving outside chat-load transactions
+        working-directory: telegram-ios
+        run: python3 "$GITHUB_WORKSPACE/Scripts/harden_receive_media_archival.py"
 
       - name: Backport and parse iOS 27 Scene lifecycle
         working-directory: telegram-ios
