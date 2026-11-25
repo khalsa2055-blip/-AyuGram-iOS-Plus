@@ -575,7 +575,8 @@ keep_media_old = """                        let keepExistingMedia = existing?.ed
                             && snapshot.mediaPath == nil
                             && existing?.mediaPath != nil
                         let value = AyuMessage("""
-keep_media_new = """                        let sameResourceSet = existing?.mediaResources == nil
+keep_media_new = """                        let sameResourceSet = snapshot.mediaResources == nil
+                            || existing?.mediaResources == nil
                             || existing?.mediaResources == snapshot.mediaResources
                         let keepExistingMedia = existing?.editDate == snapshot.editDate
                             && sameResourceSet
@@ -845,6 +846,7 @@ assert "media_resources TEXT" in store
 assert 'ensureColumn(database, table: "received_cache", column: "media_resources")' in store
 assert "includeReceivedResources: received" in store
 assert "mediaResources: keepExistingResources ? existing?.mediaResources : snapshot.mediaResources" in store
+assert "let sameResourceSet = snapshot.mediaResources == nil" in store
 assert store.count("AyuGramMediaArchive.archiveReceivedIfNeeded(") == 2
 delete_capture_helper = delete_source.split("public func _internal_captureDeletedMessages(", 1)[1].split("public func _internal_deleteMessages(", 1)[0]
 assert "mediaBox: mediaBox" in delete_capture_helper
