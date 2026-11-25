@@ -418,6 +418,28 @@ capture = replace_once(
         ids: [Int32],""",
     "Global-ID delete fallback signature",
 )
+# The receive-cache route diagnostic writes a small file in Documents. Keep
+# that best-effort I/O off the history-load/Postbox transaction thread and capture
+# only integer counters so the async closure does not retain Message arrays.
+receive_log_old = """        recordDeletedRouteDiagnostic(
+            "receive-cache-stored",
+            received: messages.count,
+            mapped: snapshots.count,
+            retained: cachedCount,
+        )"""
+receive_log_new = """        let diagnosticReceivedCount = messages.count
+        let diagnosticMappedCount = snapshots.count
+        let diagnosticRetainedCount = cachedCount
+        DispatchQueue.global(qos: .utility).async {
+            recordDeletedRouteDiagnostic(
+                "receive-cache-stored",
+                received: diagnosticReceivedCount,
+                mapped: diagnosticMappedCount,
+                retained: diagnosticRetainedCount
+            )
+        }"""
+if "diagnosticReceivedCount" not in capture:
+    capture = replace_once(capture, receive_log_old, receive_log_new, "defer receive-cache diagnostics")
 capture = replace_once(
     capture,
     """        let recovered = AyuGramPostboxHistoryStore.promoteReceivedToDeleted(
@@ -881,6 +903,8 @@ schedule_body = archive.split("public static func scheduleReceived(", 1)[1].spli
 assert "completeArchivePath(" not in schedule_body
 assert "completeArchivePath(directory: directory, resourceCount: resources.count) == nil" in archive.split("receiveArchiveQueue.addOperation {", 1)[1]
 assert "mediaResources: resources" in cache_body
+assert "DispatchQueue.global(qos: .utility).async" in cache_body
+assert "diagnosticRetainedCount" in cache_body
 deleted_body = capture.split("public static func captureDeleted(", 1)[1].split("public static func saveNow(", 1)[0]
 assert "AyuGramMediaArchive.archiveReceivedIfNeeded(" in deleted_body
 assert 'revisionKey: "deleted"' not in deleted_body
