@@ -151,9 +151,9 @@ QUEUE_METHODS = r"""    private final class MediaBoxReference: @unchecked Sendab
         return firstPath
     }
 
-    /// Never copies media on the history-hole/Postbox transaction thread.
-    /// If the small queue is saturated, the durable resource IDs remain cached
-    /// and the actual delete path performs an on-demand copy.
+    /// Performs no archive-directory I/O on the history-hole/Postbox transaction thread.
+    /// The background queue checks for an existing archive and copies only when needed.
+    /// If the queue is saturated, the durable resource IDs remain cached and actual deletion retries.
     public static func scheduleReceived(
         mediaBox: MediaBox,
         accountID: Int64,
@@ -174,10 +174,6 @@ QUEUE_METHODS = r"""    private final class MediaBoxReference: @unchecked Sendab
         guard let expectedPath = expectedFirstArchivePath(directory: directory, resources: resources) else {
             return (nil, resources.first?.mimeType)
         }
-        if let path = completeArchivePath(directory: directory, resourceCount: resources.count) {
-            return (path, resources.first?.mimeType)
-        }
-
         let key = directory.path
         receiveArchiveLock.lock()
         if pendingReceiveArchives[key] != nil {
@@ -203,14 +199,16 @@ QUEUE_METHODS = r"""    private final class MediaBoxReference: @unchecked Sendab
                 receiveArchiveLock.unlock()
                 group.leave()
             }
-            _ = archive(
-                mediaBox: mediaBoxReference.value,
-                accountID: accountID,
-                dialogID: dialogID,
-                messageID: messageID,
-                revisionKey: revisionKey,
-                resources: resources
-            )
+            if completeArchivePath(directory: directory, resourceCount: resources.count) == nil {
+                _ = archive(
+                    mediaBox: mediaBoxReference.value,
+                    accountID: accountID,
+                    dialogID: dialogID,
+                    messageID: messageID,
+                    revisionKey: revisionKey,
+                    resources: resources
+                )
+            }
         }
         return (expectedPath, resources.first?.mimeType)
     }
@@ -879,6 +877,9 @@ app = app_delegate_path.read_text(encoding="utf-8")
 cache_body = capture.split("public static func cacheReceived(", 1)[1].split("public static func captureMissingDeletedFromCache(", 1)[0]
 assert "AyuGramMediaArchive.scheduleReceived(" in cache_body
 assert "AyuGramMediaArchive.archive(" not in cache_body
+schedule_body = archive.split("public static func scheduleReceived(", 1)[1].split("public static func archiveReceivedIfNeeded(", 1)[0]
+assert "completeArchivePath(" not in schedule_body
+assert "completeArchivePath(directory: directory, resourceCount: resources.count) == nil" in archive.split("receiveArchiveQueue.addOperation {", 1)[1]
 assert "mediaResources: resources" in cache_body
 deleted_body = capture.split("public static func captureDeleted(", 1)[1].split("public static func saveNow(", 1)[0]
 assert "AyuGramMediaArchive.archiveReceivedIfNeeded(" in deleted_body
