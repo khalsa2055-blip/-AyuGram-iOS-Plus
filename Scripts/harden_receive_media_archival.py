@@ -637,6 +637,18 @@ store_path.write_text(store, encoding="utf-8")
 
 # 5. Pass MediaBox from TelegramCore's existing delete handlers to the on-demand fallback.
 delete_source = delete_path.read_text(encoding="utf-8")
+# Both the pre-delete capture helper and the server replay wrapper need the same MediaBox.
+delete_source = replace_once(
+    delete_source,
+    """    AyuGramCaptureService.captureMissingDeletedFromCache(
+        transaction: transaction,
+        ids: ids,""",
+    """    AyuGramCaptureService.captureMissingDeletedFromCache(
+        transaction: transaction,
+        mediaBox: mediaBox,
+        ids: ids,""",
+    "pre-delete capture-helper MediaBox forwarding",
+)
 # Exclude our hidden tombstone sentinel from a real edit-date maximum.
 delete_source = delete_source.replace(
     "message.attributes.compactMap { ($0 as? EditedMessageAttribute)?.date }.max() ?? 0",
@@ -787,6 +799,8 @@ assert 'ensureColumn(database, table: "received_cache", column: "media_resources
 assert "includeReceivedResources: received" in store
 assert "mediaResources: keepExistingResources ? existing?.mediaResources : snapshot.mediaResources" in store
 assert store.count("AyuGramMediaArchive.archiveReceivedIfNeeded(") == 2
+delete_capture_helper = delete_source.split("public func _internal_captureDeletedMessages(", 1)[1].split("public func _internal_deleteMessages(", 1)[0]
+assert "mediaBox: mediaBox" in delete_capture_helper
 assert "mediaBox: mediaBox" in capture.split("public static func captureMissingDeletedFromCache(", 1)[1].split("public static func captureGlobalDeletedFromCache(", 1)[0]
 assert "mediaBox: mediaBox" in capture.split("public static func captureGlobalDeletedFromCache(", 1)[1]
 assert "receiveCacheResourceIDsRecovered" in app
