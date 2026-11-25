@@ -465,8 +465,8 @@ public enum AyuGramPostboxHistoryStore {
         _ database: OpaquePointer,
         snapshots: [AyuMessage],
         deleted: Bool
-    ) throws -> [AyuMessage] {
-        guard !snapshots.isEmpty else { return [] }
+    ) throws -> (messages: [AyuMessage], removedMediaPaths: [String]) {
+        guard !snapshots.isEmpty else { return ([], []) }
         let deletedAtNow = Int32(Date().timeIntervalSince1970)
         var stored: [AyuMessage] = []
         stored.reserveCapacity(snapshots.count)
@@ -512,7 +512,31 @@ public enum AyuGramPostboxHistoryStore {
             ))
         }
 
+        var removedMediaPaths: [String] = []
         if let accountID = snapshots.first?.userID {
+            let paths = try prepare(database, """
+                SELECT media_path FROM history
+                WHERE user_id=? AND fake_id NOT IN (
+                    SELECT fake_id FROM history WHERE user_id=?
+                    ORDER BY fake_id DESC LIMIT ?
+                )
+                AND media_path IS NOT NULL
+                """)
+            defer { sqlite3_finalize(paths) }
+            try bind([.integer(accountID), .integer(accountID), .integer(Int64(maximumEntries))], to: paths)
+            while true {
+                let result = sqlite3_step(paths)
+                if result == SQLITE_DONE {
+                    break
+                }
+                guard result == SQLITE_ROW else {
+                    throw StoreError.sqlite(errorMessage(database))
+                }
+                if let path = columnText(paths, 0) {
+                    removedMediaPaths.append(path)
+                }
+            }
+
             let trim = try prepare(database, """
                 DELETE FROM history
                 WHERE user_id=? AND fake_id NOT IN (
@@ -526,8 +550,9 @@ public enum AyuGramPostboxHistoryStore {
                 throw StoreError.sqlite(errorMessage(database))
             }
         }
-        return stored
+        return (stored, removedMediaPaths)
     }
+
 
     private static func receivedMessages(
         _ database: OpaquePointer,
@@ -556,7 +581,7 @@ public enum AyuGramPostboxHistoryStore {
             && lhs.mimeType == rhs.mimeType
     }
 
-    private static func receivedArchiveDirectory(mediaPath: String) -> URL? {
+    private static func historyRevisionDirectory(mediaPath: String) -> URL? {
         guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
             return nil
         }
@@ -568,7 +593,13 @@ public enum AyuGramPostboxHistoryStore {
             .standardizedFileURL
             .deletingLastPathComponent()
         let rootPath = historyRoot.path
-        guard revisionDirectory.lastPathComponent.hasPrefix("received-"),
+        let revisionName = revisionDirectory.lastPathComponent
+        // Manual Save owns its own immutable archive folders. Do not remove them
+        // here: manual Save and Documents/saved/king are outside this cleanup path.
+        let isHistoryRevision = revisionName == "deleted"
+            || revisionName.hasPrefix("edit-")
+            || revisionName.hasPrefix("received-")
+        guard isHistoryRevision,
               revisionDirectory.path.hasPrefix(rootPath + "/"),
               revisionDirectory.pathComponents.count == historyRoot.pathComponents.count + 4 else {
             return nil
@@ -576,10 +607,8 @@ public enum AyuGramPostboxHistoryStore {
         return revisionDirectory
     }
 
-    // A receive-cache row is only a temporary pre-delete safety copy. Once it is
-    // evicted/replaced, remove its received-* media folder unless a retained
-    // deleted-history row still points to the same archive. Never touch the
-    // separate Documents/.../saved/king tree or deleted/edit revision folders.
+    // Only remove a captured revision after neither SQL table references it.
+    // This also handles old rows promoted from the receive cache into History.
     private static func removeOrphanReceivedArchives(_ database: OpaquePointer, mediaPaths: [String]) throws {
         guard !mediaPaths.isEmpty else { return }
         let reference = try prepare(database, """
@@ -592,7 +621,7 @@ public enum AyuGramPostboxHistoryStore {
 
         var visited: Set<String> = []
         for mediaPath in mediaPaths {
-            guard let directory = receivedArchiveDirectory(mediaPath: mediaPath),
+            guard let directory = historyRevisionDirectory(mediaPath: mediaPath),
                   visited.insert(directory.path).inserted else {
                 continue
             }
@@ -832,14 +861,20 @@ public enum AyuGramPostboxHistoryStore {
             migrateLegacyIfNeeded(transaction: transaction, accountID: accountID)
             let scoped = snapshots.filter { $0.userID == accountID }
             let saved = withDatabase(accountID: accountID) { database in
-                try? withTransaction(database) {
+                try withTransaction(database) {
                     try appendInDatabase(database, snapshots: scoped, deleted: deleted)
                 }
-            } ?? nil
-            result.append(contentsOf: saved ?? [])
+            }
+            if let saved {
+                result.append(contentsOf: saved.messages)
+                _ = withDatabase(accountID: accountID) { database in
+                    try removeOrphanReceivedArchives(database, mediaPaths: saved.removedMediaPaths)
+                }
+            }
         }
         return result
     }
+
 
     public static func clearDeleted(
         transaction: Transaction,
@@ -848,26 +883,74 @@ public enum AyuGramPostboxHistoryStore {
         topicID: Int64 = 0
     ) {
         migrateLegacyIfNeeded(transaction: transaction, accountID: userID)
-        _ = withDatabase(accountID: userID) { database in
-            let sql = topicID == 0
-                ? "DELETE FROM history WHERE user_id=? AND dialog_id=? AND is_deleted=1"
-                : "DELETE FROM history WHERE user_id=? AND dialog_id=? AND topic_id=? AND is_deleted=1"
-            let statement = try prepare(database, sql)
-            defer { sqlite3_finalize(statement) }
-            let values: [Value] = topicID == 0
-                ? [.integer(userID), .integer(dialogID)]
-                : [.integer(userID), .integer(dialogID), .integer(topicID)]
-            try bind(values, to: statement)
-            guard sqlite3_step(statement) == SQLITE_DONE else {
-                throw StoreError.sqlite(errorMessage(database))
+        let removedMediaPaths = withDatabase(accountID: userID) { database in
+            try withTransaction(database) {
+                let query = topicID == 0
+                    ? "SELECT media_path FROM history WHERE user_id=? AND dialog_id=? AND is_deleted=1 AND media_path IS NOT NULL"
+                    : "SELECT media_path FROM history WHERE user_id=? AND dialog_id=? AND topic_id=? AND is_deleted=1 AND media_path IS NOT NULL"
+                let paths = try prepare(database, query)
+                defer { sqlite3_finalize(paths) }
+                let values: [Value] = topicID == 0
+                    ? [.integer(userID), .integer(dialogID)]
+                    : [.integer(userID), .integer(dialogID), .integer(topicID)]
+                try bind(values, to: paths)
+                var mediaPaths: [String] = []
+                while true {
+                    let result = sqlite3_step(paths)
+                    if result == SQLITE_DONE { break }
+                    guard result == SQLITE_ROW else {
+                        throw StoreError.sqlite(errorMessage(database))
+                    }
+                    if let path = columnText(paths, 0) {
+                        mediaPaths.append(path)
+                    }
+                }
+
+                let sql = topicID == 0
+                    ? "DELETE FROM history WHERE user_id=? AND dialog_id=? AND is_deleted=1"
+                    : "DELETE FROM history WHERE user_id=? AND dialog_id=? AND topic_id=? AND is_deleted=1"
+                let statement = try prepare(database, sql)
+                defer { sqlite3_finalize(statement) }
+                try bind(values, to: statement)
+                guard sqlite3_step(statement) == SQLITE_DONE else {
+                    throw StoreError.sqlite(errorMessage(database))
+                }
+                return mediaPaths
+            }
+        }
+        if let removedMediaPaths {
+            _ = withDatabase(accountID: userID) { database in
+                try removeOrphanReceivedArchives(database, mediaPaths: removedMediaPaths)
             }
         }
     }
 
     public static func clearDeletedForAccount(transaction: Transaction, userID: Int64) {
         migrateLegacyIfNeeded(transaction: transaction, accountID: userID)
-        _ = withDatabase(accountID: userID) { database in
-            try execute(database, "DELETE FROM history WHERE user_id=\(userID) AND is_deleted=1")
+        let removedMediaPaths = withDatabase(accountID: userID) { database in
+            try withTransaction(database) {
+                let paths = try prepare(database, "SELECT media_path FROM history WHERE user_id=? AND is_deleted=1 AND media_path IS NOT NULL")
+                defer { sqlite3_finalize(paths) }
+                try bind(.integer(userID), to: paths, at: 1)
+                var mediaPaths: [String] = []
+                while true {
+                    let result = sqlite3_step(paths)
+                    if result == SQLITE_DONE { break }
+                    guard result == SQLITE_ROW else {
+                        throw StoreError.sqlite(errorMessage(database))
+                    }
+                    if let path = columnText(paths, 0) {
+                        mediaPaths.append(path)
+                    }
+                }
+                try execute(database, "DELETE FROM history WHERE user_id=\(userID) AND is_deleted=1")
+                return mediaPaths
+            }
+        }
+        if let removedMediaPaths {
+            _ = withDatabase(accountID: userID) { database in
+                try removeOrphanReceivedArchives(database, mediaPaths: removedMediaPaths)
+            }
         }
     }
 
@@ -875,14 +958,36 @@ public enum AyuGramPostboxHistoryStore {
         let accounts = userID.map { [$0] } ?? legacyAccountIDs(transaction: transaction)
         for accountID in accounts {
             migrateLegacyIfNeeded(transaction: transaction, accountID: accountID)
-            _ = withDatabase(accountID: accountID) { database in
+            let removedMediaPaths = withDatabase(accountID: accountID) { database in
                 try withTransaction(database) {
-                    try execute(database, "DELETE FROM history WHERE user_id=\(accountID)")
-                    try execute(database, "DELETE FROM received_cache WHERE user_id=\(accountID)")
+                    var mediaPaths: [String] = []
+                    for table in ["history", "received_cache"] {
+                        let paths = try prepare(database, "SELECT media_path FROM \(table) WHERE user_id=? AND media_path IS NOT NULL")
+                        defer { sqlite3_finalize(paths) }
+                        try bind(.integer(accountID), to: paths, at: 1)
+                        while true {
+                            let result = sqlite3_step(paths)
+                            if result == SQLITE_DONE { break }
+                            guard result == SQLITE_ROW else {
+                                throw StoreError.sqlite(errorMessage(database))
+                            }
+                            if let path = columnText(paths, 0) {
+                                mediaPaths.append(path)
+                            }
+                        }
+                        try execute(database, "DELETE FROM \(table) WHERE user_id=\(accountID)")
+                    }
+                    return mediaPaths
+                }
+            }
+            if let removedMediaPaths {
+                _ = withDatabase(accountID: accountID) { database in
+                    try removeOrphanReceivedArchives(database, mediaPaths: removedMediaPaths)
                 }
             }
         }
     }
+
 
     // MARK: - Received-message cache
 
@@ -1184,8 +1289,11 @@ required = [
     "public static func cacheReceived(",
     "private static var databaseHandles: [Int64: OpaquePointer] = [:]",
     "private static func removeOrphanReceivedArchives(",
-    "private static func receivedArchiveDirectory(",
+    "private static func historyRevisionDirectory(",
     "Documents/saved/king",
+    "private static func historyRevisionDirectory(",
+    "removedMediaPaths",
+    "try removeOrphanReceivedArchives(database, mediaPaths: saved.removedMediaPaths)",
     "public static func promoteReceivedToDeleted(",
     "public static func promoteReceivedGlobalIDsToDeleted(",
     "private static func migrateLegacyIfNeeded(",
