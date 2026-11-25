@@ -701,6 +701,7 @@ store = replace_once(
             try bind([.text(mediaPath), .text(directoryPrefix), .text(mediaPath), .text(directoryPrefix)], to: reference)""",
     "revision-directory reference binding",
 )
+store_path.write_text(store, encoding="utf-8")
 
 # 5. Pass MediaBox from TelegramCore's existing delete handlers to the on-demand fallback.
 delete_source = delete_path.read_text(encoding="utf-8")
