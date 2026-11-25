@@ -566,8 +566,8 @@ if "media_resources=excluded.media_resources" not in store:
 if "lhs.mediaResources == rhs.mediaResources" not in store:
     store = replace_once(
         store,
-        "             && lhs.mimeType == rhs.mimeType",
-        "             && lhs.mimeType == rhs.mimeType\n             && lhs.mediaResources == rhs.mediaResources",
+        "            && lhs.mimeType == rhs.mimeType",
+        "            && lhs.mimeType == rhs.mimeType\n            && lhs.mediaResources == rhs.mediaResources",
         "receive-cache payload comparison",
     )
 
