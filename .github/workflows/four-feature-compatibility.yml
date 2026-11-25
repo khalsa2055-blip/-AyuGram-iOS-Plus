@@ -68,11 +68,27 @@ jobs:
 
       - name: Clone Telegram-iOS baseline
         run: |
-          git clone --recursive https://github.com/Swiftgram/Telegram-iOS.git telegram-ios
+          # The wallet-engine submodule contains a large Git LFS UI-test snapshot
+          # that is not an iOS app build input. Initialize only that submodule with
+          # LFS smudging disabled, so a transient LFS media-download timeout cannot
+          # abort the Telegram source checkout. Other submodules keep normal LFS behavior.
+          git clone https://github.com/Swiftgram/Telegram-iOS.git telegram-ios
           cd telegram-ios
           git checkout --detach eb5ae67a32c6e8b936ca0e875f19f99251112f17
           git submodule sync --recursive
-          git submodule update --init --recursive --jobs 4
+          while IFS= read -r module_entry; do
+            module_path="${module_entry#* }"
+            if [ "$module_path" = "third-party/wallet-engine/wallet-engine" ]; then
+              echo "Initializing wallet-engine without optional LFS UI-test snapshots"
+              if ! GIT_LFS_SKIP_SMUDGE=1 git submodule update --init --recursive --jobs 4 -- "$module_path"; then
+                echo "::error::Unable to initialize wallet-engine source"
+                exit 1
+              fi
+            else
+              echo "Initializing submodule: $module_path"
+              git submodule update --init --recursive --jobs 4 -- "$module_path"
+            fi
+          done < <(git config -f .gitmodules --get-regexp path)
 
       - name: Verify Telegram toolchain
         working-directory: telegram-ios
