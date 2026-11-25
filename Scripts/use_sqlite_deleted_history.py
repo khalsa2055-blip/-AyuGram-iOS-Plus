@@ -666,12 +666,15 @@ public enum AyuGramPostboxHistoryStore {
     // once per account and leave the old keys intact as a rollback safety copy.
     private static func migrateLegacyIfNeeded(transaction: Transaction, accountID: Int64) {
         _ = withDatabase(accountID: accountID) { database in
-            let check = try? prepare(database, "SELECT 1 FROM migrations WHERE account_id=? AND migration='postbox-preferences-v1' LIMIT 1")
-            guard let check else { return }
+            let check = try prepare(database, "SELECT 1 FROM migrations WHERE account_id=? AND migration='postbox-preferences-v1' LIMIT 1")
             defer { sqlite3_finalize(check) }
-            try? bind(.integer(accountID), to: check, at: 1)
-            if sqlite3_step(check) == SQLITE_ROW {
+            try bind(.integer(accountID), to: check, at: 1)
+            let checkResult = sqlite3_step(check)
+            if checkResult == SQLITE_ROW {
                 return
+            }
+            guard checkResult == SQLITE_DONE else {
+                throw StoreError.sqlite(errorMessage(database))
             }
 
             let oldHistory = transaction.getPreferencesEntry(key: legacyHistoryKey)?.get(AyuPostboxHistoryState.self)
@@ -698,9 +701,11 @@ public enum AyuGramPostboxHistoryStore {
                 }
             } catch {
                 AyuGramCaptureService.recordDeletedRouteDiagnostic("sqlite-migration-error", received: oldHistory.messages.count + oldReceived.messages.count)
+                throw error
             }
         }
     }
+
 
     // MARK: - History reads
 
@@ -962,11 +967,18 @@ public enum AyuGramPostboxHistoryStore {
                     if !rows.isEmpty {
                         matches.append(contentsOf: rows)
                         let idsQuery = try prepare(database, "SELECT cache_id FROM received_cache WHERE user_id=? AND dialog_id=? AND message_id=?")
+                        defer { sqlite3_finalize(idsQuery) }
                         try bind([.integer(userID), .integer(id.peerId.toInt64()), .integer(Int64(id.id))], to: idsQuery)
-                        while sqlite3_step(idsQuery) == SQLITE_ROW {
+                        while true {
+                            let result = sqlite3_step(idsQuery)
+                            if result == SQLITE_DONE {
+                                break
+                            }
+                            guard result == SQLITE_ROW else {
+                                throw StoreError.sqlite(errorMessage(database))
+                            }
                             cacheIDs.append(sqlite3_column_int64(idsQuery, 0))
                         }
-                        sqlite3_finalize(idsQuery)
                     }
                 }
                 guard !matches.isEmpty else { return [] }
@@ -1173,6 +1185,7 @@ required = [
     "private static var databaseHandles: [Int64: OpaquePointer] = [:]",
     "private static func removeOrphanReceivedArchives(",
     "private static func receivedArchiveDirectory(",
+    "Documents/saved/king",
     "public static func promoteReceivedToDeleted(",
     "public static func promoteReceivedGlobalIDsToDeleted(",
     "private static func migrateLegacyIfNeeded(",
