@@ -857,6 +857,7 @@ if "receiveCacheResourceIDsRecovered" not in app:
                                         && $0.mediaResources == mediaResourceList
                                         && $0.isDeleted
                                 }
+"""
     app = replace_once(app, smoke_anchor, smoke_test + smoke_anchor, "receive-cache resource smoke scenario")
     app = replace_once(
         app,
