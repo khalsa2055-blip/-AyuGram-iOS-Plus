@@ -91,6 +91,7 @@ QUEUE_METHODS = r"""    private final class MediaBoxReference: @unchecked Sendab
         return queue
     }()
     private static let receiveArchiveLock = NSLock()
+    // Bound queued closures: overflow still keeps resource IDs for delete-time recovery.
     private static let maximumPendingReceiveArchives = 128
     private static var pendingReceiveArchives: [String: DispatchGroup] = [:]
 
