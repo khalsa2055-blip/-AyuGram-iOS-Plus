@@ -124,6 +124,12 @@ QUEUE_METHODS = r"""    private final class MediaBoxReference: @unchecked Sendab
         return "received-\(editDate)-\(String(hash, radix: 16))"
     }
 
+    private static func expectedFirstArchivePath(directory: URL, resources: [AyuMediaResourceInfo]) -> String? {
+        guard let first = resources.first else { return nil }
+        let ext = Self.pathExtension(for: first.mimeType) ?? "bin"
+        return directory.appendingPathComponent("0.\(ext)").path
+    }
+
     private static func completeArchivePath(directory: URL, resourceCount: Int) -> String? {
         guard resourceCount > 0,
               let files = try? FileManager.default.contentsOfDirectory(
@@ -165,6 +171,9 @@ QUEUE_METHODS = r"""    private final class MediaBoxReference: @unchecked Sendab
               ) else {
             return (nil, resources.first?.mimeType)
         }
+        guard let expectedPath = expectedFirstArchivePath(directory: directory, resources: resources) else {
+            return (nil, resources.first?.mimeType)
+        }
         if let path = completeArchivePath(directory: directory, resourceCount: resources.count) {
             return (path, resources.first?.mimeType)
         }
@@ -173,11 +182,11 @@ QUEUE_METHODS = r"""    private final class MediaBoxReference: @unchecked Sendab
         receiveArchiveLock.lock()
         if pendingReceiveArchives[key] != nil {
             receiveArchiveLock.unlock()
-            return (nil, resources.first?.mimeType)
+            return (expectedPath, resources.first?.mimeType)
         }
         if pendingReceiveArchives.count >= maximumPendingReceiveArchives {
             receiveArchiveLock.unlock()
-            return (nil, resources.first?.mimeType)
+            return (expectedPath, resources.first?.mimeType)
         }
         let group = DispatchGroup()
         group.enter()
@@ -203,7 +212,7 @@ QUEUE_METHODS = r"""    private final class MediaBoxReference: @unchecked Sendab
                 resources: resources
             )
         }
-        return (nil, resources.first?.mimeType)
+        return (expectedPath, resources.first?.mimeType)
     }
 
     /// Called only when a delete update needs a cache fallback. Wait for the
@@ -289,6 +298,40 @@ elif "temporaryURL = supportURL.appendingPathComponent" not in archive:
     raise SystemExit("Atomic media archive copy anchor not found")
 archive_path.write_text(archive, encoding="utf-8")
 
+# Direct deletion reuses a completed receive archive. If that copy is still pending,
+# wait for this exact revision; otherwise archive now before Postbox releases the row.
+old_deleted_archive = """            if let resources = capturesByMessageID[message.id.id], !resources.isEmpty {
+                let archived = AyuGramMediaArchive.archive(
+                    mediaBox: mediaBox,
+                    accountID: accountID,
+                    dialogID: message.id.peerId.toInt64(),
+                    messageID: message.id.id,
+                    revisionKey: "deleted",
+                    resources: resources
+                )
+                mediaPath = archived.path
+                mimeType = archived.mimeType
+            }"""
+new_deleted_archive = """            if let resources = capturesByMessageID[message.id.id], !resources.isEmpty {
+                let editDate = message.attributes.compactMap { ($0 as? EditedMessageAttribute)?.date }
+                    .filter { $0 != Int32.min }
+                    .max() ?? 0
+                let revisionKey = AyuGramMediaArchive.receivedRevisionKey(
+                    editDate: editDate,
+                    resources: resources
+                )
+                let archived = AyuGramMediaArchive.archiveReceivedIfNeeded(
+                    mediaBox: mediaBox,
+                    accountID: accountID,
+                    dialogID: message.id.peerId.toInt64(),
+                    messageID: message.id.id,
+                    revisionKey: revisionKey,
+                    resources: resources
+                )
+                mediaPath = archived.path
+                mimeType = archived.mimeType
+            }"""
+
 # 3. Schedule receive-cache copies instead of doing FileManager.copyItem in message-history loading.
 capture = capture_path.read_text(encoding="utf-8")
 old_receive_archive = """            var mediaPath: String?
@@ -340,6 +383,7 @@ new_receive_archive = """            let resources = capturesByMessageID[message
                 mediaResources: resources
             ))"""
 if "AyuGramMediaArchive.scheduleReceived(" not in capture:
+    capture = replace_once(capture, old_deleted_archive, new_deleted_archive, "reuse cached media on direct deletion")
     capture = replace_once(capture, old_receive_archive, new_receive_archive, "defer receive-media copy")
 if "mediaResources: resources" not in capture:
     raise SystemExit("Receive-cache capture does not persist the resource IDs")
@@ -791,7 +835,10 @@ cache_body = capture.split("public static func cacheReceived(", 1)[1].split("pub
 assert "AyuGramMediaArchive.scheduleReceived(" in cache_body
 assert "AyuGramMediaArchive.archive(" not in cache_body
 assert "mediaResources: resources" in cache_body
-assert "maximumPendingReceiveArchives = 128" in archive
+deleted_body = capture.split("public static func captureDeleted(", 1)[1].split("public static func saveNow(", 1)[0]
+assert "AyuGramMediaArchive.archiveReceivedIfNeeded(" in deleted_body
+assert 'revisionKey: "deleted"' not in deleted_body
+assert "maximumPendingReceiveArchives = 2500" in archive
 assert "maxConcurrentOperationCount = 2" in archive
 assert "archiveReceivedIfNeeded(" in archive
 assert "media_resources TEXT" in store
