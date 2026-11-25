@@ -44,6 +44,10 @@ public enum AyuGramPostboxHistoryStore {
     private static let maximumEntries = 5000
     private static let maximumReceivedEntries = 2500
     private static let lock = NSRecursiveLock()
+    // Keep one encrypted connection per account. Receive-cache hooks run inside
+    // Postbox transactions; reopening/configuring SQLite and recreating indexes on
+    // every history page caused avoidable synchronous I/O on the chat-load path.
+    private static var databaseHandles: [Int64: OpaquePointer] = [:]
     private static let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
     private enum StoreError: Error, CustomStringConvertible {
@@ -177,30 +181,30 @@ public enum AyuGramPostboxHistoryStore {
         }
     }
 
-    private static func withDatabase<T>(accountID: Int64, body: (OpaquePointer) throws -> T) -> T? {
-        lock.lock()
-        defer { lock.unlock() }
+    private static func openDatabase(accountID: Int64) throws -> OpaquePointer {
+        if let database = databaseHandles[accountID] {
+            return database
+        }
 
+        let url = try databaseURL(accountID: accountID)
         var handle: OpaquePointer?
-        do {
-            let url = try databaseURL(accountID: accountID)
-            let openResult = url.path.withCString {
-                sqlite3_open_v2(
-                    $0,
-                    &handle,
-                    SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX,
-                    nil
-                )
+        let openResult = url.path.withCString {
+            sqlite3_open_v2(
+                $0,
+                &handle,
+                SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX,
+                nil
+            )
+        }
+        guard openResult == SQLITE_OK, let database = handle else {
+            let message = errorMessage(handle)
+            if let handle {
+                sqlite3_close_v2(handle)
             }
-            guard openResult == SQLITE_OK, let database = handle else {
-                let message = errorMessage(handle)
-                if let handle {
-                    sqlite3_close(handle)
-                }
-                throw StoreError.sqlite(message)
-            }
-            defer { sqlite3_close(database) }
+            throw StoreError.sqlite(message)
+        }
 
+        do {
             sqlite3_busy_timeout(database, 5000)
             try configureEncryption(database)
             try execute(database, "PRAGMA journal_mode=WAL")
@@ -260,6 +264,20 @@ public enum AyuGramPostboxHistoryStore {
                     PRIMARY KEY(account_id, migration)
                 )
                 """)
+            databaseHandles[accountID] = database
+            return database
+        } catch {
+            sqlite3_close_v2(database)
+            throw error
+        }
+    }
+
+    private static func withDatabase<T>(accountID: Int64, body: (OpaquePointer) throws -> T) -> T? {
+        lock.lock()
+        defer { lock.unlock() }
+
+        do {
+            let database = try openDatabase(accountID: accountID)
             return try body(database)
         } catch {
             AyuGramCaptureService.recordDeletedRouteDiagnostic(
@@ -270,6 +288,7 @@ public enum AyuGramPostboxHistoryStore {
             return nil
         }
     }
+
 
     private static func columnText(_ statement: OpaquePointer, _ index: Int32) -> String? {
         guard sqlite3_column_type(statement, index) != SQLITE_NULL,
@@ -537,7 +556,83 @@ public enum AyuGramPostboxHistoryStore {
             && lhs.mimeType == rhs.mimeType
     }
 
-    private static func trimReceived(_ database: OpaquePointer, userID: Int64) throws {
+    private static func receivedArchiveDirectory(mediaPath: String) -> URL? {
+        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            return nil
+        }
+        let historyRoot = appSupport
+            .appendingPathComponent("AyuGram", isDirectory: true)
+            .appendingPathComponent("History", isDirectory: true)
+            .standardizedFileURL
+        let revisionDirectory = URL(fileURLWithPath: mediaPath)
+            .standardizedFileURL
+            .deletingLastPathComponent()
+        let rootPath = historyRoot.path
+        guard revisionDirectory.lastPathComponent.hasPrefix("received-"),
+              revisionDirectory.path.hasPrefix(rootPath + "/"),
+              revisionDirectory.pathComponents.count == historyRoot.pathComponents.count + 4 else {
+            return nil
+        }
+        return revisionDirectory
+    }
+
+    // A receive-cache row is only a temporary pre-delete safety copy. Once it is
+    // evicted/replaced, remove its received-* media folder unless a retained
+    // deleted-history row still points to the same archive. Never touch the
+    // separate Documents/.../saved/king tree or deleted/edit revision folders.
+    private static func removeOrphanReceivedArchives(_ database: OpaquePointer, mediaPaths: [String]) throws {
+        guard !mediaPaths.isEmpty else { return }
+        let reference = try prepare(database, """
+            SELECT 1 FROM history WHERE media_path=?
+            UNION ALL
+            SELECT 1 FROM received_cache WHERE media_path=?
+            LIMIT 1
+            """)
+        defer { sqlite3_finalize(reference) }
+
+        var visited: Set<String> = []
+        for mediaPath in mediaPaths {
+            guard let directory = receivedArchiveDirectory(mediaPath: mediaPath),
+                  visited.insert(directory.path).inserted else {
+                continue
+            }
+            sqlite3_reset(reference)
+            sqlite3_clear_bindings(reference)
+            try bind([.text(mediaPath), .text(mediaPath)], to: reference)
+            let result = sqlite3_step(reference)
+            if result == SQLITE_DONE {
+                try? FileManager.default.removeItem(at: directory)
+            } else if result != SQLITE_ROW {
+                throw StoreError.sqlite(errorMessage(database))
+            }
+        }
+    }
+
+    private static func trimReceived(_ database: OpaquePointer, userID: Int64) throws -> [String] {
+        let pathsQuery = try prepare(database, """
+            SELECT media_path FROM received_cache
+            WHERE user_id=? AND cache_id NOT IN (
+                SELECT cache_id FROM received_cache WHERE user_id=?
+                ORDER BY cache_id DESC LIMIT ?
+            )
+            AND media_path IS NOT NULL
+            """)
+        defer { sqlite3_finalize(pathsQuery) }
+        try bind([.integer(userID), .integer(userID), .integer(Int64(maximumReceivedEntries))], to: pathsQuery)
+        var mediaPaths: [String] = []
+        while true {
+            let result = sqlite3_step(pathsQuery)
+            if result == SQLITE_DONE {
+                break
+            }
+            guard result == SQLITE_ROW else {
+                throw StoreError.sqlite(errorMessage(database))
+            }
+            if let path = columnText(pathsQuery, 0) {
+                mediaPaths.append(path)
+            }
+        }
+
         let statement = try prepare(database, """
             DELETE FROM received_cache
             WHERE user_id=? AND cache_id NOT IN (
@@ -550,6 +645,7 @@ public enum AyuGramPostboxHistoryStore {
         guard sqlite3_step(statement) == SQLITE_DONE else {
             throw StoreError.sqlite(errorMessage(database))
         }
+        return mediaPaths
     }
 
     private static func deleteReceivedRows(_ database: OpaquePointer, cacheIDs: [Int64]) throws {
@@ -793,8 +889,9 @@ public enum AyuGramPostboxHistoryStore {
             migrateLegacyIfNeeded(transaction: transaction, accountID: accountID)
             let scoped = snapshots.filter { $0.userID == accountID }
             let stored = withDatabase(accountID: accountID) { database in
-                try? withTransaction(database) {
+                try withTransaction(database) {
                     var updated = 0
+                    var obsoleteMediaPaths: [String] = []
                     for snapshot in scoped {
                         let existing = try selectMessages(
                             database,
@@ -807,16 +904,38 @@ public enum AyuGramPostboxHistoryStore {
                             ],
                             received: true
                         ).first
-                        if existing.map({ samePayload($0, snapshot) }) != true {
-                            try insertReceived(database, message: snapshot)
+
+                        var value = snapshot
+                        // A partially loaded page must not erase a completed media
+                        // archive already saved for the same Telegram revision.
+                        if let existing,
+                           existing.editDate == snapshot.editDate,
+                           snapshot.mediaPath == nil,
+                           existing.mediaPath != nil {
+                            value.mediaPath = existing.mediaPath
+                            value.mimeType = existing.mimeType
+                        }
+                        if let previousPath = existing?.mediaPath,
+                           previousPath != value.mediaPath {
+                            obsoleteMediaPaths.append(previousPath)
+                        }
+                        if existing.map({ samePayload($0, value) }) != true {
+                            try insertReceived(database, message: value)
                             updated += 1
                         }
                     }
-                    try trimReceived(database, userID: accountID)
-                    return updated
+                    let evictedMediaPaths = try trimReceived(database, userID: accountID)
+                    return (updated, obsoleteMediaPaths + evictedMediaPaths)
                 }
-            } ?? nil
-            changed += stored ?? 0
+            }
+            if let stored {
+                changed += stored.0
+                // Run filesystem cleanup after SQLite commits. The reference check
+                // protects media that was promoted from received_cache to history.
+                _ = withDatabase(accountID: accountID) { database in
+                    try removeOrphanReceivedArchives(database, mediaPaths: stored.1)
+                }
+            }
         }
         return changed
     }
@@ -951,7 +1070,7 @@ public enum AyuGramPostboxHistoryStore {
     ) {
         guard !globalIDs.isEmpty else { return }
         migrateLegacyIfNeeded(transaction: transaction, accountID: userID)
-        _ = withDatabase(accountID: userID) { database in
+        let removedMediaPaths = withDatabase(accountID: userID) { database in
             try withTransaction(database) {
                 let globalIDSet = Set(globalIDs)
                 let resolved = Set(resolvedMessageIds.map { "\($0.peerId.toInt64()):\($0.id)" })
@@ -963,16 +1082,29 @@ public enum AyuGramPostboxHistoryStore {
                 }
                 let targetKeys = Set(keys.map { "\($0.dialogID):\($0.messageID)" })
                 let rows = try prepare(database, "SELECT cache_id, dialog_id, message_id FROM received_cache WHERE user_id=?")
+                defer { sqlite3_finalize(rows) }
                 try bind(.integer(userID), to: rows, at: 1)
                 var deleteIDs: [Int64] = []
-                while sqlite3_step(rows) == SQLITE_ROW {
+                while true {
+                    let result = sqlite3_step(rows)
+                    if result == SQLITE_DONE {
+                        break
+                    }
+                    guard result == SQLITE_ROW else {
+                        throw StoreError.sqlite(errorMessage(database))
+                    }
                     let key = "\(sqlite3_column_int64(rows, 1)):\(sqlite3_column_int(rows, 2))"
                     if targetKeys.contains(key) {
                         deleteIDs.append(sqlite3_column_int64(rows, 0))
                     }
                 }
-                sqlite3_finalize(rows)
                 try deleteReceivedRows(database, cacheIDs: deleteIDs)
+                return keys.compactMap(\.mediaPath)
+            }
+        }
+        if let removedMediaPaths {
+            _ = withDatabase(accountID: userID) { database in
+                try removeOrphanReceivedArchives(database, mediaPaths: removedMediaPaths)
             }
         }
     }
@@ -980,8 +1112,14 @@ public enum AyuGramPostboxHistoryStore {
     public static func removeReceived(transaction: Transaction, userID: Int64, ids: [MessageId]) {
         guard !ids.isEmpty else { return }
         migrateLegacyIfNeeded(transaction: transaction, accountID: userID)
-        _ = withDatabase(accountID: userID) { database in
+        let removedMediaPaths = withDatabase(accountID: userID) { database in
             try withTransaction(database) {
+                let targetKeys = Set(ids.map { "\($0.peerId.toInt64()):\($0.id)" })
+                let received = try receivedMessages(database, userID: userID)
+                let mediaPaths = received
+                    .filter { targetKeys.contains("\($0.dialogID):\($0.messageID)") }
+                    .compactMap(\.mediaPath)
+
                 let statement = try prepare(database, "DELETE FROM received_cache WHERE user_id=? AND dialog_id=? AND message_id=?")
                 defer { sqlite3_finalize(statement) }
                 for id in ids {
@@ -996,9 +1134,16 @@ public enum AyuGramPostboxHistoryStore {
                         throw StoreError.sqlite(errorMessage(database))
                     }
                 }
+                return mediaPaths
+            }
+        }
+        if let removedMediaPaths {
+            _ = withDatabase(accountID: userID) { database in
+                try removeOrphanReceivedArchives(database, mediaPaths: removedMediaPaths)
             }
         }
     }
+
 }
 '''
 
@@ -1025,6 +1170,9 @@ required = [
     "CREATE TABLE IF NOT EXISTS history",
     "CREATE TABLE IF NOT EXISTS received_cache",
     "public static func cacheReceived(",
+    "private static var databaseHandles: [Int64: OpaquePointer] = [:]",
+    "private static func removeOrphanReceivedArchives(",
+    "private static func receivedArchiveDirectory(",
     "public static func promoteReceivedToDeleted(",
     "public static func promoteReceivedGlobalIDsToDeleted(",
     "private static func migrateLegacyIfNeeded(",
