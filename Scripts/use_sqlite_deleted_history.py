@@ -47,7 +47,10 @@ public enum AyuGramPostboxHistoryStore {
     // Keep one encrypted connection per account. Receive-cache hooks run inside
     // Postbox transactions; reopening/configuring SQLite and recreating indexes on
     // every history page caused avoidable synchronous I/O on the chat-load path.
-    private static var databaseHandles: [Int64: OpaquePointer] = [:]
+    private final class DatabaseHandleStore: @unchecked Sendable {
+        var values: [Int64: OpaquePointer] = [:]
+    }
+    private static let databaseHandles = DatabaseHandleStore()
     private static let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
     private enum StoreError: Error, CustomStringConvertible {
@@ -182,7 +185,7 @@ public enum AyuGramPostboxHistoryStore {
     }
 
     private static func openDatabase(accountID: Int64) throws -> OpaquePointer {
-        if let database = databaseHandles[accountID] {
+        if let database = databaseHandles.values[accountID] {
             return database
         }
 
@@ -1307,7 +1310,8 @@ required = [
     "CREATE TABLE IF NOT EXISTS history",
     "CREATE TABLE IF NOT EXISTS received_cache",
     "public static func cacheReceived(",
-    "private static var databaseHandles: [Int64: OpaquePointer] = [:]",
+    "private final class DatabaseHandleStore: @unchecked Sendable",
+    "private static let databaseHandles = DatabaseHandleStore()",
     "private static func removeOrphanReceivedArchives(",
     "private static func historyRevisionDirectory(",
     "Documents/saved/king",
@@ -1323,4 +1327,20 @@ for marker in required:
         raise SystemExit(f"SQLite history integration invariant missing: {marker}")
 if "transaction.setPreferencesEntry(key: key" in source:
     raise SystemExit("History store still writes to Postbox preferences")
+
+archive_cleanup = source.split("private static func historyRevisionDirectory(", 1)[1].split("private static func removeOrphanReceivedArchives(", 1)[0]
+for marker in ('revisionName == "deleted"', 'revisionName.hasPrefix("edit-")', 'revisionName.hasPrefix("received-")'):
+    if marker not in archive_cleanup:
+        raise SystemExit(f"History media cleanup must preserve the scoped revision filter: {marker}")
+if 'revisionName.hasPrefix("manual-")' in archive_cleanup:
+    raise SystemExit("History cleanup must never match Manual Save revision folders")
+for marker in (
+    "saved.removedMediaPaths",
+    "public static func clearDeletedForAccount",
+    "public static func clearAll",
+    "matches.compactMap(\\.mediaPath)",
+):
+    if marker not in source:
+        raise SystemExit(f"History media cleanup coverage missing: {marker}")
+print("PASS: bounded History/receive media cleanup is restricted to deleted/edit/received revisions; Manual Save folders are excluded.")
 print("PASS: deleted history and pre-delete receive cache now use account-scoped SQLCipher/SQLite with legacy Postbox migration.")
