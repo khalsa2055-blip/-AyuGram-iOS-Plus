@@ -261,8 +261,10 @@ old_copy = """                if !FileManager.default.fileExists(atPath: destina
                     try FileManager.default.copyItem(atPath: sourcePath, toPath: destinationURL.path)
                 }
                 copiedResourceCount += 1"""
-new_copy = """                let sourceSize = (try? FileManager.default.attributesOfItem(atPath: sourcePath)[.size] as? NSNumber)?.int64Value
-                let destinationSize = (try? FileManager.default.attributesOfItem(atPath: destinationURL.path)[.size] as? NSNumber)?.int64Value
+new_copy = """                let sourceAttributes = try? FileManager.default.attributesOfItem(atPath: sourcePath)
+                let destinationAttributes = try? FileManager.default.attributesOfItem(atPath: destinationURL.path)
+                let sourceSize = (sourceAttributes?[.size] as? NSNumber)?.int64Value
+                let destinationSize = (destinationAttributes?[.size] as? NSNumber)?.int64Value
                 let destinationIsComplete = FileManager.default.fileExists(atPath: destinationURL.path)
                     && sourceSize != nil
                     && sourceSize == destinationSize
