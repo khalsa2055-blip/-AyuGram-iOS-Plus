@@ -637,8 +637,16 @@ store_path.write_text(store, encoding="utf-8")
 
 # 5. Pass MediaBox from TelegramCore's existing delete handlers to the on-demand fallback.
 delete_source = delete_path.read_text(encoding="utf-8")
-delete_source = replace_once(
-    delete_source,
+# Exclude our hidden tombstone sentinel from a real edit-date maximum.
+delete_source = delete_source.replace(
+    "message.attributes.compactMap { ($0 as? EditedMessageAttribute)?.date }.max() ?? 0",
+    "message.attributes.compactMap { ($0 as? EditedMessageAttribute)?.date }.filter { $0 != Int32.min }.max() ?? 0",
+)
+delete_path.write_text(delete_source, encoding="utf-8")
+
+state_source = state_path.read_text(encoding="utf-8")
+state_source = replace_once(
+    state_source,
     """    AyuGramCaptureService.captureMissingDeletedFromCache(
         transaction: transaction,
         ids: ids,""",
@@ -648,14 +656,6 @@ delete_source = replace_once(
         ids: ids,""",
     "peer-delete MediaBox forwarding",
 )
-# Exclude our hidden tombstone sentinel from a real edit-date maximum.
-delete_source = delete_source.replace(
-    "message.attributes.compactMap { ($0 as? EditedMessageAttribute)?.date }.max() ?? 0",
-    "message.attributes.compactMap { ($0 as? EditedMessageAttribute)?.date }.filter { $0 != Int32.min }.max() ?? 0",
-)
-delete_path.write_text(delete_source, encoding="utf-8")
-
-state_source = state_path.read_text(encoding="utf-8")
 state_source = replace_once(
     state_source,
     """    AyuGramCaptureService.captureGlobalDeletedFromCache(
@@ -790,7 +790,7 @@ assert store.count("AyuGramMediaArchive.archiveReceivedIfNeeded(") == 2
 assert "mediaBox: mediaBox" in capture.split("public static func captureMissingDeletedFromCache(", 1)[1].split("public static func captureGlobalDeletedFromCache(", 1)[0]
 assert "mediaBox: mediaBox" in capture.split("public static func captureGlobalDeletedFromCache(", 1)[1]
 assert "receiveCacheResourceIDsRecovered" in app
-assert "mediaBox: mediaBox" in delete_source.split("public func _internal_applyAyuGramServerDeleteMessages(", 1)[1].split("public func _internal_applyAyuGramServerDeleteMessagesWithGlobalIds(", 1)[0]
+assert "mediaBox: mediaBox" in state_source.split("public func _internal_applyAyuGramServerDeleteMessages(", 1)[1].split("public func _internal_applyAyuGramServerDeleteMessagesWithGlobalIds(", 1)[0]
 assert "mediaBox: mediaBox" in state_source.split("public func _internal_applyAyuGramServerDeleteMessagesWithGlobalIds(", 1)[1].split("\n}", 1)[0]
 
 print("PASS: receive-media file copies moved off Postbox history-load transactions.")
