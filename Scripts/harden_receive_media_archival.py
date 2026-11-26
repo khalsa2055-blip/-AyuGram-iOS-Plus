@@ -618,31 +618,86 @@ store = store.replace(
     "mime_type, is_deleted, deleted_at, media_resources FROM received_cache",
 )
 
-# Persist resource JSON in the receive-cache upsert only.
-insert_old = """            INSERT INTO received_cache (
+# Persist resource JSON in the receive-cache upsert only. Support both the
+# original inline SQL form and the batched writer's reusable prepared statement.
+if "media_resources=excluded.media_resources" not in store:
+    if 'private static let receivedUpsertSQL = """' in store:
+        reusable_upsert_old = """    private static let receivedUpsertSQL = \"\"\"
+        INSERT INTO received_cache (
+            user_id, dialog_id, peer_id, from_id, from_name, topic_id,
+            message_id, date, edit_date, text, media_path, mime_type, is_deleted, deleted_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(user_id, dialog_id, topic_id, message_id) DO UPDATE SET
+            peer_id=excluded.peer_id,
+            from_id=excluded.from_id,
+            from_name=excluded.from_name,
+            date=excluded.date,
+            edit_date=excluded.edit_date,
+            text=excluded.text,
+            media_path=excluded.media_path,
+            mime_type=excluded.mime_type,
+            is_deleted=excluded.is_deleted,
+            deleted_at=excluded.deleted_at
+        \"\"\""""
+        reusable_upsert_new = """    private static let receivedUpsertSQL = \"\"\"
+        INSERT INTO received_cache (
+            user_id, dialog_id, peer_id, from_id, from_name, topic_id,
+            message_id, date, edit_date, text, media_path, mime_type, is_deleted, deleted_at, media_resources
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(user_id, dialog_id, topic_id, message_id) DO UPDATE SET
+            peer_id=excluded.peer_id,
+            from_id=excluded.from_id,
+            from_name=excluded.from_name,
+            date=excluded.date,
+            edit_date=excluded.edit_date,
+            text=excluded.text,
+            media_path=excluded.media_path,
+            mime_type=excluded.mime_type,
+            is_deleted=excluded.is_deleted,
+            deleted_at=excluded.deleted_at,
+            media_resources=excluded.media_resources
+        \"\"\""""
+        store = replace_once(store, reusable_upsert_old, reusable_upsert_new, "reusable receive-cache SQL columns")
+        store = replace_once(
+            store,
+            "        try bind(historyValues(message), to: statement)",
+            "        try bind(historyValues(message) + [.optionalText(encodeMediaResources(message.mediaResources))], to: statement)",
+            "reusable receive-cache resource bind",
+        )
+    else:
+        insert_old = """            INSERT INTO received_cache (
                 user_id, dialog_id, peer_id, from_id, from_name, topic_id,
                 message_id, date, edit_date, text, media_path, mime_type, is_deleted, deleted_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(user_id, dialog_id, topic_id, message_id) DO UPDATE SET"""
-insert_new = """            INSERT INTO received_cache (
+        insert_new = """            INSERT INTO received_cache (
                 user_id, dialog_id, peer_id, from_id, from_name, topic_id,
                 message_id, date, edit_date, text, media_path, mime_type, is_deleted, deleted_at, media_resources
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(user_id, dialog_id, topic_id, message_id) DO UPDATE SET"""
-if "media_resources=excluded.media_resources" not in store:
-    store = replace_once(store, insert_old, insert_new, "receive-cache insert columns")
-    store = replace_once(
-        store,
-        '''                deleted_at=excluded.deleted_at
-            """)
+        store = replace_once(store, insert_old, insert_new, "receive-cache insert columns")
+        store = replace_once(
+            store,
+            '''                deleted_at=excluded.deleted_at
+            \"\"\")
         defer { sqlite3_finalize(statement) }
         try bind(historyValues(message), to: statement)''',
-        '''                deleted_at=excluded.deleted_at,
+            '''                deleted_at=excluded.deleted_at,
                 media_resources=excluded.media_resources
-            """)
+            \"\"\")
         defer { sqlite3_finalize(statement) }
         try bind(historyValues(message) + [.optionalText(encodeMediaResources(message.mediaResources))], to: statement)''',
-        "receive-cache resource upsert value",
+            "receive-cache resource upsert value",
+        )
+
+# The optimized multi-key prefetch uses a CTE with aliased columns; explicitly
+# append the new resource column so the shared row decoder can recover it.
+if "WITH requested(dialog_id, topic_id, message_id) AS (VALUES" in store:
+    store = replace_once(
+        store,
+        "cache.deleted_at FROM requested AS keys INNER JOIN received_cache AS cache",
+        "cache.deleted_at, cache.media_resources FROM requested AS keys INNER JOIN received_cache AS cache",
+        "batched receive-cache resource SELECT",
     )
 
 if "lhs.mediaResources == rhs.mediaResources" not in store:
@@ -987,6 +1042,10 @@ assert "archiveReceivedIfNeeded(" in archive
 assert "media_resources TEXT" in store
 assert 'ensureColumn(database, table: "received_cache", column: "media_resources")' in store
 assert "includeReceivedResources: received" in store
+assert "media_resources=excluded.media_resources" in store
+assert "encodeMediaResources(message.mediaResources)" in store
+if "WITH requested(dialog_id, topic_id, message_id) AS (VALUES" in store:
+    assert "cache.media_resources FROM requested AS keys" in store, "Batched receive-cache SELECT must include persisted MediaBox resource IDs"
 assert "mediaResources: keepExistingResources ? existing?.mediaResources : snapshot.mediaResources" in store
 assert "let sameResourceSet = snapshot.mediaResources == nil" in store
 assert store.count("AyuGramMediaArchive.archiveReceivedIfNeeded(") == 2
