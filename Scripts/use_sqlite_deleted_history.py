@@ -610,10 +610,11 @@ public enum AyuGramPostboxHistoryStore {
         return revisionDirectory
     }
 
-    // Only remove a captured revision after neither SQL table references it.
-    // This also handles old rows promoted from the receive cache into History.
-    private static func removeOrphanReceivedArchives(_ database: OpaquePointer, mediaPaths: [String]) throws {
-        guard !mediaPaths.isEmpty else { return }
+    // Detach unreferenced revisions while the database lock is held, then delete
+    // their contents after releasing it. A same-parent rename is metadata-only and
+    // prevents a later row from reusing the original path from being deleted.
+    private static func removeOrphanReceivedArchives(_ database: OpaquePointer, mediaPaths: [String]) throws -> [URL] {
+        guard !mediaPaths.isEmpty else { return [] }
         let reference = try prepare(database, """
             SELECT 1 FROM history WHERE media_path=?
             UNION ALL
@@ -623,6 +624,7 @@ public enum AyuGramPostboxHistoryStore {
         defer { sqlite3_finalize(reference) }
 
         var visited: Set<String> = []
+        var quarantinedDirectories: [URL] = []
         for mediaPath in mediaPaths {
             guard let directory = historyRevisionDirectory(mediaPath: mediaPath),
                   visited.insert(directory.path).inserted else {
@@ -633,11 +635,23 @@ public enum AyuGramPostboxHistoryStore {
             try bind([.text(mediaPath), .text(mediaPath)], to: reference)
             let result = sqlite3_step(reference)
             if result == SQLITE_DONE {
-                try? FileManager.default.removeItem(at: directory)
+                let quarantinedDirectory = directory.deletingLastPathComponent()
+                    .appendingPathComponent(".ayu-orphan-\(UUID().uuidString)", isDirectory: true)
+                do {
+                    if try AyuGramMediaArchive.moveOrphanReceivedArchive(
+                        at: directory,
+                        to: quarantinedDirectory
+                    ) {
+                        quarantinedDirectories.append(quarantinedDirectory)
+                    }
+                } catch {
+                    // A failed detach leaves the original archive intact.
+                }
             } else if result != SQLITE_ROW {
                 throw StoreError.sqlite(errorMessage(database))
             }
         }
+        return quarantinedDirectories
     }
 
     private static func trimReceived(_ database: OpaquePointer, userID: Int64) throws -> [String] {
@@ -1305,14 +1319,16 @@ cleanup_helper = r"""    private static let mediaCleanupQueue = DispatchQueue(
         qos: .utility
     )
 
-    /// Filesystem cleanup must never run on Telegram's Postbox/chat-load path.
-    /// The database reference check and file removal still run under the same
-    /// per-process database lock, so newly referenced revision folders survive.
+    /// Reserve orphan directories on the utility queue. The same-parent rename is
+    /// done under the database lock; recursive deletion happens only after unlock.
     private static func scheduleOrphanReceivedArchiveCleanup(accountID: Int64, mediaPaths: [String]) {
         guard !mediaPaths.isEmpty else { return }
         mediaCleanupQueue.async {
-            _ = withDatabase(accountID: accountID) { database in
+            let quarantinedDirectories = withDatabase(accountID: accountID) { database in
                 try removeOrphanReceivedArchives(database, mediaPaths: mediaPaths)
+            } ?? []
+            for directory in quarantinedDirectories {
+                try? FileManager.default.removeItem(at: directory)
             }
         }
     }
@@ -1418,7 +1434,12 @@ for marker in required:
 if "transaction.setPreferencesEntry(key: key" in source:
     raise SystemExit("History store still writes to Postbox preferences")
 if source.count("removeOrphanReceivedArchives(database, mediaPaths:") != 1:
-    raise SystemExit("Orphan media deletion must occur only inside the background cleanup helper")
+    raise SystemExit("Orphan media reservation must occur only inside the background cleanup helper")
+cleanup_worker = source.split("private static func scheduleOrphanReceivedArchiveCleanup(", 1)[1].split("\n    }\n", 1)[0]
+if cleanup_worker.index("withDatabase(") > cleanup_worker.index("FileManager.default.removeItem(at: directory)"):
+    raise SystemExit("Orphan media files must be deleted after the database lock is released")
+if "AyuGramMediaArchive.moveOrphanReceivedArchive(" not in source:
+    raise SystemExit("Receive archive cleanup must coordinate its directory rename with pending archive copies")
 if "scheduleOrphanReceivedArchiveCleanup(accountID: accountID, mediaPaths: stored.1)" not in source:
     raise SystemExit("Receive-cache cleanup must be scheduled off the chat-load path")
 
