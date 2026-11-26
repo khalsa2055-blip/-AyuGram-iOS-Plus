@@ -1621,6 +1621,8 @@ assert "isCopyProtected()" not in peer_retention, "Peer retention must not rejec
 cache_helper = delete_check.split("public func _internal_cacheAyuGramReceivedMessages(", 1)[1].split("public func _internal_captureDeletedMessages(", 1)[0]
 assert "isCopyProtected()" not in cache_helper, "Pre-delete cache must not reject messages by copyProtected"
 assert "attribute.date == Int32.min && attribute.isHidden" in cache_helper, "Receive cache must skip locally retained deleted messages"
+assert "guard !message.containsSecretMedia else { return false }" in cache_helper, "Receive cache must continue excluding secret media"
+assert "return !message.attributes.contains(where:" in cache_helper, "Receive cache tombstone filter is missing"
 global_retention = state_check.split("public func _internal_retainDeletedMessagesWithGlobalIds(", 1)[1].split("\n}", 1)[0]
 assert "isCopyProtected()" not in global_retention, "Global-ID retention must not reject messages by copyProtected"
 direct_delete_capture = delete_check.split("public func _internal_deleteMessages(", 1)[1].split("var resourceIds", 1)[0]
