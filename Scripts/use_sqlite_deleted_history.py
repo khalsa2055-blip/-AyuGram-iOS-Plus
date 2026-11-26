@@ -1064,7 +1064,7 @@ public enum AyuGramPostboxHistoryStore {
                         let predicates = keyBatch.map { _ in
                             "(dialog_id=? AND topic_id=? AND message_id=?)"
                         }.joined(separator: " OR ")
-                        let sql = "SELECT \(historyColumns) FROM received_cache WHERE user_id=? AND (\(predicates))"
+                        let sql = "SELECT cache_id AS fake_id, user_id, dialog_id, peer_id, from_id, from_name, topic_id, message_id, date, edit_date, text, media_path, mime_type, is_deleted, deleted_at FROM received_cache WHERE user_id=? AND (\(predicates))"
                         var values: [Value] = [.integer(accountID)]
                         values.reserveCapacity(1 + keyBatch.count * 3)
                         for snapshot in keyBatch {
@@ -1496,6 +1496,7 @@ required = [
     "insertReceived(database, statement: upsertStatement, message: value)",
     "existingByKey",
     "keyBatchSize = 200",
+    "cache_id AS fake_id",
 ]
 for marker in required:
     if marker not in source:
