@@ -656,7 +656,15 @@ DELETE.write_text(delete_text, encoding="utf-8")
 CACHE_HELPER_SOURCE = r'''public func _internal_cacheAyuGramReceivedMessages(transaction: Transaction, mediaBox: MediaBox, ids: [MessageId], ayuAccountID: Int64) {
     guard !ids.isEmpty else { return }
     let resolvedMessages = ids.compactMap { transaction.getMessage($0) }
-    let messages = resolvedMessages.filter { !$0.containsSecretMedia }
+    let messages = resolvedMessages.filter { message in
+        guard !message.containsSecretMedia else { return false }
+        // A locally retained deletion is already archived; do not feed it back
+        // into the live receive cache whenever the conversation is loaded.
+        return !message.attributes.contains(where: {
+            guard let attribute = $0 as? EditedMessageAttribute else { return false }
+            return attribute.date == Int32.min && attribute.isHidden
+        })
+    }
     guard !messages.isEmpty else { return }
 
     // Message IDs are only unique inside a peer. Keep sender/media maps peer-scoped
@@ -1612,6 +1620,7 @@ peer_retention = delete_check.split("var ayuRetainedDeletedMessageIds", 1)[1].sp
 assert "isCopyProtected()" not in peer_retention, "Peer retention must not reject messages by copyProtected"
 cache_helper = delete_check.split("public func _internal_cacheAyuGramReceivedMessages(", 1)[1].split("public func _internal_captureDeletedMessages(", 1)[0]
 assert "isCopyProtected()" not in cache_helper, "Pre-delete cache must not reject messages by copyProtected"
+assert "attribute.date == Int32.min && attribute.isHidden" in cache_helper, "Receive cache must skip locally retained deleted messages"
 global_retention = state_check.split("public func _internal_retainDeletedMessagesWithGlobalIds(", 1)[1].split("\n}", 1)[0]
 assert "isCopyProtected()" not in global_retention, "Global-ID retention must not reject messages by copyProtected"
 direct_delete_capture = delete_check.split("public func _internal_deleteMessages(", 1)[1].split("var resourceIds", 1)[0]
