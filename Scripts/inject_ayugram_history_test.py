@@ -252,7 +252,7 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                                 forwardInfo: nil,
                                 authorId: nil,
                                 text: cloudGroupMessageText,
-                                attributes: [],
+                                attributes: [EditedMessageAttribute(date: now - 5, isHidden: false)],
                                 media: []
                             )
                             transaction.addMessages([cloudGroupStoreMessage], location: .Random)
@@ -267,9 +267,12 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                             transaction.deleteMessagesWithGlobalIds(cloudGroupIDsToDelete, forEachMedia: { _ in })
                             let cloudGroupRetainedMessage = transaction.getMessage(cloudGroupMessageID)
                             let cloudGroupRetainedInChat = cloudGroupRetainedMessage?.text == cloudGroupMessageText
-                            let cloudGroupHasDeletedMarker = cloudGroupRetainedMessage?.attributes.contains(where: {
+                            let cloudGroupEditAttributeCount = cloudGroupRetainedMessage?.attributes.filter {
+                                $0 is EditedMessageAttribute
+                            }.count ?? 0
+                            let cloudGroupHasDeletedMarker = (cloudGroupRetainedMessage?.attributes.contains(where: {
                                 ($0 as? EditedMessageAttribute)?.date == Int32.min
-                            }) ?? false
+                            }) ?? false) && cloudGroupEditAttributeCount == 1
                             let cloudGroupReturnedRetainedID = cloudGroupRetainedIDs.contains(cloudGroupMessageID.id)
                             let cloudGroupDeletionFiltered = cloudGroupIDsToDelete.isEmpty && cloudGroupRetainedMessage != nil
                             let cloudGroupHistoryCaptured = AyuGramPostboxHistoryStore.filtered(
@@ -320,7 +323,7 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                                 forwardInfo: nil,
                                 authorId: nil,
                                 text: cloudChannelMessageText,
-                                attributes: [],
+                                attributes: [EditedMessageAttribute(date: now - 5, isHidden: false)],
                                 media: []
                             )
                             transaction.addMessages([cloudChannelStoreMessage], location: .Random)
@@ -332,9 +335,12 @@ deleted_capture_hook = """                    if ProcessInfo.processInfo.argumen
                             )
                             let cloudChannelRetainedMessage = transaction.getMessage(cloudChannelMessageID)
                             let cloudChannelRetainedInChat = cloudChannelRetainedMessage?.text == cloudChannelMessageText
-                            let cloudChannelHasDeletedMarker = cloudChannelRetainedMessage?.attributes.contains(where: {
+                            let cloudChannelEditAttributeCount = cloudChannelRetainedMessage?.attributes.filter {
+                                $0 is EditedMessageAttribute
+                            }.count ?? 0
+                            let cloudChannelHasDeletedMarker = (cloudChannelRetainedMessage?.attributes.contains(where: {
                                 ($0 as? EditedMessageAttribute)?.date == Int32.min
-                            }) ?? false
+                            }) ?? false) && cloudChannelEditAttributeCount == 1
                             let cloudChannelReturnedRetainedID = cloudChannelRetainedIDs.contains(cloudChannelMessageID)
                             let cloudChannelHistoryCaptured = AyuGramPostboxHistoryStore.filtered(
                                 transaction: transaction,
