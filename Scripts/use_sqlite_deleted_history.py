@@ -1407,7 +1407,7 @@ required = [
     "Documents/saved/king",
     "private static func historyRevisionDirectory(",
     "removedMediaPaths",
-    "try removeOrphanReceivedArchives(database, mediaPaths: saved.removedMediaPaths)",
+    "scheduleOrphanReceivedArchiveCleanup(accountID: accountID, mediaPaths: saved.removedMediaPaths)",
     "public static func promoteReceivedToDeleted(",
     "public static func promoteReceivedGlobalIDsToDeleted(",
     "private static func migrateLegacyIfNeeded(",
