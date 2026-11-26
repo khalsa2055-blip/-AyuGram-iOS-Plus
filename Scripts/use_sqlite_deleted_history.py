@@ -696,6 +696,10 @@ public enum AyuGramPostboxHistoryStore {
             throw StoreError.sqlite(errorMessage(database))
         }
         let oldestOverflowID = sqlite3_column_int64(overflowQuery, 0)
+        let resetResult = sqlite3_reset(overflowQuery)
+        guard resetResult == SQLITE_OK else {
+            throw StoreError.sqlite(errorMessage(database))
+        }
 
         let pathsQuery = try prepare(database, """
             SELECT media_path FROM received_cache
@@ -1515,6 +1519,7 @@ required = [
     "cache_id AS fake_id",
     "CREATE INDEX IF NOT EXISTS received_cache_recent_lookup",
     "LIMIT 1 OFFSET ?",
+    "sqlite3_reset(overflowQuery)",
     "WHERE user_id=? AND cache_id<=?",
 ]
 for marker in required:
