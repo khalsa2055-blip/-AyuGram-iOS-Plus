@@ -33,6 +33,25 @@ peer_info_screen = PEER_INFO_SCREEN.read_text(encoding="utf-8")
 peer_info_items = PEER_INFO_ITEMS.read_text(encoding="utf-8")
 peer_info_actions = PEER_INFO_ACTIONS.read_text(encoding="utf-8")
 peer_info_build = PEER_INFO_BUILD.read_text(encoding="utf-8")
+# Before reads only the shared edit-history rows. It must tolerate text-only or
+# unavailable-media revisions without changing the deleted-message capture path.
+gallery_revision_start = menu.find("AyuGramPostboxHistoryStore.revisions(")
+if gallery_revision_start < 0:
+    raise SystemExit("Before gallery History revision lookup is missing")
+gallery_limit_start = menu.find("limit: 50", gallery_revision_start)
+if gallery_limit_start < 0:
+    raise SystemExit("Before gallery revision limit anchor is missing")
+menu = menu[:gallery_limit_start] + "limit: 500" + menu[gallery_limit_start + len("limit: 50"):]
+gallery_old_selector = "savedRevisions.first(where: { $0.mediaPath != nil })?.mediaPath"
+gallery_new_selector = """savedRevisions.first(where: { revision in
+                            guard let path = revision.mediaPath else { return false }
+                            return FileManager.default.fileExists(atPath: path)
+                        })?.mediaPath"""
+if gallery_old_selector in menu:
+    menu = menu.replace(gallery_old_selector, gallery_new_selector, 1)
+elif gallery_new_selector not in menu:
+    raise SystemExit("Before gallery media-path fallback selector is missing")
+
 
 # Private invite previews may display media, but actions originating from the
 # media gallery must remain read-only. These callbacks bypass the regular
@@ -859,11 +878,14 @@ settings_before_action = r'''        if message.effectiveMedia.contains(where: {
                             userID: context.account.peerId.toInt64(),
                             dialogID: message.id.peerId.toInt64(),
                             messageID: message.id.id,
-                            limit: 1
+                            limit: 500
                         )
                     }
                     _ = (revisions |> deliverOnMainQueue).startStandalone(next: { values in
-                        guard let path = values.first?.mediaPath,
+                        guard let path = values.first(where: { revision in
+                            guard let path = revision.mediaPath else { return false }
+                            return FileManager.default.fileExists(atPath: path)
+                        })?.mediaPath,
                               FileManager.default.fileExists(atPath: path) else {
                             controllerInteraction.displayUndo(.info(title: nil, text: "Original media was not cached before the edit.", timeout: 2.0, customUndoText: nil))
                             return
@@ -894,6 +916,8 @@ if 'ContextMenuActionItem(text: "قبل"' in menu:
     raise SystemExit("Duplicate Arabic Before action remains")
 if menu.count('ContextMenuActionItem(text: "Before"') != 2:
     raise SystemExit("Expected one guarded Before action for messages and one for gallery")
+if menu.count("limit: 500") < 2 or "savedRevisions.first(where: { revision in" not in menu or "values.first(where: { revision in" not in menu:
+    raise SystemExit("Before must fall back across shared History revisions with existing media files")
 
 # Keep preview-only interaction checks out of ChatController's giant initializer.
 # Each callback is wrapped independently inside ChatControllerInteraction so Swift
