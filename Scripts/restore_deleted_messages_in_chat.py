@@ -279,26 +279,59 @@ received_methods = r'''    @discardableResult
         var state = readReceived(transaction: transaction)
         var changed = 0
 
+        // Index the existing cache once. Repeated firstIndex/remove operations
+        // made large chat-sync batches quadratic while running inside Postbox.
+        var messagesByKey: [String: AyuMessage] = [:]
+        var orderedKeys: [String] = []
+        messagesByKey.reserveCapacity(state.messages.count + snapshots.count)
+        orderedKeys.reserveCapacity(state.messages.count + snapshots.count)
+
+        func cacheKey(for message: AyuMessage) -> String {
+            return "\(message.userID):\(message.dialogID):\(message.topicID):\(message.messageID)"
+        }
+
+        for message in state.messages {
+            let key = cacheKey(for: message)
+            if messagesByKey[key] == nil {
+                messagesByKey[key] = message
+                orderedKeys.append(key)
+            }
+        }
+
         for snapshot in snapshots {
-            if let index = state.messages.firstIndex(where: {
-                $0.userID == snapshot.userID
-                    && $0.dialogID == snapshot.dialogID
-                    && $0.topicID == snapshot.topicID
-                    && $0.messageID == snapshot.messageID
-            }) {
-                if state.messages[index] != snapshot {
-                    state.messages.remove(at: index)
-                    state.messages.append(snapshot)
+            let key = cacheKey(for: snapshot)
+            if let existing = messagesByKey[key] {
+                if existing != snapshot {
+                    messagesByKey[key] = snapshot
+                    orderedKeys.append(key)
                     changed += 1
                 }
             } else {
-                state.messages.append(snapshot)
+                messagesByKey[key] = snapshot
+                orderedKeys.append(key)
                 changed += 1
             }
         }
 
-        if state.messages.count > maximumReceivedEntries {
-            state.messages = Array(state.messages.suffix(maximumReceivedEntries))
+        // A changed entry is appended to orderedKeys, reproducing the old
+        // remove-and-append recency behavior without shifting the whole array.
+        // Keep only each key's final occurrence, then apply the same 2,500 cap.
+        var compactedKeys: Set<String> = []
+        compactedKeys.reserveCapacity(orderedKeys.count)
+        var orderedMessages: [AyuMessage] = []
+        orderedMessages.reserveCapacity(min(orderedKeys.count, maximumReceivedEntries))
+        for key in orderedKeys.reversed() {
+            guard compactedKeys.insert(key).inserted, let message = messagesByKey[key] else {
+                continue
+            }
+            orderedMessages.append(message)
+        }
+        orderedMessages.reverse()
+
+        if orderedMessages.count > maximumReceivedEntries {
+            state.messages = Array(orderedMessages.suffix(maximumReceivedEntries))
+        } else {
+            state.messages = orderedMessages
         }
         transaction.setPreferencesEntry(key: receivedKey, value: PreferencesEntry(state))
         return changed
@@ -1841,6 +1874,11 @@ assert received_cache_helper.index("cacheBatches.append(") < received_cache_help
 received_cache_method = CAPTURE_SERVICE.read_text(encoding="utf-8").split("public static func cacheReceived(", 1)[1].split("public static func captureMissingDeletedFromCache(", 1)[0]
 assert received_cache_method.count("AyuGramPostboxHistoryStore.cacheReceived(") == 1, "The cache writer must be called once for the complete Postbox batch"
 assert "for batch in batches" in received_cache_method
+received_store_method = store_text.split("public static func cacheReceived(transaction:", 1)[1].split("public static func promoteReceivedToDeleted(", 1)[0]
+assert "var messagesByKey: [String: AyuMessage] = [:]" in received_store_method, "Receive-cache updates must use a keyed index"
+assert "for key in orderedKeys.reversed()" in received_store_method, "Receive-cache updates must preserve last-write recency order"
+assert "maximumReceivedEntries" in received_store_method, "Receive-cache size bound must remain enforced"
+assert "firstIndex(where:" not in received_store_method, "Receive-cache writes must not regress to repeated linear searches"
 assert "_internal_cacheAyuGramReceivedMessages(" in holes_check
 print("PASS: deleted markers are routed for text bubbles and media-only image/video status overlays.")
 print("PASS: server-deleted messages remain as local rows in their original chat.")
