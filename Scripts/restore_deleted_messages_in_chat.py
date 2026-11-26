@@ -624,7 +624,11 @@ retention_block = r'''    var ayuRetainedDeletedMessageIds = Set<MessageId>()
                         return .skip
                     }
                     // Hidden sentinel: it identifies a local tombstone without changing Telegram's edit date.
-                    attributes.append(EditedMessageAttribute(date: Int32.min, isHidden: true))
+                    // Capture/history has already preserved the original edit metadata.
+            // Replace existing edit metadata instead of appending a second instance:
+            // Telegram UI consumers expect a single EditedMessageAttribute per message.
+            attributes.removeAll(where: { ($0 as? EditedMessageAttribute) != nil })
+            attributes.append(EditedMessageAttribute(date: Int32.min, isHidden: true))
 
                     var storeForwardInfo: StoreMessageForwardInfo?
                     if let forwardInfo = currentMessage.forwardInfo {
@@ -871,6 +875,10 @@ if global_helper_signature not in state_text:
                 wasAlreadyRetained = true
                 return .skip
             }
+            // Capture/history has already preserved the original edit metadata.
+            // Replace existing edit metadata instead of appending a second instance:
+            // Telegram UI consumers expect a single EditedMessageAttribute per message.
+            attributes.removeAll(where: { ($0 as? EditedMessageAttribute) != nil })
             attributes.append(EditedMessageAttribute(date: Int32.min, isHidden: true))
 
             var storeForwardInfo: StoreMessageForwardInfo?
@@ -1739,6 +1747,8 @@ assert "@discardableResult" in delete_check
 assert "ids.filter { !ayuRetainedDeletedMessageIds.contains($0) }.map { .messageId($0) }" in state_check
 assert "ids.filter { !ayuRetainedGlobalIds.contains($0) }.map { .global($0) }" in state_check
 assert "EditedMessageAttribute(date: Int32.min, isHidden: true)" in delete_check
+assert delete_check.count("attributes.removeAll(where: { ($0 as? EditedMessageAttribute) != nil })") == 1, "Peer retention must replace existing edit attributes before adding the tombstone"
+assert state_check.count("attributes.removeAll(where: { ($0 as? EditedMessageAttribute) != nil })") == 1, "Global-ID retention must replace existing edit attributes before adding the tombstone"
 assert "isAyuGramDeleted: Bool" in date_check
 assert 'updatedDateText = "🧹 \\(updatedDateText)"' in date_check
 assert "isAyuGramDeleted = true" in bubble_check
