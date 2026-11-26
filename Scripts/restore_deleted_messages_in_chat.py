@@ -166,9 +166,12 @@ diagnostic_method = r'''    private static let deletionDiagnosticsQueue = Dispat
             ("alreadyRetained", alreadyRetained),
             ("peerNamespace", peerNamespace)
         ]
-        let extra = fields.compactMap { key, value in value.map { "\\(key)=\\($0)" } }.joined(separator: " ")
+        let extra = fields.compactMap { field -> String? in
+            guard let value = field.1 else { return nil }
+            return "\(field.0)=\(value)"
+        }.joined(separator: " ")
         let suffix = extra.isEmpty ? "" : " " + extra
-        let line = "\\(Int(Date().timeIntervalSince1970)) \\(route) received=\\(received)\\(suffix)\\n"
+        let line = "\(Int(Date().timeIntervalSince1970)) \(route) received=\(received)\(suffix)\n"
 
         // Diagnostics are intentionally asynchronous: this method is called from
         // Telegram's Postbox transaction path and must never read/write Documents
@@ -1682,6 +1685,8 @@ interactive_media_check = INTERACTIVE_MEDIA.read_text(encoding="utf-8")
 assert "preserveDeletedMessagesInChat: Bool = false" in delete_check
 diagnostics_check = CAPTURE_SERVICE.read_text(encoding="utf-8")
 assert "public static func recordDeletedRouteDiagnostic(" in diagnostics_check
+assert "fields.compactMap { field -> String? in" in diagnostics_check, "Diagnostics tuple mapping must use a single Swift closure argument"
+assert 'return "\\(field.0)=\\(value)"' in diagnostics_check, "Diagnostics fields must interpolate their key and value"
 diagnostics_body = diagnostics_check.split("public static func recordDeletedRouteDiagnostic(", 1)[1].split("\\n    }", 1)[0]
 assert "deletionDiagnosticsQueue.async" in diagnostics_body, "Deletion diagnostics must not block Postbox transactions"
 assert "deletionDiagnosticsQueue.async {" in diagnostics_body
