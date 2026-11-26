@@ -1133,10 +1133,8 @@ public enum AyuGramPostboxHistoryStore {
             }
             if let stored {
                 changed += stored.0
-                // Run filesystem cleanup only when the write actually orphaned media.
-                // The scheduler performs the reference check outside the Postbox thread.
-                if !stored.1.isEmpty {
-                    scheduleOrphanReceivedArchiveCleanup(accountID: accountID, mediaPaths: stored.1)
+                _ = withDatabase(accountID: accountID) { database in
+                    try removeOrphanReceivedArchives(database, mediaPaths: stored.1)
                 }
             }
         }
@@ -1433,7 +1431,9 @@ cleanup_replacements = [
         """                _ = withDatabase(accountID: accountID) { database in
                     try removeOrphanReceivedArchives(database, mediaPaths: stored.1)
                 }""",
-        """                scheduleOrphanReceivedArchiveCleanup(accountID: accountID, mediaPaths: stored.1)""",
+        """                if !stored.1.isEmpty {
+                    scheduleOrphanReceivedArchiveCleanup(accountID: accountID, mediaPaths: stored.1)
+                }""",
         1,
         "receive-cache cleanup",
     ),
