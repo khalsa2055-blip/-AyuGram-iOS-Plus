@@ -143,7 +143,66 @@ for path in (DELETE, STATE, HOLES, THREAD_HISTORY, LOAD_MESSAGES, BUBBLE, TEXT_B
 
 
 capture_service_text = CAPTURE_SERVICE.read_text(encoding="utf-8")
-diagnostic_method = "    private static let deletionDiagnosticsLock = NSLock()\n\n    public static func recordDeletedRouteDiagnostic(\n        _ route: String,\n        received: Int,\n        mapped: Int? = nil,\n        retained: Int? = nil,\n        missing: Int? = nil,\n        secretMedia: Int? = nil,\n        alreadyRetained: Int? = nil,\n        peerNamespace: Int? = nil\n    ) {\n        deletionDiagnosticsLock.lock()\n        defer { deletionDiagnosticsLock.unlock() }\n\n        guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {\n            return\n        }\n        let fileURL = documentsURL.appendingPathComponent(\"AyuGramDeletedMessageDiagnostics.txt\")\n        let fields: [(String, Int?)] = [\n            (\"mapped\", mapped),\n            (\"retained\", retained),\n            (\"missing\", missing),\n            (\"secretMedia\", secretMedia),\n            (\"alreadyRetained\", alreadyRetained),\n            (\"peerNamespace\", peerNamespace)\n        ]\n        let extra = fields.compactMap { key, value in value.map { \"\\(key)=\\($0)\" } }.joined(separator: \" \")\n        let suffix = extra.isEmpty ? \"\" : \" \\(extra)\"\n        let line = \"\\(Int(Date().timeIntervalSince1970)) \\(route) received=\\(received)\\(suffix)\\n\"\n\n        do {\n            var data = (try? Data(contentsOf: fileURL)) ?? Data()\n            data.append(Data(line.utf8))\n            if data.count > 65536 {\n                data = Data(data.suffix(32768))\n            }\n            try data.write(to: fileURL, options: .atomic)\n        } catch {\n            // Diagnostics are best-effort and must never affect Telegram deletion.\n        }\n    }\n\n"
+diagnostic_method = r'''    private static let deletionDiagnosticsQueue = DispatchQueue(
+        label: "org.ayugram.deleted-message-diagnostics",
+        qos: .utility
+    )
+
+    public static func recordDeletedRouteDiagnostic(
+        _ route: String,
+        received: Int,
+        mapped: Int? = nil,
+        retained: Int? = nil,
+        missing: Int? = nil,
+        secretMedia: Int? = nil,
+        alreadyRetained: Int? = nil,
+        peerNamespace: Int? = nil
+    ) {
+        let fields: [(String, Int?)] = [
+            ("mapped", mapped),
+            ("retained", retained),
+            ("missing", missing),
+            ("secretMedia", secretMedia),
+            ("alreadyRetained", alreadyRetained),
+            ("peerNamespace", peerNamespace)
+        ]
+        let extra = fields.compactMap { key, value in value.map { "\\(key)=\\($0)" } }.joined(separator: " ")
+        let suffix = extra.isEmpty ? "" : " " + extra
+        let line = "\\(Int(Date().timeIntervalSince1970)) \\(route) received=\\(received)\\(suffix)\\n"
+
+        // Diagnostics are intentionally asynchronous: this method is called from
+        // Telegram's Postbox transaction path and must never read/write Documents
+        // synchronously while a chat is being opened or a delete update is handled.
+        deletionDiagnosticsQueue.async {
+            guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+                return
+            }
+            let fileURL = documentsURL.appendingPathComponent("AyuGramDeletedMessageDiagnostics.txt")
+            do {
+                if !FileManager.default.fileExists(atPath: fileURL.path) {
+                    _ = FileManager.default.createFile(atPath: fileURL.path, contents: nil)
+                }
+                let handle = try FileHandle(forWritingTo: fileURL)
+                handle.seekToEndOfFile()
+                handle.write(Data(line.utf8))
+                handle.closeFile()
+
+                // Keep the diagnostic file bounded without imposing I/O on the
+                // caller. Trimming is rare and happens on this serial utility queue.
+                if let attributes = try? FileManager.default.attributesOfItem(atPath: fileURL.path),
+                   let size = attributes[.size] as? NSNumber,
+                   size.intValue > 65536,
+                   let data = try? Data(contentsOf: fileURL) {
+                    try Data(data.suffix(32768)).write(to: fileURL, options: .atomic)
+                }
+            } catch {
+                // Diagnostics are best-effort and must never affect Telegram deletion.
+            }
+        }
+    }
+
+'''
+
 enum_anchor = "public enum AyuGramCaptureService {\n"
 if "public static func recordDeletedRouteDiagnostic(" not in capture_service_text:
     if capture_service_text.count(enum_anchor) != 1:
