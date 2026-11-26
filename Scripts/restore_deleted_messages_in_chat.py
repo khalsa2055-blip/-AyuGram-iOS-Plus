@@ -1835,6 +1835,12 @@ assert "batches: cacheBatches" in DELETE.read_text(encoding="utf-8")
 assert "public struct AyuMessageReceivedCacheBatch" in CAPTURE_SERVICE.read_text(encoding="utf-8")
 assert "let messageCount = batches.reduce(0) { $0 + $1.messages.count }" in CAPTURE_SERVICE.read_text(encoding="utf-8")
 assert "let cachedCount = AyuGramPostboxHistoryStore.cacheReceived(transaction: transaction, messages: snapshots)" in CAPTURE_SERVICE.read_text(encoding="utf-8")
+received_cache_helper = DELETE.read_text(encoding="utf-8").split("public func _internal_cacheAyuGramReceivedMessages(", 1)[1].split("public func _internal_captureDeletedMessages(", 1)[0]
+assert received_cache_helper.count("AyuGramCaptureService.cacheReceived(") == 1, "A Postbox receive batch must invoke the cache writer only once"
+assert received_cache_helper.index("cacheBatches.append(") < received_cache_helper.index("AyuGramCaptureService.cacheReceived("), "All peer-scoped maps must be built before the single batch write"
+received_cache_method = CAPTURE_SERVICE.read_text(encoding="utf-8").split("public static func cacheReceived(", 1)[1].split("public static func captureMissingDeletedFromCache(", 1)[0]
+assert received_cache_method.count("AyuGramPostboxHistoryStore.cacheReceived(") == 1, "The cache writer must be called once for the complete Postbox batch"
+assert "for batch in batches" in received_cache_method
 assert "_internal_cacheAyuGramReceivedMessages(" in holes_check
 print("PASS: deleted markers are routed for text bubbles and media-only image/video status overlays.")
 print("PASS: server-deleted messages remain as local rows in their original chat.")
