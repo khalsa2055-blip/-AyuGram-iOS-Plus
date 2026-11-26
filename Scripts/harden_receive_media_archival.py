@@ -476,11 +476,11 @@ capture = replace_once(
 # only integer counters so the async closure does not retain Message arrays.
 receive_log_old = """        recordDeletedRouteDiagnostic(
             "receive-cache-stored",
-            received: messages.count,
+            received: messageCount,
             mapped: snapshots.count,
             retained: cachedCount,
         )"""
-receive_log_new = """        let diagnosticReceivedCount = messages.count
+receive_log_new = """        let diagnosticReceivedCount = messageCount
         let diagnosticMappedCount = snapshots.count
         let diagnosticRetainedCount = cachedCount
         DispatchQueue.global(qos: .utility).async {
