@@ -238,10 +238,38 @@ QUEUE_METHODS = r"""    private final class MediaBoxReference: @unchecked Sendab
             return (nil, resources.first?.mimeType)
         }
         let key = directory.path
-        receiveArchiveLock.lock()
-        let pending = pendingReceiveArchives[key]
-        receiveArchiveLock.unlock()
-        pending?.wait()
+
+        // Serialize the delete-time retry against both queued receive copies and
+        // other simultaneous delete fallbacks for this exact media revision.
+        // Merely waiting for the observed group is not enough: another history
+        // load can enqueue a new copy after that group leaves and before this
+        // fallback begins its own FileManager copy.
+        var reservation: DispatchGroup?
+        while reservation == nil {
+            receiveArchiveLock.lock()
+            if let pending = pendingReceiveArchives[key] {
+                receiveArchiveLock.unlock()
+                pending.wait()
+            } else {
+                let group = DispatchGroup()
+                group.enter()
+                pendingReceiveArchives[key] = group
+                receiveArchiveLock.unlock()
+                reservation = group
+            }
+        }
+
+        guard let reservation else {
+            return (nil, resources.first?.mimeType)
+        }
+        defer {
+            receiveArchiveLock.lock()
+            if pendingReceiveArchives[key] === reservation {
+                pendingReceiveArchives.removeValue(forKey: key)
+            }
+            receiveArchiveLock.unlock()
+            reservation.leave()
+        }
 
         if let path = completeArchivePath(directory: directory, resourceCount: resources.count) {
             return (path, resources.first?.mimeType)
@@ -254,7 +282,10 @@ QUEUE_METHODS = r"""    private final class MediaBoxReference: @unchecked Sendab
             revisionKey: revisionKey,
             resources: resources
         )
-        return (archived.path, archived.mimeType)
+        guard let completePath = completeArchivePath(directory: directory, resourceCount: resources.count) else {
+            return (nil, archived.mimeType ?? resources.first?.mimeType)
+        }
+        return (completePath, archived.mimeType ?? resources.first?.mimeType)
     }
 
 """
@@ -911,6 +942,11 @@ assert "diagnosticRetainedCount" in cache_body
 deleted_body = capture.split("public static func captureDeleted(", 1)[1].split("public static func saveNow(", 1)[0]
 assert "AyuGramMediaArchive.archiveReceivedIfNeeded(" in deleted_body
 assert 'revisionKey: "deleted"' not in deleted_body
+fallback_archive_body = archive.split("public static func archiveReceivedIfNeeded(", 1)[1].split("private static func pathExtension", 1)[0]
+assert "while reservation == nil" in fallback_archive_body
+assert "pendingReceiveArchives[key] = group" in fallback_archive_body
+assert "reservation.leave()" in fallback_archive_body
+assert "completeArchivePath(directory: directory, resourceCount: resources.count)" in fallback_archive_body
 assert "maximumPendingReceiveArchives = 128" in archive
 assert "public static func receivedRevisionKey(resources:" in archive
 assert "receivedRevisionKey(editDate:" not in capture + store + app
