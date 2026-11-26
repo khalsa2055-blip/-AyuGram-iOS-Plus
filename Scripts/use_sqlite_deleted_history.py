@@ -261,6 +261,10 @@ public enum AyuGramPostboxHistoryStore {
                 )
                 """)
             try execute(database, """
+                CREATE INDEX IF NOT EXISTS received_cache_recent_lookup
+                ON received_cache(user_id, cache_id DESC)
+                """)
+            try execute(database, """
                 CREATE TABLE IF NOT EXISTS migrations (
                     account_id INTEGER NOT NULL,
                     migration TEXT NOT NULL,
@@ -673,16 +677,32 @@ public enum AyuGramPostboxHistoryStore {
     }
 
     private static func trimReceived(_ database: OpaquePointer, userID: Int64) throws -> [String] {
+        // Fast no-op for the common case. The account/cache index makes this
+        // single-row look-ahead cheap and avoids two temporary sorts on every
+        // ordinary Postbox receive batch.
+        let overflowQuery = try prepare(database, """
+            SELECT cache_id FROM received_cache
+            WHERE user_id=?
+            ORDER BY cache_id DESC
+            LIMIT 1 OFFSET ?
+            """)
+        defer { sqlite3_finalize(overflowQuery) }
+        try bind([.integer(userID), .integer(Int64(maximumReceivedEntries))], to: overflowQuery)
+        let overflowResult = sqlite3_step(overflowQuery)
+        if overflowResult == SQLITE_DONE {
+            return []
+        }
+        guard overflowResult == SQLITE_ROW else {
+            throw StoreError.sqlite(errorMessage(database))
+        }
+        let oldestOverflowID = sqlite3_column_int64(overflowQuery, 0)
+
         let pathsQuery = try prepare(database, """
             SELECT media_path FROM received_cache
-            WHERE user_id=? AND cache_id NOT IN (
-                SELECT cache_id FROM received_cache WHERE user_id=?
-                ORDER BY cache_id DESC LIMIT ?
-            )
-            AND media_path IS NOT NULL
+            WHERE user_id=? AND cache_id<=? AND media_path IS NOT NULL
             """)
         defer { sqlite3_finalize(pathsQuery) }
-        try bind([.integer(userID), .integer(userID), .integer(Int64(maximumReceivedEntries))], to: pathsQuery)
+        try bind([.integer(userID), .integer(oldestOverflowID)], to: pathsQuery)
         var mediaPaths: [String] = []
         while true {
             let result = sqlite3_step(pathsQuery)
@@ -699,13 +719,10 @@ public enum AyuGramPostboxHistoryStore {
 
         let statement = try prepare(database, """
             DELETE FROM received_cache
-            WHERE user_id=? AND cache_id NOT IN (
-                SELECT cache_id FROM received_cache WHERE user_id=?
-                ORDER BY cache_id DESC LIMIT ?
-            )
+            WHERE user_id=? AND cache_id<=?
             """)
         defer { sqlite3_finalize(statement) }
-        try bind([.integer(userID), .integer(userID), .integer(Int64(maximumReceivedEntries))], to: statement)
+        try bind([.integer(userID), .integer(oldestOverflowID)], to: statement)
         guard sqlite3_step(statement) == SQLITE_DONE else {
             throw StoreError.sqlite(errorMessage(database))
         }
@@ -1496,6 +1513,9 @@ required = [
     "existingByKey",
     "keyBatchSize = 200",
     "cache_id AS fake_id",
+    "CREATE INDEX IF NOT EXISTS received_cache_recent_lookup",
+    "LIMIT 1 OFFSET ?",
+    "WHERE user_id=? AND cache_id<=?",
 ]
 for marker in required:
     if marker not in source:
