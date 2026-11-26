@@ -1684,7 +1684,8 @@ diagnostics_check = CAPTURE_SERVICE.read_text(encoding="utf-8")
 assert "public static func recordDeletedRouteDiagnostic(" in diagnostics_check
 diagnostics_body = diagnostics_check.split("public static func recordDeletedRouteDiagnostic(", 1)[1].split("\\n    }", 1)[0]
 assert "deletionDiagnosticsQueue.async" in diagnostics_body, "Deletion diagnostics must not block Postbox transactions"
-assert "Data(contentsOf:" not in diagnostics_body, "Synchronous diagnostic file reads must not run on the deletion path"
+assert "deletionDiagnosticsQueue.async {" in diagnostics_body
+assert "Data(contentsOf:" not in diagnostics_body.split("deletionDiagnosticsQueue.async {", 1)[0], "Diagnostic file reads must stay inside the utility queue"
 assert '"peer-retention-summary"' in delete_check, "Channel/group retention diagnostics must report skip reasons"
 assert '"global-retention-summary"' in state_check, "Global-ID retention diagnostics must report skip reasons"
 peer_retention = delete_check.split("var ayuRetainedDeletedMessageIds", 1)[1].split("let idsToDelete", 1)[0]
