@@ -406,25 +406,43 @@ public enum AyuGramPostboxHistoryStore {
         return sqlite3_last_insert_rowid(database)
     }
 
+    private static let receivedUpsertSQL = """
+        INSERT INTO received_cache (
+            user_id, dialog_id, peer_id, from_id, from_name, topic_id,
+            message_id, date, edit_date, text, media_path, mime_type, is_deleted, deleted_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(user_id, dialog_id, topic_id, message_id) DO UPDATE SET
+            peer_id=excluded.peer_id,
+            from_id=excluded.from_id,
+            from_name=excluded.from_name,
+            date=excluded.date,
+            edit_date=excluded.edit_date,
+            text=excluded.text,
+            media_path=excluded.media_path,
+            mime_type=excluded.mime_type,
+            is_deleted=excluded.is_deleted,
+            deleted_at=excluded.deleted_at
+        """
+
     private static func insertReceived(_ database: OpaquePointer, message: AyuMessage) throws {
-        let statement = try prepare(database, """
-            INSERT INTO received_cache (
-                user_id, dialog_id, peer_id, from_id, from_name, topic_id,
-                message_id, date, edit_date, text, media_path, mime_type, is_deleted, deleted_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(user_id, dialog_id, topic_id, message_id) DO UPDATE SET
-                peer_id=excluded.peer_id,
-                from_id=excluded.from_id,
-                from_name=excluded.from_name,
-                date=excluded.date,
-                edit_date=excluded.edit_date,
-                text=excluded.text,
-                media_path=excluded.media_path,
-                mime_type=excluded.mime_type,
-                is_deleted=excluded.is_deleted,
-                deleted_at=excluded.deleted_at
-            """)
+        let statement = try prepare(database, receivedUpsertSQL)
         defer { sqlite3_finalize(statement) }
+        try insertReceived(database, statement: statement, message: message)
+    }
+
+    private static func insertReceived(
+        _ database: OpaquePointer,
+        statement: OpaquePointer,
+        message: AyuMessage
+    ) throws {
+        let resetResult = sqlite3_reset(statement)
+        guard resetResult == SQLITE_OK else {
+            throw StoreError.sqlite(errorMessage(database))
+        }
+        let clearResult = sqlite3_clear_bindings(statement)
+        guard clearResult == SQLITE_OK else {
+            throw StoreError.sqlite(errorMessage(database))
+        }
         try bind(historyValues(message), to: statement)
         let result = sqlite3_step(statement)
         guard result == SQLITE_DONE else {
@@ -1019,18 +1037,59 @@ public enum AyuGramPostboxHistoryStore {
                 try withTransaction(database) {
                     var updated = 0
                     var obsoleteMediaPaths: [String] = []
+
+                    func cacheKey(_ message: AyuMessage) -> String {
+                        return "\(message.dialogID):\(message.topicID):\(message.messageID)"
+                    }
+
+                    // Load the existing rows for this Postbox update in bounded
+                    // batches. The old implementation prepared one SELECT per
+                    // message while the caller held Telegram's Postbox transaction.
+                    var uniqueSnapshots: [AyuMessage] = []
+                    var seenSnapshotKeys: Set<String> = []
+                    uniqueSnapshots.reserveCapacity(scoped.count)
+                    seenSnapshotKeys.reserveCapacity(scoped.count)
                     for snapshot in scoped {
-                        let existing = try selectMessages(
-                            database,
-                            sql: "SELECT cache_id AS fake_id, user_id, dialog_id, peer_id, from_id, from_name, topic_id, message_id, date, edit_date, text, media_path, mime_type, is_deleted, deleted_at FROM received_cache WHERE user_id=? AND dialog_id=? AND topic_id=? AND message_id=? LIMIT 1",
-                            values: [
-                                .integer(accountID),
-                                .integer(snapshot.dialogID),
-                                .integer(snapshot.topicID),
-                                .integer(Int64(snapshot.messageID))
-                            ],
-                            received: true
-                        ).first
+                        if seenSnapshotKeys.insert(cacheKey(snapshot)).inserted {
+                            uniqueSnapshots.append(snapshot)
+                        }
+                    }
+
+                    var existingByKey: [String: AyuMessage] = [:]
+                    existingByKey.reserveCapacity(uniqueSnapshots.count)
+                    let keyBatchSize = 200
+                    for offset in stride(from: 0, to: uniqueSnapshots.count, by: keyBatchSize) {
+                        let upperBound = min(offset + keyBatchSize, uniqueSnapshots.count)
+                        let keyBatch = uniqueSnapshots[offset..<upperBound]
+                        let predicates = keyBatch.map { _ in
+                            "(dialog_id=? AND topic_id=? AND message_id=?)"
+                        }.joined(separator: " OR ")
+                        let sql = "SELECT \(historyColumns) FROM received_cache WHERE user_id=? AND (\(predicates))"
+                        var values: [Value] = [.integer(accountID)]
+                        values.reserveCapacity(1 + keyBatch.count * 3)
+                        for snapshot in keyBatch {
+                            values.append(.integer(snapshot.dialogID))
+                            values.append(.integer(snapshot.topicID))
+                            values.append(.integer(Int64(snapshot.messageID)))
+                        }
+                        let rows = try selectMessages(database, sql: sql, values: values, received: true)
+                        for row in rows {
+                            existingByKey[cacheKey(row)] = row
+                        }
+                    }
+
+                    var upsertStatement: OpaquePointer?
+                    defer {
+                        if let upsertStatement {
+                            sqlite3_finalize(upsertStatement)
+                        }
+                    }
+
+                    // Process snapshots in their original order, updating the map
+                    // after every upsert so duplicate keys retain the old semantics.
+                    for snapshot in scoped {
+                        let key = cacheKey(snapshot)
+                        let existing = existingByKey[key]
 
                         // A partially loaded page must not erase a completed media
                         // archive already saved for the same Telegram revision.
@@ -1059,7 +1118,13 @@ public enum AyuGramPostboxHistoryStore {
                             obsoleteMediaPaths.append(previousPath)
                         }
                         if existing.map({ samePayload($0, value) }) != true {
-                            try insertReceived(database, message: value)
+                            if upsertStatement == nil {
+                                upsertStatement = try prepare(database, receivedUpsertSQL)
+                            }
+                            if let upsertStatement {
+                                try insertReceived(database, statement: upsertStatement, message: value)
+                            }
+                            existingByKey[key] = value
                             updated += 1
                         }
                     }
@@ -1069,10 +1134,10 @@ public enum AyuGramPostboxHistoryStore {
             }
             if let stored {
                 changed += stored.0
-                // Run filesystem cleanup after SQLite commits. The reference check
-                // protects media that was promoted from received_cache to history.
-                _ = withDatabase(accountID: accountID) { database in
-                    try removeOrphanReceivedArchives(database, mediaPaths: stored.1)
+                // Run filesystem cleanup only when the write actually orphaned media.
+                // The scheduler performs the reference check outside the Postbox thread.
+                if !stored.1.isEmpty {
+                    scheduleOrphanReceivedArchiveCleanup(accountID: accountID, mediaPaths: stored.1)
                 }
             }
         }
@@ -1427,6 +1492,10 @@ required = [
     "public static func promoteReceivedToDeleted(",
     "public static func promoteReceivedGlobalIDsToDeleted(",
     "private static func migrateLegacyIfNeeded(",
+    "private static let receivedUpsertSQL",
+    "insertReceived(database, statement: upsertStatement, message: value)",
+    "existingByKey",
+    "keyBatchSize = 200",
 ]
 for marker in required:
     if marker not in source:
@@ -1449,6 +1518,20 @@ if "AyuGramMediaArchive.moveOrphanReceivedArchive(" not in source:
     raise SystemExit("Receive archive cleanup must coordinate its directory rename with pending archive copies")
 if "scheduleOrphanReceivedArchiveCleanup(accountID: accountID, mediaPaths: stored.1)" not in source:
     raise SystemExit("Receive-cache cleanup must be scheduled off the chat-load path")
+
+received_cache_method = source.split("public static func cacheReceived(", 1)[1].split("public static func promoteReceivedToDeleted(", 1)[0]
+if "for snapshot in scoped" not in received_cache_method or "existingByKey[key]" not in received_cache_method:
+    raise SystemExit("Receive-cache snapshots must use the per-batch keyed lookup")
+if received_cache_method.count("selectMessages(") != 1:
+    raise SystemExit("Receive-cache must use one bounded SELECT per key batch, not per message")
+if "SELECT cache_id AS fake_id" in received_cache_method:
+    raise SystemExit("Per-message received_cache SELECT regressed into the Postbox update loop")
+if "if !stored.1.isEmpty" not in received_cache_method:
+    raise SystemExit("Empty receive-cache media cleanup must not schedule another database pass")
+if "try trimReceived(database, userID: accountID)" not in received_cache_method:
+    raise SystemExit("Receive-cache trimming must still run once after the complete batch")
+print("PASS: receive-cache rows are prefetched in bounded key batches and upserted with one reusable SQLite statement.")
+print("PASS: repeated per-message SELECTs and empty post-write cleanup database passes were removed.")
 
 archive_cleanup = source.split("private static func historyRevisionDirectory(", 1)[1].split("private static func removeOrphanReceivedArchives(", 1)[0]
 for marker in ('revisionName == "deleted"', 'revisionName.hasPrefix("edit-")', 'revisionName.hasPrefix("received-")'):
