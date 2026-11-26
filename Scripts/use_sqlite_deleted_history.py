@@ -1435,6 +1435,13 @@ if "transaction.setPreferencesEntry(key: key" in source:
     raise SystemExit("History store still writes to Postbox preferences")
 if source.count("removeOrphanReceivedArchives(database, mediaPaths:") != 1:
     raise SystemExit("Orphan media reservation must occur only inside the background cleanup helper")
+orphan_cleanup_body = source.split("private static func removeOrphanReceivedArchives(", 1)[1].split("private static func trimReceived(", 1)[0]
+if "AyuGramMediaArchive.moveOrphanReceivedArchive(" not in orphan_cleanup_body:
+    raise SystemExit("Orphan media cleanup must atomically detach the revision before deletion")
+if "FileManager.default.removeItem(at: directory)" in orphan_cleanup_body:
+    raise SystemExit("Recursive filesystem deletion must not run while the SQLite lock is held")
+if "UUID().uuidString" not in orphan_cleanup_body:
+    raise SystemExit("Orphan revision quarantine paths must be unique")
 cleanup_worker = source.split("private static func scheduleOrphanReceivedArchiveCleanup(", 1)[1].split("\n    }\n", 1)[0]
 if cleanup_worker.index("withDatabase(") > cleanup_worker.index("FileManager.default.removeItem(at: directory)"):
     raise SystemExit("Orphan media files must be deleted after the database lock is released")
