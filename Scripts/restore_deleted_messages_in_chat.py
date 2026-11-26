@@ -1680,7 +1680,11 @@ text_bubble_check = TEXT_BUBBLE.read_text(encoding="utf-8")
 media_bubble_check = MEDIA_BUBBLE.read_text(encoding="utf-8")
 interactive_media_check = INTERACTIVE_MEDIA.read_text(encoding="utf-8")
 assert "preserveDeletedMessagesInChat: Bool = false" in delete_check
-assert "public static func recordDeletedRouteDiagnostic(" in CAPTURE_SERVICE.read_text(encoding="utf-8")
+diagnostics_check = CAPTURE_SERVICE.read_text(encoding="utf-8")
+assert "public static func recordDeletedRouteDiagnostic(" in diagnostics_check
+diagnostics_body = diagnostics_check.split("public static func recordDeletedRouteDiagnostic(", 1)[1].split("\\n    }", 1)[0]
+assert "deletionDiagnosticsQueue.async" in diagnostics_body, "Deletion diagnostics must not block Postbox transactions"
+assert "Data(contentsOf:" not in diagnostics_body, "Synchronous diagnostic file reads must not run on the deletion path"
 assert '"peer-retention-summary"' in delete_check, "Channel/group retention diagnostics must report skip reasons"
 assert '"global-retention-summary"' in state_check, "Global-ID retention diagnostics must report skip reasons"
 peer_retention = delete_check.split("var ayuRetainedDeletedMessageIds", 1)[1].split("let idsToDelete", 1)[0]
