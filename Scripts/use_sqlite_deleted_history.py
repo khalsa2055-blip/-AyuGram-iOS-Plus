@@ -1062,7 +1062,7 @@ public enum AyuGramPostboxHistoryStore {
                         let upperBound = min(offset + keyBatchSize, uniqueSnapshots.count)
                         let keyBatch = uniqueSnapshots[offset..<upperBound]
                         let valuesClause = keyBatch.map { _ in "(?, ?, ?)" }.joined(separator: ",")
-                        let sql = "WITH requested(dialog_id, topic_id, message_id) AS (VALUES \(valuesClause)) SELECT cache_id AS fake_id, user_id, dialog_id, peer_id, from_id, from_name, topic_id, message_id, date, edit_date, text, media_path, mime_type, is_deleted, deleted_at FROM requested INNER JOIN received_cache ON received_cache.user_id=? AND received_cache.dialog_id=requested.dialog_id AND received_cache.topic_id=requested.topic_id AND received_cache.message_id=requested.message_id"
+                        let sql = "WITH requested(dialog_id, topic_id, message_id) AS (VALUES \(valuesClause)) SELECT cache.cache_id AS fake_id, cache.user_id, cache.dialog_id, cache.peer_id, cache.from_id, cache.from_name, cache.topic_id, cache.message_id, cache.date, cache.edit_date, cache.text, cache.media_path, cache.mime_type, cache.is_deleted, cache.deleted_at FROM requested AS keys INNER JOIN received_cache AS cache ON cache.user_id=? AND cache.dialog_id=keys.dialog_id AND cache.topic_id=keys.topic_id AND cache.message_id=keys.message_id"
                         var values: [Value] = []
                         values.reserveCapacity(keyBatch.count * 3 + 1)
                         for snapshot in keyBatch {
@@ -1528,8 +1528,10 @@ if "SELECT cache_id AS fake_id" in received_cache_method:
     raise SystemExit("Per-message received_cache SELECT regressed into the Postbox update loop")
 if "WITH requested(dialog_id, topic_id, message_id) AS (VALUES" not in received_cache_method:
     raise SystemExit("Receive-cache prefetch must use a bounded VALUES key table")
-if "INNER JOIN received_cache ON received_cache.user_id=?" not in received_cache_method:
+if "INNER JOIN received_cache AS cache ON cache.user_id=?" not in received_cache_method:
     raise SystemExit("Receive-cache prefetch must join keys through the account-scoped composite index")
+if "cache.cache_id AS fake_id" not in received_cache_method:
+    raise SystemExit("Receive-cache rows must alias cache_id to the shared history row decoder")
 if 'joined(separator: " OR ")' in received_cache_method:
     raise SystemExit("Receive-cache prefetch must not regress to an OR chain that scans the account cache")
 if "if !stored.1.isEmpty" not in received_cache_method:
