@@ -1435,7 +1435,7 @@ if "transaction.setPreferencesEntry(key: key" in source:
     raise SystemExit("History store still writes to Postbox preferences")
 if source.count("removeOrphanReceivedArchives(database, mediaPaths:") != 1:
     raise SystemExit("Orphan media reservation must occur only inside the background cleanup helper")
-orphan_cleanup_body = source.split("private static func removeOrphanReceivedArchives(", 1)[1].split("private static func trimReceived(", 1)[0]
+orphan_cleanup_body = source.split("private static func removeOrphanReceivedArchives(", 1)[1].split("\n    }\n", 1)[0]
 if "AyuGramMediaArchive.moveOrphanReceivedArchive(" not in orphan_cleanup_body:
     raise SystemExit("Orphan media cleanup must atomically detach the revision before deletion")
 if "FileManager.default.removeItem(at: directory)" in orphan_cleanup_body:
