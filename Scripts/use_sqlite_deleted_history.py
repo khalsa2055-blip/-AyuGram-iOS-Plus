@@ -1299,6 +1299,80 @@ public enum AyuGramPostboxHistoryStore {
 }
 '''
 
+
+cleanup_helper = r"""    private static let mediaCleanupQueue = DispatchQueue(
+        label: "org.ayugram.history-media-cleanup",
+        qos: .utility
+    )
+
+    /// Filesystem cleanup must never run on Telegram's Postbox/chat-load path.
+    /// The database reference check and file removal still run under the same
+    /// per-process database lock, so newly referenced revision folders survive.
+    private static func scheduleOrphanReceivedArchiveCleanup(accountID: Int64, mediaPaths: [String]) {
+        guard !mediaPaths.isEmpty else { return }
+        mediaCleanupQueue.async {
+            _ = withDatabase(accountID: accountID) { database in
+                try removeOrphanReceivedArchives(database, mediaPaths: mediaPaths)
+            }
+        }
+    }
+
+"""
+source = source.replace(
+    "    private static func trimReceived(_ database: OpaquePointer, userID: Int64) throws -> [String] {",
+    cleanup_helper + "    private static func trimReceived(_ database: OpaquePointer, userID: Int64) throws -> [String] {",
+    1,
+)
+
+cleanup_replacements = [
+    (
+        """                _ = withDatabase(accountID: accountID) { database in
+                    try removeOrphanReceivedArchives(database, mediaPaths: saved.removedMediaPaths)
+                }""",
+        """                scheduleOrphanReceivedArchiveCleanup(accountID: accountID, mediaPaths: saved.removedMediaPaths)""",
+        1,
+        "append cleanup",
+    ),
+    (
+        """            _ = withDatabase(accountID: userID) { database in
+                try removeOrphanReceivedArchives(database, mediaPaths: removedMediaPaths)
+            }""",
+        """            scheduleOrphanReceivedArchiveCleanup(accountID: userID, mediaPaths: removedMediaPaths)""",
+        4,
+        "user cleanup routes",
+    ),
+    (
+        """                _ = withDatabase(accountID: accountID) { database in
+                    try removeOrphanReceivedArchives(database, mediaPaths: removedMediaPaths)
+                }""",
+        """                scheduleOrphanReceivedArchiveCleanup(accountID: accountID, mediaPaths: removedMediaPaths)""",
+        1,
+        "clear-all cleanup",
+    ),
+    (
+        """                _ = withDatabase(accountID: accountID) { database in
+                    try removeOrphanReceivedArchives(database, mediaPaths: stored.1)
+                }""",
+        """                scheduleOrphanReceivedArchiveCleanup(accountID: accountID, mediaPaths: stored.1)""",
+        1,
+        "receive-cache cleanup",
+    ),
+    (
+        """        _ = withDatabase(accountID: userID) { database in
+            try removeOrphanReceivedArchives(database, mediaPaths: promoted.removedMediaPaths)
+        }""",
+        """        scheduleOrphanReceivedArchiveCleanup(accountID: userID, mediaPaths: promoted.removedMediaPaths)""",
+        2,
+        "promotion cleanup",
+    ),
+]
+for old, new, expected, label in cleanup_replacements:
+    count = source.count(old)
+    if count != expected:
+        raise SystemExit(f"{label}: expected {expected} cleanup call(s), found {count}")
+    source = source.replace(old, new)
+
+
 store_path.write_text(source, encoding="utf-8")
 
 build = build_path.read_text(encoding="utf-8")
@@ -1343,6 +1417,10 @@ for marker in required:
         raise SystemExit(f"SQLite history integration invariant missing: {marker}")
 if "transaction.setPreferencesEntry(key: key" in source:
     raise SystemExit("History store still writes to Postbox preferences")
+if source.count("removeOrphanReceivedArchives(database, mediaPaths:") != 1:
+    raise SystemExit("Orphan media deletion must occur only inside the background cleanup helper")
+if "scheduleOrphanReceivedArchiveCleanup(accountID: accountID, mediaPaths: stored.1)" not in source:
+    raise SystemExit("Receive-cache cleanup must be scheduled off the chat-load path")
 
 archive_cleanup = source.split("private static func historyRevisionDirectory(", 1)[1].split("private static func removeOrphanReceivedArchives(", 1)[0]
 for marker in ('revisionName == "deleted"', 'revisionName.hasPrefix("edit-")', 'revisionName.hasPrefix("received-")'):
