@@ -454,60 +454,90 @@ if "private static func readReceived(transaction: Transaction)" not in store_tex
 STORE.write_text(store_text, encoding="utf-8")
 
 capture_service_text = CAPTURE_SERVICE.read_text(encoding="utf-8")
+received_batch_model = r'''public struct AyuMessageReceivedCacheBatch {
+    public let messages: [Message]
+    public let mediaCaptures: [AyuMessageMediaCapture]
+    public let senderNames: [Int32: String]
+    public let editDates: [Int32: Int32]
+
+    public init(
+        messages: [Message],
+        mediaCaptures: [AyuMessageMediaCapture],
+        senderNames: [Int32: String],
+        editDates: [Int32: Int32]
+    ) {
+        self.messages = messages
+        self.mediaCaptures = mediaCaptures
+        self.senderNames = senderNames
+        self.editDates = editDates
+    }
+}
+
+'''
+if "public struct AyuMessageReceivedCacheBatch" not in capture_service_text:
+    capture_service_text = replace_once(
+        capture_service_text,
+        "public enum AyuGramCaptureService {\n",
+        received_batch_model + "public enum AyuGramCaptureService {\n",
+        "received-cache batch model"
+    )
 received_capture_methods = r'''    public static func cacheReceived(
         transaction: Transaction,
         mediaBox: MediaBox,
-        messages: [Message],
-        mediaCaptures: [AyuMessageMediaCapture],
-        accountID: Int64,
-        senderNames: [Int32: String] = [:],
-        editDates: [Int32: Int32] = [:]
+        batches: [AyuMessageReceivedCacheBatch],
+        accountID: Int64
     ) {
-        guard !messages.isEmpty else { return }
+        let messageCount = batches.reduce(0) { $0 + $1.messages.count }
+        guard messageCount > 0 else { return }
         let settingsStore = try? AyuGramRuntime.makeSettingsStore(accountID: accountID)
         guard settingsStore?.settings.saveDeletedMessages != false else {
-            recordDeletedRouteDiagnostic("receive-cache-disabled", received: messages.count)
+            recordDeletedRouteDiagnostic("receive-cache-disabled", received: messageCount)
             return
         }
 
-        var capturesByMessageID: [Int32: [AyuMediaResourceInfo]] = [:]
-        for capture in mediaCaptures {
-            capturesByMessageID[capture.messageID] = capture.resources
-        }
-
         var snapshots: [AyuMessage] = []
-        snapshots.reserveCapacity(messages.count)
-        for message in messages {
-            let editDate = editDates[message.id.id] ?? 0
-            var mediaPath: String?
-            var mimeType: String?
-            if let resources = capturesByMessageID[message.id.id], !resources.isEmpty {
-                let archived = AyuGramMediaArchive.archive(
-                    mediaBox: mediaBox,
-                    accountID: accountID,
-                    dialogID: message.id.peerId.toInt64(),
-                    messageID: message.id.id,
-                    revisionKey: "received-\(editDate)",
-                    resources: resources
-                )
-                mediaPath = archived.path
-                mimeType = archived.mimeType
+        snapshots.reserveCapacity(messageCount)
+        for batch in batches {
+            let messages = batch.messages
+            let senderNames = batch.senderNames
+            let editDates = batch.editDates
+            var capturesByMessageID: [Int32: [AyuMediaResourceInfo]] = [:]
+            for capture in batch.mediaCaptures {
+                capturesByMessageID[capture.messageID] = capture.resources
             }
-            snapshots.append(AyuGramPostboxBridge.snapshot(
-                message: message,
-                accountID: accountID,
-                fromName: senderNames[message.id.id],
-                isDeleted: false,
-                editDate: editDate,
-                mediaPath: mediaPath,
-                mimeType: mimeType
-            ))
+
+            for message in messages {
+                let editDate = editDates[message.id.id] ?? 0
+                var mediaPath: String?
+                var mimeType: String?
+                if let resources = capturesByMessageID[message.id.id], !resources.isEmpty {
+                    let archived = AyuGramMediaArchive.archive(
+                        mediaBox: mediaBox,
+                        accountID: accountID,
+                        dialogID: message.id.peerId.toInt64(),
+                        messageID: message.id.id,
+                        revisionKey: "received-\(editDate)",
+                        resources: resources
+                    )
+                    mediaPath = archived.path
+                    mimeType = archived.mimeType
+                }
+                snapshots.append(AyuGramPostboxBridge.snapshot(
+                    message: message,
+                    accountID: accountID,
+                    fromName: senderNames[message.id.id],
+                    isDeleted: false,
+                    editDate: editDate,
+                    mediaPath: mediaPath,
+                    mimeType: mimeType
+                ))
+            }
         }
 
         let cachedCount = AyuGramPostboxHistoryStore.cacheReceived(transaction: transaction, messages: snapshots)
         recordDeletedRouteDiagnostic(
             "receive-cache-stored",
-            received: messages.count,
+            received: messageCount,
             mapped: snapshots.count,
             retained: cachedCount,
         )
@@ -737,6 +767,8 @@ CACHE_HELPER_SOURCE = r'''public func _internal_cacheAyuGramReceivedMessages(tra
     // because chat-list hole batches can contain the same numeric message ID from
     // several different groups.
     let peerMessageGroups = Dictionary(grouping: messages, by: { $0.id.peerId })
+    var cacheBatches: [AyuMessageReceivedCacheBatch] = []
+    cacheBatches.reserveCapacity(peerMessageGroups.count)
     for peerMessages in peerMessageGroups.values {
         var senderNames: [Int32: String] = [:]
         var editDates: [Int32: Int32] = [:]
@@ -780,16 +812,20 @@ CACHE_HELPER_SOURCE = r'''public func _internal_cacheAyuGramReceivedMessages(tra
             }
         }
 
-        AyuGramCaptureService.cacheReceived(
-            transaction: transaction,
-            mediaBox: mediaBox,
+        cacheBatches.append(AyuMessageReceivedCacheBatch(
             messages: peerMessages,
             mediaCaptures: mediaCaptures,
-            accountID: ayuAccountID,
             senderNames: senderNames,
             editDates: editDates
-        )
+        ))
     }
+
+    AyuGramCaptureService.cacheReceived(
+        transaction: transaction,
+        mediaBox: mediaBox,
+        batches: cacheBatches,
+        accountID: ayuAccountID
+    )
 }
 
 '''
@@ -1793,6 +1829,12 @@ assert "public static func promoteReceivedToDeleted(" in store_text
 assert "state.messages.removeAll" in store_text, "Recovered cache entries must be consumed to prevent duplicate replays"
 assert "editDates: editDates" in DELETE.read_text(encoding="utf-8")
 assert "Message IDs are only unique inside a peer" in DELETE.read_text(encoding="utf-8")
+assert "var cacheBatches: [AyuMessageReceivedCacheBatch] = []" in DELETE.read_text(encoding="utf-8")
+assert "cacheBatches.append(AyuMessageReceivedCacheBatch(" in DELETE.read_text(encoding="utf-8")
+assert "batches: cacheBatches" in DELETE.read_text(encoding="utf-8")
+assert "public struct AyuMessageReceivedCacheBatch" in CAPTURE_SERVICE.read_text(encoding="utf-8")
+assert "let messageCount = batches.reduce(0) { $0 + $1.messages.count }" in CAPTURE_SERVICE.read_text(encoding="utf-8")
+assert "let cachedCount = AyuGramPostboxHistoryStore.cacheReceived(transaction: transaction, messages: snapshots)" in CAPTURE_SERVICE.read_text(encoding="utf-8")
 assert "_internal_cacheAyuGramReceivedMessages(" in holes_check
 print("PASS: deleted markers are routed for text bubbles and media-only image/video status overlays.")
 print("PASS: server-deleted messages remain as local rows in their original chat.")
