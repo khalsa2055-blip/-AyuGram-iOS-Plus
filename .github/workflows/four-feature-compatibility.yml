@@ -524,7 +524,11 @@ jobs:
           assert "deletedAt: deleted ? (snapshot.deletedAt ?? deletedAtNow) : nil" in history_store
           assert "revisionKey: String? = nil" in media_archive
           assert "revisionKey.map" in media_archive
-          for revision in ('revisionKey: "deleted"', 'revisionKey: "manual-\\(UUID().uuidString)"', 'revisionKey: "edit-\\(editDate)-\\(UUID().uuidString)"'):
+          deleted_capture = capture_service.split("public static func captureDeleted(", 1)[1].split("public static func saveNow(", 1)[0]
+          assert "AyuGramMediaArchive.receivedRevisionKey(" in deleted_capture, "Deleted-media capture must reuse the received-resource revision key"
+          assert "AyuGramMediaArchive.archiveReceivedIfNeeded(" in deleted_capture, "Deleted-media capture must wait for or recover the received archive"
+          assert 'revisionKey: "deleted"' not in deleted_capture, "Deleted media must not create a duplicate archive separate from the receive cache"
+          for revision in ('revisionKey: "manual-\(UUID().uuidString)"', 'revisionKey: "edit-\(editDate)-\(UUID().uuidString)'):
               assert revision in capture_service, f"Missing immutable archive route: {revision}"
           assert "AyuGramCaptureService.captureEdited(" in Path("telegram-ios/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift").read_text(encoding="utf-8")
           assert "fromName: senderName" in capture_service, "Edited snapshot must preserve the pre-edit sender"
