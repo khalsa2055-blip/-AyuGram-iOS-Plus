@@ -395,53 +395,53 @@ new_deleted_archive = """            if let resources = capturesByMessageID[mess
 
 # 3. Schedule receive-cache copies instead of doing FileManager.copyItem in message-history loading.
 capture = capture_path.read_text(encoding="utf-8")
-old_receive_archive = r"""            var mediaPath: String?
-            var mimeType: String?
-            if let resources = capturesByMessageID[message.id.id], !resources.isEmpty {
-                let archived = AyuGramMediaArchive.archive(
-                    mediaBox: mediaBox,
+old_receive_archive = r"""                var mediaPath: String?
+                var mimeType: String?
+                if let resources = capturesByMessageID[message.id.id], !resources.isEmpty {
+                    let archived = AyuGramMediaArchive.archive(
+                        mediaBox: mediaBox,
+                        accountID: accountID,
+                        dialogID: message.id.peerId.toInt64(),
+                        messageID: message.id.id,
+                        revisionKey: "received-\(editDate)",
+                        resources: resources
+                    )
+                    mediaPath = archived.path
+                    mimeType = archived.mimeType
+                }
+                snapshots.append(AyuGramPostboxBridge.snapshot(
+                    message: message,
                     accountID: accountID,
-                    dialogID: message.id.peerId.toInt64(),
-                    messageID: message.id.id,
-                    revisionKey: "received-\(editDate)",
-                    resources: resources
+                    fromName: senderNames[message.id.id],
+                    isDeleted: false,
+                    editDate: editDate,
+                    mediaPath: mediaPath,
+                    mimeType: mimeType
+                ))"""
+new_receive_archive = """                let resources = capturesByMessageID[message.id.id]
+                let revisionKey = AyuGramMediaArchive.receivedRevisionKey(
+                    resources: resources ?? []
                 )
-                mediaPath = archived.path
-                mimeType = archived.mimeType
-            }
-            snapshots.append(AyuGramPostboxBridge.snapshot(
-                message: message,
-                accountID: accountID,
-                fromName: senderNames[message.id.id],
-                isDeleted: false,
-                editDate: editDate,
-                mediaPath: mediaPath,
-                mimeType: mimeType
-            ))"""
-new_receive_archive = """            let resources = capturesByMessageID[message.id.id]
-            let revisionKey = AyuGramMediaArchive.receivedRevisionKey(
-                resources: resources ?? []
-            )
-            let archived = resources.map { resources in
-                AyuGramMediaArchive.scheduleReceived(
-                    mediaBox: mediaBox,
+                let archived = resources.map { resources in
+                    AyuGramMediaArchive.scheduleReceived(
+                        mediaBox: mediaBox,
+                        accountID: accountID,
+                        dialogID: message.id.peerId.toInt64(),
+                        messageID: message.id.id,
+                        revisionKey: revisionKey,
+                        resources: resources
+                    )
+                }
+                snapshots.append(AyuGramPostboxBridge.snapshot(
+                    message: message,
                     accountID: accountID,
-                    dialogID: message.id.peerId.toInt64(),
-                    messageID: message.id.id,
-                    revisionKey: revisionKey,
-                    resources: resources
-                )
-            }
-            snapshots.append(AyuGramPostboxBridge.snapshot(
-                message: message,
-                accountID: accountID,
-                fromName: senderNames[message.id.id],
-                isDeleted: false,
-                editDate: editDate,
-                mediaPath: archived?.path,
-                mimeType: archived?.mimeType,
-                mediaResources: resources
-            ))"""
+                    fromName: senderNames[message.id.id],
+                    isDeleted: false,
+                    editDate: editDate,
+                    mediaPath: archived?.path,
+                    mimeType: archived?.mimeType,
+                    mediaResources: resources
+                ))"""
 if "AyuGramMediaArchive.scheduleReceived(" not in capture:
     capture = replace_once(capture, old_deleted_archive, new_deleted_archive, "reuse cached media on direct deletion")
     capture = replace_once(capture, old_receive_archive, new_receive_archive, "defer receive-media copy")
