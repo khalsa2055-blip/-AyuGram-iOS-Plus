@@ -298,6 +298,28 @@ if "public static func scheduleReceived(" not in archive:
         "bounded receive-archive queue insertion",
     )
 
+# Coordinate orphan-directory renames with the receive-copy queue. The short
+# rename is serialized with queue registration; recursive deletion happens later.
+cleanup_coordination_method = r"""    public static func moveOrphanReceivedArchive(at directory: URL, to destination: URL) throws -> Bool {
+        receiveArchiveLock.lock()
+        defer { receiveArchiveLock.unlock() }
+        guard pendingReceiveArchives[directory.path] == nil,
+              FileManager.default.fileExists(atPath: directory.path) else {
+            return false
+        }
+        try FileManager.default.moveItem(at: directory, to: destination)
+        return true
+    }
+
+"""
+if "public static func moveOrphanReceivedArchive(" not in archive:
+    archive = replace_once(
+        archive,
+        "    private static var pendingReceiveArchives: [String: DispatchGroup] = [:]\n",
+        "    private static var pendingReceiveArchives: [String: DispatchGroup] = [:]\n\n" + cleanup_coordination_method,
+        "receive-archive cleanup synchronization",
+    )
+
 # Copy into a temporary sibling then atomically move it into place. This prevents
 # an interrupted copy from being mistaken for a completed archive on the next pass.
 old_copy = """                if !FileManager.default.fileExists(atPath: destinationURL.path) {
@@ -937,6 +959,9 @@ assert "completeArchivePath(directory: directory, resourceCount: resources.count
 assert "fileValues?.isRegularFile == true" in archive
 assert "(fileValues?.fileSize ?? 0) > 0" in archive
 assert "mediaResources: resources" in cache_body
+assert "AyuGramMediaArchive.moveOrphanReceivedArchive(" in store
+store_cleanup_scheduler = store.split("private static func scheduleOrphanReceivedArchiveCleanup(", 1)[1].split("\n    }\n", 1)[0]
+assert store_cleanup_scheduler.index("withDatabase(") < store_cleanup_scheduler.index("FileManager.default.removeItem(at: directory)")
 assert "DispatchQueue.global(qos: .utility).async" in cache_body
 assert "diagnosticRetainedCount" in cache_body
 deleted_body = capture.split("public static func captureDeleted(", 1)[1].split("public static func saveNow(", 1)[0]
@@ -949,6 +974,11 @@ assert "reservation.leave()" in fallback_archive_body
 assert "completeArchivePath(directory: directory, resourceCount: resources.count)" in fallback_archive_body
 assert "maximumPendingReceiveArchives = 128" in archive
 assert "public static func receivedRevisionKey(resources:" in archive
+assert "public static func moveOrphanReceivedArchive(at directory: URL, to destination: URL) throws -> Bool" in archive
+cleanup_reservation = archive.split("public static func moveOrphanReceivedArchive(", 1)[1].split("\n    }\n", 1)[0]
+assert "receiveArchiveLock.lock()" in cleanup_reservation
+assert "pendingReceiveArchives[directory.path] == nil" in cleanup_reservation
+assert "FileManager.default.moveItem(at: directory, to: destination)" in cleanup_reservation
 assert "receivedRevisionKey(editDate:" not in capture + store + app
 assert "EditedMessageAttribute" not in capture
 assert "maxConcurrentOperationCount = 2" in archive
