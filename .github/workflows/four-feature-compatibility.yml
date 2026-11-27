@@ -11,6 +11,7 @@ on:
       - "Scripts/harden_four_feature_storage.py"
       - "Scripts/apply_four_feature_ui.py"
       - "Scripts/restore_deleted_messages_in_chat.py"
+      - "Scripts/harden_deleted_timestamp_sentinel.py"
       - "Scripts/use_sqlite_deleted_history.py"
       - "Scripts/harden_receive_media_archival.py"
       - "Scripts/inject_ayugram_history_test.py"
@@ -217,6 +218,9 @@ jobs:
 
       - name: Restore deleted messages inside the original chat
         run: python3 Scripts/restore_deleted_messages_in_chat.py
+
+      - name: Guard deleted-message timestamp sentinel consumers
+        run: python3 Scripts/harden_deleted_timestamp_sentinel.py
 
       - name: Use SQLCipher SQLite for deleted-message history
         working-directory: telegram-ios
