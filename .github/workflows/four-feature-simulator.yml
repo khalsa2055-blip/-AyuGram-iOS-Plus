@@ -273,6 +273,7 @@ jobs:
           # Comprehensive AyuGram runtime smoke-test hook (UI + feature verification).
           python3 ../Scripts/inject_ayugram_history_test.py
           python3 ../Scripts/restore_deleted_messages_in_chat.py
+          python3 ../Scripts/harden_deleted_timestamp_sentinel.py
           python3 ../Scripts/use_sqlite_deleted_history.py
           python3 ../Scripts/harden_receive_media_archival.py
           # The simulator is intentionally unauthenticated. Verify the production
