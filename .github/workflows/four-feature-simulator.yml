@@ -14,6 +14,11 @@ on:
         required: true
         default: false
         type: boolean
+      build_altstore_ipa:
+        description: "Build a separate unsigned arm64 IPA from source for AltStore, without simulator compilation"
+        required: true
+        default: false
+        type: boolean
   push:
     branches:
       - feature/four-feature-integration
@@ -40,7 +45,7 @@ jobs:
   build-simulator:
     # Full simulator/device packaging is manual-only; source checks must never start IPA packaging on push.
     # Telegram-iOS baseline builds sim_arm64; use Apple Silicon runner so Simulator can install it directly.
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (contains(github.event.head_commit.message, '[build-device-ipa]') || contains(github.event.head_commit.message, '[validate-simulator]')))
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (contains(github.event.head_commit.message, '[build-device-ipa]') || contains(github.event.head_commit.message, '[validate-simulator]') || contains(github.event.head_commit.message, '[build-altstore-ipa]')))
     runs-on: xcode-27
     timeout-minutes: 360
 
@@ -359,7 +364,7 @@ jobs:
 
           git diff --check
 
-      - name: Prepare portable entitlements for iLoader signing
+      - name: Prepare portable entitlements for sideload signing
         working-directory: telegram-ios
         run: |
           python3 - <<'PY'
@@ -2439,6 +2444,7 @@ jobs:
           git diff --check
 
       - name: Build Telegram for iOS Simulator
+        if: success() && !((github.event_name == 'workflow_dispatch' && inputs.build_altstore_ipa) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[build-altstore-ipa]')))
         working-directory: telegram-ios
         run: |
           set -euo pipefail
@@ -2498,6 +2504,7 @@ jobs:
           done
 
       - name: Smoke-test app in iPhone Simulator
+        if: success() && !((github.event_name == 'workflow_dispatch' && inputs.build_altstore_ipa) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[build-altstore-ipa]')))
         working-directory: telegram-ios
         run: |
           set -euo pipefail
@@ -2913,6 +2920,7 @@ jobs:
           xcrun simctl terminate "$DEVICE_UDID" "$bundle_id" || true
 
       - name: Collect simulator artifacts
+        if: success() && !((github.event_name == 'workflow_dispatch' && inputs.build_altstore_ipa) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[build-altstore-ipa]')))
         working-directory: telegram-ios
         run: |
           set -e
@@ -2996,8 +3004,8 @@ jobs:
             ~/.cache/bazel/repository
           key: ${{ runner.os }}-telegram-bazel-eb5ae67a32c6-xcode27-repository-v1-${{ hashFiles('patches/**') }}-${{ github.run_id }}
 
-      - name: Prepare unsigned arm64 device IPA for iLoader
-        if: success() && ((github.event_name == 'workflow_dispatch' && inputs.build_device_ipa) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[build-device-ipa]'))) # One-time explicit opt-in via this commit marker or manual dispatch.
+      - name: Prepare unsigned arm64 device IPA for sideloading
+        if: success() && ((github.event_name == 'workflow_dispatch' && (inputs.build_device_ipa || inputs.build_altstore_ipa)) || (github.event_name == 'push' && (contains(github.event.head_commit.message, '[build-device-ipa]') || contains(github.event.head_commit.message, '[build-altstore-ipa]')))) # One-time explicit opt-in via this commit marker or manual dispatch.
         working-directory: telegram-ios
         run: |
           python3 - <<'PY'
@@ -3017,7 +3025,7 @@ jobs:
                       ]),
                   )'''
           new = '''    if not profile_artifact:
-                  # CI produces an unsigned IPA; iLoader will apply device signing.
+                  # CI produces an unsigned IPA; AltStore or iLoader will apply device signing.
                   return struct(bundle_files = [])'''
           if new not in source:
               if old not in source:
@@ -3049,11 +3057,11 @@ jobs:
           patched = profile_partial.read_text(encoding="utf-8")
           assert "return struct(bundle_files = [])" in patched
           assert "disable_legacy_signing" in make.read_text(encoding="utf-8")
-          print("Configured device IPA packaging without Apple signing assets; iLoader will sign it.")
+          print("Configured unsigned device IPA packaging; the selected sideloading tool will sign it.")
           PY
 
       - name: Preserve iOS 13 while handling Xcode 27 libc++ warnings
-        if: success() && ((github.event_name == 'workflow_dispatch' && inputs.build_device_ipa) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[build-device-ipa]'))) # Device IPA build only.
+        if: success() && ((github.event_name == 'workflow_dispatch' && (inputs.build_device_ipa || inputs.build_altstore_ipa)) || (github.event_name == 'push' && (contains(github.event.head_commit.message, '[build-device-ipa]') || contains(github.event.head_commit.message, '[build-altstore-ipa]')))) # Device IPA build only.
         working-directory: telegram-ios
         run: |
           set -euo pipefail
@@ -3131,7 +3139,7 @@ jobs:
           PY
 
       - name: Build and verify arm64 iPhone IPA
-        if: success() && ((github.event_name == 'workflow_dispatch' && inputs.build_device_ipa) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[build-device-ipa]'))) # One-time explicit opt-in via this commit marker or manual dispatch.
+        if: success() && ((github.event_name == 'workflow_dispatch' && (inputs.build_device_ipa || inputs.build_altstore_ipa)) || (github.event_name == 'push' && (contains(github.event.head_commit.message, '[build-device-ipa]') || contains(github.event.head_commit.message, '[build-altstore-ipa]')))) # One-time explicit opt-in via this commit marker or manual dispatch.
         working-directory: telegram-ios
         run: |
           set -euo pipefail
@@ -3180,13 +3188,35 @@ jobs:
             cp "$RUNNER_TEMP/ayugram-device-codesign.txt" ci-artifacts/device-codesign.txt
             echo "The app bundle carries a code signature; inspect device-codesign.txt."
           else
-            echo "The app bundle is unsigned. It must be signed by iLoader or another signing tool before installation."
+            echo "The app bundle is unsigned. It must be signed by AltStore or iLoader before installation."
             echo "unsigned; no embedded provisioning profile" > ci-artifacts/device-codesign.txt
           fi
 
           cp "$ipa" ci-artifacts/AyuGram-iOS-Plus-device-arm64.ipa
           rm -rf ci-artifacts/device-extracted
           ls -lh ci-artifacts/AyuGram-iOS-Plus-device-arm64.ipa
+
+      - name: Package and verify dedicated AltStore IPA
+        if: success() && ${{ ((github.event_name == 'workflow_dispatch' && inputs.build_altstore_ipa) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[build-altstore-ipa]'))) }}
+        working-directory: telegram-ios
+        run: |
+          set -euo pipefail
+          python3 ../Scripts/package_altstore_ipa.py \
+            ci-artifacts/AyuGram-iOS-Plus-device-arm64.ipa \
+            ci-artifacts/AyuGram-iOS-Plus-altstore.ipa
+          test -s ci-artifacts/AyuGram-iOS-Plus-altstore.ipa
+          test -s ci-artifacts/AyuGram-iOS-Plus-altstore.ipa.json
+          ls -lh ci-artifacts/AyuGram-iOS-Plus-altstore.ipa*
+
+      - name: Upload dedicated AltStore IPA
+        if: success() && ${{ ((github.event_name == 'workflow_dispatch' && inputs.build_altstore_ipa) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[build-altstore-ipa]'))) }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: AyuGram-iOS-Plus-AltStore-arm64-${{ github.run_number }}
+          path: |
+            telegram-ios/ci-artifacts/AyuGram-iOS-Plus-altstore.ipa
+            telegram-ios/ci-artifacts/AyuGram-iOS-Plus-altstore.ipa.json
+          if-no-files-found: error
 
       - name: Upload arm64 device IPA
         if: success() && ((github.event_name == 'workflow_dispatch' && inputs.build_device_ipa) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[build-device-ipa]'))) # One-time explicit opt-in via this commit marker or manual dispatch.
@@ -3197,7 +3227,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload simulator screenshot
-        if: always()
+        if: always() && ${{ !((github.event_name == 'workflow_dispatch' && inputs.build_altstore_ipa) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[build-altstore-ipa]'))) }}
         uses: actions/upload-artifact@v4
         with:
           name: AyuGram-iOS-Plus-four-feature-screenshots-${{ github.run_number }}
@@ -3209,6 +3239,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Upload simulator artifacts
+        if: success() && ${{ ${noAlt} }}
         uses: actions/upload-artifact@v4
         with:
           name: AyuGram-iOS-Plus-four-feature-simulator-${{ github.run_number }}
