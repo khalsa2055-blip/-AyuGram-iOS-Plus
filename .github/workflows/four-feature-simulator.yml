@@ -2,7 +2,7 @@ name: AyuGram iOS Plus — Four Feature Simulator Validation
 # Device IPA request: run simulator validation first, then package arm64 for iLoader.
 # Explicit arm64 device IPA build requested via the commit marker.
 # Targeted device validation: include the legacy AyuGram settings migration fix from 2026-11-13.
-# [build-device-ipa] User-approved arm64 IPA packaging after simulator validation.
+# [build-device-ipa] Build arm64 device candidate after successful sentinel-fix simulator and compatibility validation (2026-11-27).
 # Simulator-only validation marker: [validate-simulator] runs the simulator build/smoke test but never enables device IPA steps. This run checks the post-5a92f08 receive-cache batching and trim changes. Device IPA packaging remains a separate, explicitly marked post-simulator step.
 # Device IPA candidate trigger after simulator/compatibility validation: [build-device-ipa].
 
