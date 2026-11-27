@@ -3197,7 +3197,7 @@ jobs:
           ls -lh ci-artifacts/AyuGram-iOS-Plus-device-arm64.ipa
 
       - name: Package and verify dedicated AltStore IPA
-        if: success() && ${{ ((github.event_name == 'workflow_dispatch' && inputs.build_altstore_ipa) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[build-altstore-ipa]'))) }}
+        if: ${{ success() && ((github.event_name == 'workflow_dispatch' && inputs.build_altstore_ipa) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[build-altstore-ipa]'))) }}
         working-directory: telegram-ios
         run: |
           set -euo pipefail
@@ -3209,7 +3209,7 @@ jobs:
           ls -lh ci-artifacts/AyuGram-iOS-Plus-altstore.ipa*
 
       - name: Upload dedicated AltStore IPA
-        if: success() && ${{ ((github.event_name == 'workflow_dispatch' && inputs.build_altstore_ipa) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[build-altstore-ipa]'))) }}
+        if: ${{ success() && ((github.event_name == 'workflow_dispatch' && inputs.build_altstore_ipa) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[build-altstore-ipa]'))) }}
         uses: actions/upload-artifact@v4
         with:
           name: AyuGram-iOS-Plus-AltStore-arm64-${{ github.run_number }}
@@ -3227,7 +3227,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload simulator screenshot
-        if: always() && ${{ !((github.event_name == 'workflow_dispatch' && inputs.build_altstore_ipa) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[build-altstore-ipa]'))) }}
+        if: ${{ always() && !((github.event_name == 'workflow_dispatch' && inputs.build_altstore_ipa) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[build-altstore-ipa]'))) }}
         uses: actions/upload-artifact@v4
         with:
           name: AyuGram-iOS-Plus-four-feature-screenshots-${{ github.run_number }}
